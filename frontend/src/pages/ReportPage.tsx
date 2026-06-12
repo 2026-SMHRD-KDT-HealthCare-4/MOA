@@ -40,7 +40,7 @@ export default function ReportPage() {
       {/* 헤더 */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>변화 패턴 리포트</Text>
-        <Text style={styles.headerSub}>김순자 어르신 · 최근 7일</Text>
+        <Text style={styles.headerSub}>김순자 님 · 최근 7일</Text>
       </View>
 
       <ScrollView
@@ -90,7 +90,7 @@ export default function ReportPage() {
               y="score"
               style={{
                 data: {
-                  fill: "#FF706D",
+                  fill: "#FF7955",
                   fillOpacity: 0.08,
                   stroke: "transparent",
                 },
@@ -102,7 +102,7 @@ export default function ReportPage() {
               x="day"
               y="score"
               style={{
-                data: { stroke: "#FF706D", strokeWidth: 2.5 },
+                data: { stroke: "#FF7955", strokeWidth: 2.5 },
               }}
               interpolation="catmullRom"
             />
@@ -111,7 +111,7 @@ export default function ReportPage() {
               x="day"
               y="score"
               size={4}
-              style={{ data: { fill: "#FF706D", stroke: "white", strokeWidth: 2 } }}
+              style={{ data: { fill: "#FF7955", stroke: "white", strokeWidth: 2 } }}
             />
           </VictoryChart>
           <Text style={styles.chartDisclaimer}>
@@ -149,15 +149,15 @@ export default function ReportPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAF7F2" },
+  container: { flex: 1, backgroundColor: "#FFF9F2" },
   header: {
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 8,
     gap: 4,
   },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#362b27" },
-  headerSub: { fontSize: 16, color: "#a18f88" },
+  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
+  headerSub: { fontSize: 16, color: "#765E52" },
   scroll: { paddingHorizontal: 20, gap: 14 },
   badgeCard: {
     flexDirection: "row",
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   badgeDot: { width: 10, height: 10, borderRadius: 5 },
   badgeLabel: { fontSize: 18, fontWeight: "700" },
-  badgeSub: { flex: 1, fontSize: 13, color: "#a18f88", textAlign: "right" },
+  badgeSub: { flex: 1, fontSize: 13, color: "#765E52", textAlign: "right" },
   chartCard: {
     backgroundColor: "white",
     borderRadius: 18,
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 4,
   },
-  chartTitle: { fontSize: 17, fontWeight: "700", color: "#4d403b" },
+  chartTitle: { fontSize: 17, fontWeight: "700", color: "#40332D" },
   chartDisclaimer: { fontSize: 12, color: "#c4b5ae", paddingTop: 4 },
   tableCard: {
     backgroundColor: "white",
@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f0e8e2",
   },
-  cardTitle: { fontSize: 18, fontWeight: "700", color: "#4d403b", marginBottom: 4 },
+  cardTitle: { fontSize: 18, fontWeight: "700", color: "#40332D", marginBottom: 4 },
   tableRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../../src/stores/authStore";
-import type { UserRole } from "../../src/stores/authStore";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,10 +12,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // TODO: 실제 API 연동 시 교체
-  function handleLogin(role: UserRole) {
-    login(role);
-    router.replace(role === "guardian" ? "/(guardian)/" : "/(elder)/");
+  // TODO: 실제 API 연동 시 서버에서 받은 role로 교체
+  function handleLogin() {
+    login("elder");
+    router.replace("/(elder)/");
   }
 
   return (
@@ -56,21 +55,12 @@ export default function LoginPage() {
           />
         </View>
 
-        {/* 로그인 버튼 (역할 선택 — 실제 연동 전 임시) */}
         <TouchableOpacity
           style={styles.primaryBtn}
-          onPress={() => handleLogin("elder")}
+          onPress={handleLogin}
           activeOpacity={0.85}
         >
-          <Text style={styles.primaryBtnText}>어르신으로 로그인</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.primaryBtn, styles.secondaryBtn]}
-          onPress={() => handleLogin("guardian")}
-          activeOpacity={0.85}
-        >
-          <Text style={[styles.primaryBtnText, styles.secondaryBtnText]}>보호자로 로그인</Text>
+          <Text style={styles.primaryBtnText}>로그인</Text>
         </TouchableOpacity>
       </View>
 
@@ -89,7 +79,7 @@ export default function LoginPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF7F2",
+    backgroundColor: "#FFF9F2",
     paddingHorizontal: 24,
     justifyContent: "space-between",
   },
@@ -100,18 +90,18 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#FF706D",
+    color: "#FF7955",
     letterSpacing: 4,
     marginBottom: 8,
   },
   title: {
     fontSize: 26,
     fontWeight: "800",
-    color: "#362b27",
+    color: "#342C28",
   },
   subtitle: {
     fontSize: 18,
-    color: "#a18f88",
+    color: "#765E52",
   },
   form: {
     gap: 16,
@@ -137,7 +127,7 @@ const styles = StyleSheet.create({
   primaryBtn: {
     height: 56,
     borderRadius: 15,
-    backgroundColor: "#FF706D",
+    backgroundColor: "#FF7955",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#ff5a5d",
@@ -151,23 +141,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "white",
   },
-  secondaryBtn: {
-    backgroundColor: "white",
-    borderWidth: 1.5,
-    borderColor: "#FF706D",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  secondaryBtnText: {
-    color: "#FF706D",
-  },
   registerLink: {
     textAlign: "center",
     fontSize: 16,
-    color: "#a18f88",
+    color: "#765E52",
   },
   registerLinkHighlight: {
-    color: "#FF706D",
+    color: "#FF7955",
     fontWeight: "700",
   },
 });

@@ -1,127 +1,116 @@
-import { View, Text, TouchableWithoutFeedback, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuthStore } from "../src/stores/authStore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MoaAvatar } from "../src/components/MoaAvatar";
+import { LinearGradient } from "expo-linear-gradient";
+import { useAuthStore } from "../src/stores/authStore";
+import { CharacterPlayer } from "../src/components/CharacterPlayer";
+import { TouchIcon } from "../src/components/icons/TouchIcon";
 
 export default function IntroScreen() {
   const router = useRouter();
   const { isLoggedIn, role } = useAuthStore();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  // team_design 기준치 430×900 대비 비율로 동적 계산
+  const W = Math.min(windowWidth, 430);
+  const H = windowHeight;
+  const s = W / 430;
+  const v = H / 900;
+
+  const charLeft         = Math.round(38 * s);
+  const charTop          = Math.round(205 * v) + insets.top;
+  const charHeight       = Math.round(390 * v);
+  const charBorderRadius = Math.round(160 * s);
+  const bubbleBottom     = Math.round(114 * v) + insets.bottom;
+  const hintBottom       = Math.round(28 * v)  + insets.bottom;
+  const logoPaddingTop   = Math.round(64 * v)  + insets.top;
 
   function handleTouch() {
     if (isLoggedIn) {
-      // 로그인 상태 → 역할별 홈으로 이동
       router.replace(role === "guardian" ? "/(guardian)/" : "/(elder)/");
     } else {
-      // 비로그인 → 로그인 화면으로 이동
       router.push("/(auth)/login");
     }
   }
 
   return (
-    <TouchableWithoutFeedback onPress={handleTouch} accessibilityLabel="화면을 터치해 주세요">
-      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <Pressable
+      style={styles.fill}
+      onPress={handleTouch}
+      accessibilityRole="button"
+      accessibilityLabel="화면을 터치하면 대화를 시작해요"
+    >
+      <LinearGradient colors={["#FFF8EE", "#FFFDF9", "#F8E5D2"]} style={StyleSheet.absoluteFill} />
 
-        {/* 상단 로고 */}
-        <View style={styles.logoArea}>
-          <Text style={styles.logoText}>moa</Text>
-        </View>
-
-        {/* 중앙 아바타 */}
-        <View style={styles.avatarArea}>
-          <MoaAvatar emotion="greeting" size={220} />
-          <Text style={styles.avatarName}>모아</Text>
-          <Text style={styles.tagline}>목소리로 건강을 기록하는{"\n"}따뜻한 친구</Text>
-        </View>
-
-        {/* 하단 힌트 */}
-        <View style={styles.hintArea}>
-          <Text style={styles.hint}>화면을 터치해 주세요</Text>
-          <Text style={styles.hintDots}>• • •</Text>
-        </View>
-
+      {/* 로고 */}
+      <View style={[styles.logoWrap, { paddingTop: logoPaddingTop }]}>
+        <Text style={styles.logo}>MOA</Text>
+        <Text style={styles.tagline}>목소리로 돌보는 오늘의 나</Text>
       </View>
-    </TouchableWithoutFeedback>
+
+      {/* 캐릭터 */}
+      <CharacterPlayer
+        mood="idle"
+        containerStyle={{
+          left:         charLeft,
+          right:        charLeft,
+          top:          charTop,
+          height:       charHeight,
+          borderRadius: charBorderRadius,
+        }}
+      />
+
+      {/* 말풍선 */}
+      <View style={[styles.introBubble, { bottom: bubbleBottom }]}>
+        <Text style={styles.introGreeting}>안녕하세요.</Text>
+        <Text style={styles.introQuestion}>오늘은 어떤 하루였나요?</Text>
+      </View>
+
+      {/* 터치 힌트 */}
+      <View style={[styles.touchHint, { bottom: hintBottom }]}>
+        <Text style={styles.touchText}>화면을 터치하면{"\n"}대화를 시작해요</Text>
+        <TouchIcon />
+      </View>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FAF7F2",
+  fill:    { flex: 1 },
+  logoWrap: { alignItems: "center", zIndex: 3 },
+  logo:    { color: "#513329", fontSize: 54, fontWeight: "900", letterSpacing: 3 },
+  tagline: { color: "#765E52", fontSize: 15, fontWeight: "600", marginTop: 2 },
+
+  introBubble: {
+    position: "absolute",
+    left: 24, right: 24,
+    paddingVertical: 22,
+    borderRadius: 26,
+    backgroundColor: "rgba(255,255,255,0.94)",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 24,
+    shadowColor: "#7C513B",
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
   },
-  logoArea: {
-    paddingTop: 24,
-    alignItems: "center",
-  },
-  logoText: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FF706D",
-    letterSpacing: 4,
-  },
-  avatarArea: {
-    alignItems: "center",
-    gap: 16,
-  },
-  avatarCircle: {
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: "#fff7f4",
-    borderWidth: 3,
-    borderColor: "#ffd4d1",
+  introGreeting: { color: "#40332D", fontSize: 19, fontWeight: "800", marginBottom: 7 },
+  introQuestion: { color: "#40332D", fontSize: 21, fontWeight: "800" },
+
+  touchHint: {
+    position: "absolute",
+    left: 0, right: 0,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#c97a6e",
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.14,
-    shadowRadius: 40,
-    elevation: 8,
+    gap: 12,
   },
-  avatarEmoji: {
-    fontSize: 100,
-  },
-  onlineDot: {
-    position: "absolute",
-    bottom: 18,
-    left: 18,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "#2ECC71",
-    borderWidth: 3,
-    borderColor: "white",
-  },
-  avatarName: {
-    fontSize: 36,
-    fontWeight: "800",
-    color: "#362b27",
-    letterSpacing: 2,
-  },
-  tagline: {
-    fontSize: 18,
-    color: "#a18f88",
+  touchText: {
+    color: "#5E5048",
+    fontSize: 14,
+    lineHeight: 21,
     textAlign: "center",
-    lineHeight: 28,
-  },
-  hintArea: {
-    alignItems: "center",
-    gap: 8,
-    paddingBottom: 24,
-  },
-  hint: {
-    fontSize: 16,
-    color: "#c4b5ae",
-    fontWeight: "500",
-  },
-  hintDots: {
-    fontSize: 12,
-    color: "#d9cdc9",
-    letterSpacing: 6,
+    fontWeight: "600",
   },
 });

@@ -50,7 +50,7 @@ export default function RegisterPage() {
               activeOpacity={0.8}
             >
               <Text style={styles.roleEmoji}>👴</Text>
-              <Text style={[styles.roleLabel, role === "elder" && styles.roleLabelActive]}>어르신</Text>
+              <Text style={[styles.roleLabel, role === "elder" && styles.roleLabelActive]}>직접사용자</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.roleBtn, role === "guardian" && styles.roleBtnActive]}
@@ -116,7 +116,7 @@ export default function RegisterPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF7F2",
+    backgroundColor: "#FFF9F2",
   },
   topBar: {
     height: 56,
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   roleBtnActive: {
-    borderColor: "#FF706D",
+    borderColor: "#FF7955",
     backgroundColor: "#fff5f4",
   },
   roleEmoji: {
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     color: "#b6aaa5",
   },
   roleLabelActive: {
-    color: "#FF706D",
+    color: "#FF7955",
   },
   form: {
     gap: 16,
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   primaryBtn: {
     height: 56,
     borderRadius: 15,
-    backgroundColor: "#FF706D",
+    backgroundColor: "#FF7955",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#ff5a5d",

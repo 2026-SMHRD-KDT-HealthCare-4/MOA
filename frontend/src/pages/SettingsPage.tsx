@@ -64,23 +64,23 @@ export default function SettingsPage() {
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <View style={styles.rowIcon}>
-                  <Bell size={18} color="#FF706D" />
+                  <Bell size={18} color="#FF7955" />
                 </View>
                 <View>
                   <Text style={styles.rowTitle}>
-                    {isElder ? "건강 기록 알림" : "어르신 상태 알림"}
+                    {isElder ? "건강 기록 알림" : "직접사용자 상태 알림"}
                   </Text>
                   <Text style={styles.rowSub}>
                     {isElder
                       ? "매일 오전 기록을 도와드려요"
-                      : "어르신 변화가 감지되면 알려드려요"}
+                      : "직접사용자 변화가 감지되면 알려드려요"}
                   </Text>
                 </View>
               </View>
               <Switch
                 value={notifEnabled}
                 onValueChange={handleNotifToggle}
-                trackColor={{ false: "#e8ddd9", true: "#FF706D" }}
+                trackColor={{ false: "#e8ddd9", true: "#FF7955" }}
                 thumbColor="white"
               />
             </View>
@@ -128,7 +128,7 @@ export default function SettingsPage() {
                 </View>
                 <View>
                   <Text style={styles.rowTitle}>현재 역할</Text>
-                  <Text style={styles.rowSub}>{isElder ? "어르신" : "보호자"}</Text>
+                  <Text style={styles.rowSub}>{isElder ? "직접사용자" : "보호자"}</Text>
                 </View>
               </View>
             </View>
@@ -147,13 +147,13 @@ export default function SettingsPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAF7F2" },
+  container: { flex: 1, backgroundColor: "#FFF9F2" },
   header: {
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 8,
   },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#362b27" },
+  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
   scroll: { paddingHorizontal: 20, gap: 6 },
   section: { gap: 8 },
   sectionTitle: { fontSize: 14, fontWeight: "600", color: "#b6aaa5", paddingLeft: 4, marginTop: 8 },
@@ -186,11 +186,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  rowTitle: { fontSize: 17, fontWeight: "600", color: "#362b27" },
-  rowSub: { fontSize: 13, color: "#a18f88", marginTop: 2 },
+  rowTitle: { fontSize: 17, fontWeight: "600", color: "#342C28" },
+  rowSub: { fontSize: 13, color: "#765E52", marginTop: 2 },
   rowValue: { fontSize: 16, color: "#b6aaa5" },
   divider: { height: 1, backgroundColor: "#f5eeea", marginHorizontal: 16 },
-  roleDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#FF706D" },
+  roleDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#FF7955" },
   logoutBtn: {
     marginTop: 8,
     flexDirection: "row",

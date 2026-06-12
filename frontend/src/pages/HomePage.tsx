@@ -1,278 +1,185 @@
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { HeartPulse, MessageCircle, Mic } from "lucide-react-native";
-import { TopBar } from "../components/layout/TopBar";
-import { MoaAvatar } from "../components/MoaAvatar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CharacterPlayer } from "../components/CharacterPlayer";
+import { Waveform } from "../components/Waveform";
+import { MicIcon } from "../components/icons/MicIcon";
+import { BellIcon } from "../components/icons/BellIcon";
+
+const GREETING = "오늘 하루는\n어떠셨어요?";
 
 export default function HomePage() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  const W = Math.min(windowWidth, 430);
+  const H = windowHeight;
+  const s = W / 430;
+  const v = H / 900;
+
+  const charLeft         = Math.round(22 * s);
+  const charTop          = Math.round(190 * v) + insets.top;
+  const charBottom       = Math.round(14  * v);
+  const charBorderRadius = Math.round(150 * s);
+  const bubbleTop        = insets.top + Math.round(92 * v);
+  const cardBottom       = Math.round(102 * v);
 
   return (
-    <LinearGradient
-      colors={["#fffdfb", "#fff7f1", "#ffffff"]}
-      locations={[0, 0.67, 0.67]}
-      style={styles.container}
-    >
-      <TopBar />
+    <View style={styles.fill}>
+      <LinearGradient colors={["#FFF9F1", "#FFFDF9"]} style={StyleSheet.absoluteFill} />
 
-      {/* 인사말 */}
-      <View style={styles.intro}>
-        <Text style={styles.introSub}>오늘도 만나서 반가워요</Text>
-        <Text style={styles.introTitle}>모아와 무엇을{"\n"}해볼까요?</Text>
+      {/* 헤더 */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.headerTitleRow}>
+          <View style={styles.spark} />
+          <Text style={styles.headerTitle}>오늘의 대화</Text>
+          <View style={styles.spark} />
+        </View>
+        <BellIcon />
       </View>
 
-      {/* 아바타 + 액션 버블 */}
-      <View style={styles.stage}>
-        {/* 대화하기 버블 (좌) */}
-        <TouchableOpacity
-          style={[styles.bubble, styles.bubbleChat]}
-          onPress={() => router.push("/chat")}
-          activeOpacity={0.85}
-        >
-          <View style={[styles.bubbleIcon, styles.bubbleIconChat]}>
-            <MessageCircle size={20} color="white" />
-          </View>
-          <Text style={styles.bubbleTitle}>대화하기</Text>
-          <Text style={styles.bubbleDesc}>마음 편히 이야기해요</Text>
-          <View style={[styles.tail, styles.tailRight]} />
-        </TouchableOpacity>
-
-        {/* 아바타 (중앙) */}
-        <View style={styles.avatarWrap}>
-          <View style={styles.helloBadge}>
-            <Text style={styles.helloBadgeText}>안녕하세요! 👋</Text>
-          </View>
-          <MoaAvatar emotion="greeting" size={235} />
-          <View style={styles.moaName}>
-            <View style={styles.moaNameDot} />
-            <Text style={styles.moaNameText}>MOA</Text>
-          </View>
-        </View>
-
-        {/* 녹음하기 버블 (우) */}
-        <TouchableOpacity
-          style={[styles.bubble, styles.bubbleRecord]}
-          onPress={() => router.push("/record")}
-          activeOpacity={0.85}
-        >
-          <View style={[styles.bubbleIcon, styles.bubbleIconRecord]}>
-            <Mic size={20} color="#FF706D" />
-          </View>
-          <Text style={styles.bubbleTitle}>녹음하기</Text>
-          <Text style={styles.bubbleDesc}>목소리로 건강 체크</Text>
-          <View style={[styles.tail, styles.tailLeft]} />
-        </TouchableOpacity>
+      {/* 인사 말풍선 (우상단) */}
+      <View style={[styles.welcomeBubble, { top: bubbleTop }]}>
+        <Text style={styles.welcomeText}>{GREETING}</Text>
+        <View style={styles.bubbleTail} />
       </View>
 
-      {/* 오늘의 한마디 */}
-      <View style={styles.dailyCard}>
-        <View style={styles.dailyIcon}>
-          <HeartPulse size={21} color="#ff6d69" />
-        </View>
-        <View style={styles.dailyContent}>
-          <Text style={styles.dailyTitle}>오늘의 한마디</Text>
-          <Text style={styles.dailyText}>
-            천천히 이야기해도 괜찮아요.{"\n"}모아가 끝까지 들어드릴게요.
-          </Text>
-        </View>
+      {/* 캐릭터 */}
+      <CharacterPlayer
+        mood="idle"
+        containerStyle={{
+          left:         charLeft,
+          right:        charLeft,
+          top:          charTop,
+          bottom:       charBottom,
+          borderRadius: charBorderRadius,
+        }}
+      />
+
+      {/* 듣는 중 카드 */}
+      <View style={[styles.listeningCard, { bottom: cardBottom }]}>
+        <Waveform color="#76A96C" />
+        <Text style={styles.listeningText}>모아와 대화해요</Text>
       </View>
-    </LinearGradient>
+
+      {/* 녹음하기 버튼 */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.recordBtn,
+          pressed && { opacity: 0.92, transform: [{ scale: 0.985 }] },
+        ]}
+        onPress={() => router.push("/(elder)/record")}
+        accessibilityLabel="녹음하기"
+      >
+        <MicIcon color="#FFFFFF" size={34} />
+        <Text style={styles.recordBtnText}>녹음하기</Text>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingBottom: 16,
+  fill: { flex: 1 },
+
+  header: {
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 10,
   },
-  intro: {
-    paddingTop: 17,
-    paddingHorizontal: 4,
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
-  introSub: {
-    color: "#a18f88",
-    fontSize: 18,
-    marginBottom: 5,
+  spark: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: "#F3AE62",
   },
-  introTitle: {
-    color: "#362b27",
-    fontSize: 26,
+  headerTitle: {
+    color: "#39302C",
+    fontSize: 17,
     fontWeight: "800",
-    lineHeight: 36,
   },
-  stage: {
-    flex: 1,
-    minHeight: 375,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarWrap: {
-    alignItems: "center",
-    zIndex: 1,
-  },
-  avatarPlaceholder: {
-    width: 235,
-    height: 235,
-    borderRadius: 118,
-    backgroundColor: "#fff7f4",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    borderColor: "#ffd4d1",
-  },
-  avatarEmoji: {
-    fontSize: 110,
-  },
-  onlineDot: {
+
+  welcomeBubble: {
     position: "absolute",
-    bottom: 20,
-    left: 20,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: "#2ECC71",
-    borderWidth: 2,
-    borderColor: "white",
-  },
-  helloBadge: {
-    position: "absolute",
-    top: 4,
-    right: -10,
-    zIndex: 2,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    backgroundColor: "white",
-    borderRadius: 14,
-    shadowColor: "#5b3a2c",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 22,
-    elevation: 6,
-  },
-  helloBadgeText: {
-    color: "#76564e",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  moaName: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: -12,
-  },
-  moaNameDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#4fd3a6",
-  },
-  moaNameText: {
-    color: "#8b7871",
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 1,
-  },
-  bubble: {
-    position: "absolute",
-    width: 132,
-    minHeight: 91,
-    padding: 14,
-    borderRadius: 21,
-    shadowColor: "#64402f",
-    shadowOffset: { width: 0, height: 13 },
-    shadowOpacity: 0.13,
-    shadowRadius: 30,
-    elevation: 6,
-    justifyContent: "center",
-  },
-  bubbleChat: {
-    top: 42,
-    left: 0,
-    backgroundColor: "#ffdedb",
-  },
-  bubbleRecord: {
-    right: 0,
-    bottom: 46,
-    backgroundColor: "white",
-  },
-  bubbleIcon: {
-    width: 31,
-    height: 31,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 7,
-  },
-  bubbleIconChat: {
-    backgroundColor: "#FF706D",
-  },
-  bubbleIconRecord: {
-    backgroundColor: "#ffebe8",
-  },
-  bubbleTitle: {
-    color: "#5f4c45",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  bubbleDesc: {
-    color: "#a18d86",
-    fontSize: 13,
-    marginTop: 3,
-  },
-  tail: {
-    position: "absolute",
-    bottom: -8,
-    width: 18,
-    height: 18,
-    transform: [{ rotate: "45deg" }],
-  },
-  tailRight: {
-    right: 20,
-    backgroundColor: "#ffdedb",
-  },
-  tailLeft: {
-    left: 20,
-    backgroundColor: "white",
-  },
-  dailyCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
-    padding: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: "#f0e4de",
-    borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.94)",
-    shadowColor: "#54372b",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 25,
+    right: 26,
+    width: 190,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    borderRadius: 28,
+    backgroundColor: "#FFFFFF",
+    zIndex: 4,
+    shadowColor: "#715346",
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
     elevation: 3,
   },
-  dailyIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    backgroundColor: "#fff0ed",
+  welcomeText: {
+    color: "#342C28",
+    fontSize: 22,
+    lineHeight: 32,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  bubbleTail: {
+    position: "absolute",
+    right: 18,
+    bottom: -10,
+    width: 22, height: 22,
+    backgroundColor: "#FFFFFF",
+    transform: [{ rotate: "45deg" }],
+  },
+
+  listeningCard: {
+    position: "absolute",
+    left: 56, right: 56,
+    height: 62,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.94)",
     alignItems: "center",
     justifyContent: "center",
+    gap: 3,
+    zIndex: 6,
+    shadowColor: "#715346",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
   },
-  dailyContent: {
-    flex: 1,
-  },
-  dailyTitle: {
-    color: "#292321",
-    fontSize: 18,
+  listeningText: {
+    color: "#5A504A",
+    fontSize: 14,
     fontWeight: "700",
   },
-  dailyText: {
-    color: "#93837d",
-    fontSize: 16,
+
+  recordBtn: {
+    position: "absolute",
+    left: 18, right: 18,
+    bottom: 14,
+    height: 74,
+    borderRadius: 23,
+    backgroundColor: "#FF7955",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 18,
+    zIndex: 8,
+    shadowColor: "#D65738",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  recordBtnText: {
+    color: "#FFFFFF",
+    fontSize: 20,
     lineHeight: 25,
-    marginTop: 3,
+    fontWeight: "800",
   },
 });

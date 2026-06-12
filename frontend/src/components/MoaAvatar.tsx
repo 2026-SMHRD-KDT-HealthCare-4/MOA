@@ -7,6 +7,7 @@ interface MoaAvatarProps {
   isTalking?: boolean;
   size?: number;
   showOnlineDot?: boolean;
+  circular?: boolean;
 }
 
 export function MoaAvatar({
@@ -14,6 +15,7 @@ export function MoaAvatar({
   isTalking = false,
   size = 235,
   showOnlineDot = true,
+  circular = true,
 }: MoaAvatarProps) {
   const videoSrc = resolveVideoSrc(emotion, isTalking);
   const radius = size / 2;
@@ -24,20 +26,20 @@ export function MoaAvatar({
   return (
     <View
       style={[
-        styles.wrapper,
-        { width: size, height: size, borderRadius: radius },
+        circular ? styles.wrapperCircle : styles.wrapperFull,
+        { width: size, height: size, borderRadius: circular ? radius : 0 },
       ]}
     >
       <Video
         key={`${emotion}_${String(isTalking)}`}
         source={videoSrc}
         style={{ width: size, height: size }}
-        resizeMode={ResizeMode.COVER}
+        resizeMode={circular ? ResizeMode.COVER : ResizeMode.CONTAIN}
         isLooping
         shouldPlay
         isMuted
       />
-      {showOnlineDot && (
+      {showOnlineDot && circular && (
         <View
           style={[
             styles.onlineDot,
@@ -57,7 +59,7 @@ export function MoaAvatar({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
+  wrapperCircle: {
     overflow: "hidden",
     backgroundColor: "#fff7f4",
     borderWidth: 3,
@@ -67,6 +69,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.14,
     shadowRadius: 40,
     elevation: 8,
+  },
+  wrapperFull: {
+    overflow: "hidden",
+    backgroundColor: "transparent",
   },
   onlineDot: {
     position: "absolute",

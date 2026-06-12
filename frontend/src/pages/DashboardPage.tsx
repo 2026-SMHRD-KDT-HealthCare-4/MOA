@@ -33,7 +33,7 @@ export default function DashboardPage() {
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>안녕하세요 👋</Text>
-          <Text style={styles.headerTitle}>{ELDER.name} 어르신</Text>
+          <Text style={styles.headerTitle}>{ELDER.name} 님</Text>
         </View>
         <TouchableOpacity style={styles.bellBtn} accessibilityLabel="알림">
           <Bell size={22} color="#8b7871" />
@@ -95,7 +95,7 @@ export default function DashboardPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAF7F2" },
+  container: { flex: 1, backgroundColor: "#FFF9F2" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -104,8 +104,8 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  greeting: { fontSize: 16, color: "#a18f88" },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#362b27" },
+  greeting: { fontSize: 16, color: "#765E52" },
+  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
   bellBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   scroll: { paddingHorizontal: 20, gap: 14 },
   statusCard: {
@@ -119,8 +119,8 @@ const styles = StyleSheet.create({
   },
   statusEmoji: { fontSize: 52 },
   statusInfo: { gap: 3 },
-  statusLabel: { fontSize: 14, color: "#a18f88" },
-  statusValue: { fontSize: 24, fontWeight: "800", color: "#362b27" },
+  statusLabel: { fontSize: 14, color: "#765E52" },
+  statusValue: { fontSize: 24, fontWeight: "800", color: "#342C28" },
   statusSub: { fontSize: 14, color: "#b6aaa5" },
   card: {
     backgroundColor: "white",
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
-  cardTitle: { fontSize: 18, fontWeight: "700", color: "#4d403b" },
+  cardTitle: { fontSize: 18, fontWeight: "700", color: "#40332D" },
   weekRow: { flexDirection: "row", justifyContent: "space-between" },
   weekCell: { alignItems: "center", gap: 6 },
   weekDay: { fontSize: 13, color: "#b6aaa5", fontWeight: "600" },
@@ -156,8 +156,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   streakInfo: { flex: 1 },
-  streakNum: { fontSize: 22, fontWeight: "800", color: "#362b27" },
-  streakSub: { fontSize: 15, color: "#a18f88" },
+  streakNum: { fontSize: 22, fontWeight: "800", color: "#342C28" },
+  streakSub: { fontSize: 15, color: "#765E52" },
   streakEmoji: { fontSize: 32 },
   reportLink: {
     backgroundColor: "white",
@@ -169,5 +169,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f0e8e2",
   },
-  reportLinkText: { flex: 1, fontSize: 18, fontWeight: "600", color: "#4d403b" },
+  reportLinkText: { flex: 1, fontSize: 18, fontWeight: "600", color: "#40332D" },
 });

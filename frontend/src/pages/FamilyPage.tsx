@@ -27,7 +27,7 @@ export default function FamilyPage() {
 
       {/* 헤더 */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>연결된 어르신</Text>
+        <Text style={styles.headerTitle}>연결된 직접사용자</Text>
         <Text style={styles.headerSub}>건강 변화를 함께 살펴봐요</Text>
       </View>
 
@@ -47,7 +47,7 @@ export default function FamilyPage() {
                 <View style={[styles.onlineDot, { backgroundColor: member.isOnline ? "#2ECC71" : "#d9cdc9" }]} />
               </View>
               <View style={styles.nameArea}>
-                <Text style={styles.memberName}>{member.name} 어르신</Text>
+                <Text style={styles.memberName}>{member.name} 님</Text>
                 <Text style={styles.memberRelation}>{member.relation} · 만 {member.age}세</Text>
               </View>
               <ChevronRight size={20} color="#c4b5ae" />
@@ -89,10 +89,10 @@ export default function FamilyPage() {
           </TouchableOpacity>
         ))}
 
-        {/* 어르신 추가 버튼 */}
+        {/* 직접사용자 추가 버튼 */}
         <TouchableOpacity style={styles.addBtn} activeOpacity={0.8}>
-          <UserPlus size={22} color="#FF706D" />
-          <Text style={styles.addBtnText}>어르신 연결 추가</Text>
+          <UserPlus size={22} color="#FF7955" />
+          <Text style={styles.addBtnText}>직접사용자 연결 추가</Text>
         </TouchableOpacity>
 
       </ScrollView>
@@ -101,15 +101,15 @@ export default function FamilyPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAF7F2" },
+  container: { flex: 1, backgroundColor: "#FFF9F2" },
   header: {
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 8,
     gap: 4,
   },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#362b27" },
-  headerSub: { fontSize: 16, color: "#a18f88" },
+  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
+  headerSub: { fontSize: 16, color: "#765E52" },
   scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 12 },
   memberCard: {
     backgroundColor: "white",
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarInitial: { fontSize: 22, fontWeight: "800", color: "#FF706D" },
+  avatarInitial: { fontSize: 22, fontWeight: "800", color: "#FF7955" },
   onlineDot: {
     position: "absolute",
     bottom: 2,
@@ -145,15 +145,15 @@ const styles = StyleSheet.create({
     borderColor: "white",
   },
   nameArea: { flex: 1 },
-  memberName: { fontSize: 18, fontWeight: "700", color: "#362b27" },
-  memberRelation: { fontSize: 14, color: "#a18f88", marginTop: 2 },
+  memberName: { fontSize: 18, fontWeight: "700", color: "#342C28" },
+  memberRelation: { fontSize: 14, color: "#765E52", marginTop: 2 },
   divider: { height: 1, backgroundColor: "#f5eeea" },
   statusRow: { flexDirection: "row", justifyContent: "space-between" },
   statusItem: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   statusDivider: { width: 1, height: 36, backgroundColor: "#f0e8e2" },
   statusIcon: { fontSize: 22 },
   statusLabel: { fontSize: 12, color: "#b6aaa5" },
-  statusValue: { fontSize: 15, fontWeight: "700", color: "#4d403b" },
+  statusValue: { fontSize: 15, fontWeight: "700", color: "#40332D" },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -163,8 +163,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "#FF706D",
+    borderColor: "#FF7955",
     backgroundColor: "white",
   },
-  addBtnText: { fontSize: 18, fontWeight: "600", color: "#FF706D" },
+  addBtnText: { fontSize: 18, fontWeight: "600", color: "#FF7955" },
 });

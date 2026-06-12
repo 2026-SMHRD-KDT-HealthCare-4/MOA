@@ -11,7 +11,9 @@ import {
 import { useRouter } from "expo-router";
 import { useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, Send } from "lucide-react-native";
+import { BellIcon } from "../components/icons/BellIcon";
 import { useMoaChat, type ChatMessage } from "../features/chatbot/useMoaChat";
 import { MoaAvatar } from "../components/MoaAvatar";
 
@@ -48,6 +50,7 @@ function TypingDots() {
 export default function ChatPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // ── 챗봇 로직 (변경 금지) ──────────────────────────────
   const { messages, isBotTyping, botEmotion, sendMessage } = useMoaChat();
   const [input, setInput] = useState("");
   const listRef = useRef<FlatList<ChatMessage>>(null);
@@ -58,6 +61,7 @@ export default function ChatPage() {
     setInput("");
     sendMessage(text);
   }
+  // ──────────────────────────────────────────────────────
 
   const renderItem = ({ item }: { item: ChatMessage }) =>
     item.role === "user" ? <UserBubble text={item.text} /> : <BotBubble text={item.text} />;
@@ -67,6 +71,8 @@ export default function ChatPage() {
       style={[styles.container, { paddingTop: insets.top }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      <LinearGradient colors={["#FFF9F1", "#FFFDF9"]} style={StyleSheet.absoluteFill} />
+
       {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity
@@ -74,10 +80,16 @@ export default function ChatPage() {
           onPress={() => router.back()}
           accessibilityLabel="뒤로 가기"
         >
-          <ArrowLeft size={22} color="#756a66" />
+          <ArrowLeft size={22} color="#39302C" />
         </TouchableOpacity>
-        <Text style={styles.topTitle}>모아와 대화하기</Text>
-        <View style={styles.iconBtn} />
+        <View style={styles.headerTitleRow}>
+          <View style={styles.spark} />
+          <Text style={styles.topTitle}>오늘의 대화</Text>
+          <View style={styles.spark} />
+        </View>
+        <View style={styles.iconBtn}>
+          <BellIcon />
+        </View>
       </View>
 
       {/* 아바타 */}
@@ -114,7 +126,7 @@ export default function ChatPage() {
           value={input}
           onChangeText={setInput}
           placeholder="메시지를 입력해 주세요"
-          placeholderTextColor="#c4b5ae"
+          placeholderTextColor="#9A887D"
           multiline
           maxLength={200}
           returnKeyType="send"
@@ -137,16 +149,14 @@ export default function ChatPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF7F2",
   },
   topBar: {
-    height: 56,
+    height: 72,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0e8e2",
+    zIndex: 10,
   },
   iconBtn: {
     width: 56,
@@ -154,36 +164,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  spark: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: "#F3AE62",
+  },
   topTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "800",
-    color: "#4d403b",
-    letterSpacing: 0.5,
+    color: "#39302C",
   },
   avatarSection: {
     alignItems: "center",
     paddingVertical: 16,
     gap: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0e8e2",
-  },
-  avatarCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#fff7f4",
-    borderWidth: 2,
-    borderColor: "#ffd4d1",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarEmoji: {
-    fontSize: 44,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(99,78,67,0.16)",
   },
   avatarName: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#4d403b",
+    color: "#40332D",
   },
   msgList: {
     paddingHorizontal: 16,
@@ -199,7 +204,7 @@ const styles = StyleSheet.create({
   },
   welcomeText: {
     fontSize: 20,
-    color: "#a18f88",
+    color: "#765E52",
     textAlign: "center",
     lineHeight: 32,
   },
@@ -210,16 +215,17 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     maxWidth: "78%",
-    backgroundColor: "#FF706D",
-    borderRadius: 18,
-    borderBottomRightRadius: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: "#93B878",
+    borderRadius: 23,
+    borderBottomRightRadius: 7,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
   userText: {
     fontSize: 18,
-    color: "white",
-    lineHeight: 26,
+    color: "#FFFFFF",
+    lineHeight: 25,
+    fontWeight: "700",
   },
   botRow: {
     flexDirection: "row",
@@ -228,28 +234,28 @@ const styles = StyleSheet.create({
   },
   botBubble: {
     maxWidth: "78%",
-    backgroundColor: "white",
-    borderRadius: 18,
-    borderBottomLeftRadius: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: "#c0a99f",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 23,
+    borderBottomLeftRadius: 7,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    shadowColor: "#715346",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
     elevation: 2,
   },
   botText: {
     fontSize: 18,
-    color: "#362b27",
-    lineHeight: 26,
+    color: "#342C28",
+    lineHeight: 25,
+    fontWeight: "700",
+    textAlign: "center",
   },
-  typingBubble: {
-    opacity: 0.75,
-  },
+  typingBubble: { opacity: 0.75 },
   typingText: {
     fontSize: 16,
-    color: "#a18f88",
+    color: "#765E52",
     fontStyle: "italic",
   },
   inputBar: {
@@ -257,9 +263,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 12,
     paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#f0e8e2",
-    backgroundColor: "#FAF7F2",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(99,78,67,0.16)",
+    backgroundColor: "rgba(255,253,250,0.98)",
     gap: 8,
   },
   input: {
@@ -267,29 +273,29 @@ const styles = StyleSheet.create({
     minHeight: 56,
     maxHeight: 120,
     borderWidth: 1,
-    borderColor: "#e8ddd9",
+    borderColor: "#E6D9D2",
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 18,
-    color: "#292321",
+    color: "#342C28",
     backgroundColor: "white",
   },
   sendBtn: {
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#FF706D",
+    backgroundColor: "#FF7955",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#ff5a5d",
+    shadowColor: "#D65738",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
   sendBtnOff: {
-    backgroundColor: "#e8ddd9",
+    backgroundColor: "#E6D9D2",
     shadowOpacity: 0,
     elevation: 0,
   },
