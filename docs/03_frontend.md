@@ -49,7 +49,7 @@ frontend/
 
 ### 고령자
 
-- `src/pages/HomePage.tsx`: 캐릭터, 인사 말풍선, 녹음 버튼
+- `src/pages/HomePage.tsx`: 따뜻한 크림 그라데이션 홈, 큰 캐릭터, 말풍선, 녹음 CTA, 대화 진입 버튼
 - `src/pages/RecordPage.tsx`: 녹음 시작/중지, 처리 상태, STT 결과, 저장 이동
 - `src/pages/DonePage.tsx`: 녹음 완료 결과
 - `src/pages/HistoryPage.tsx`: mock 기록 캘린더
@@ -80,6 +80,7 @@ frontend/
 - 터치 영역은 최소 56px 이상을 유지한다.
 - 빨간색 경고를 쓰지 않는다.
 - 웹에서는 `app/_layout.tsx`가 430px 모바일 프레임을 제공한다.
+- 고령자 하단 탭은 현재 `홈`, `기록`, `설정` 3개를 노출한다. `기록` 탭은 기존 `history` 화면으로 연결한다.
 
 ## 7. 주의 파일
 
@@ -95,3 +96,4 @@ frontend/
 ## 8. 변경 기록
 
 - 2026-06-15: 프론트 구조와 현재 구현 상태를 최상위 문서 체계로 정리.
+- 2026-06-15: 고령자 홈 리디자인 및 3탭 하단 네비 상태 반영.
