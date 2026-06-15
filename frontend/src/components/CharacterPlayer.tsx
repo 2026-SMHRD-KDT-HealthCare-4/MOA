@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { View, StyleSheet, StyleProp, ViewStyle } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { MoaAvatar } from "./MoaAvatar";
 import { resolveVideoSrc, type BotEmotion } from "../constants/emotionMap";
 
@@ -21,6 +22,39 @@ const MOOD_MAP: Record<CharacterMood, BotEmotion> = {
   worried:   "worried",
 };
 
+function AbsoluteCharacterVideo({
+  emotion,
+  containerStyle,
+}: {
+  emotion: BotEmotion;
+  containerStyle: StyleProp<ViewStyle>;
+}) {
+  const videoSrc = resolveVideoSrc(emotion, false);
+  const player = useVideoPlayer(videoSrc, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+
+  useEffect(() => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  }, [player, videoSrc]);
+
+  return (
+    <View style={[styles.absoluteClip, containerStyle]}>
+      <VideoView
+        key={emotion}
+        player={player}
+        style={styles.video}
+        contentFit="cover"
+        nativeControls={false}
+      />
+    </View>
+  );
+}
+
 export function CharacterPlayer({
   mood = "idle",
   size = 200,
@@ -30,20 +64,7 @@ export function CharacterPlayer({
   const emotion = MOOD_MAP[mood];
 
   if (containerStyle) {
-    const videoSrc = resolveVideoSrc(emotion, false);
-    return (
-      <View style={[styles.absoluteClip, containerStyle]}>
-        <Video
-          key={emotion}
-          source={videoSrc}
-          style={styles.video}
-          resizeMode={ResizeMode.COVER}
-          isLooping
-          shouldPlay
-          isMuted
-        />
-      </View>
-    );
+    return <AbsoluteCharacterVideo emotion={emotion} containerStyle={containerStyle} />;
   }
 
   return (

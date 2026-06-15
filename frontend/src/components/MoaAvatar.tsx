@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { View, StyleSheet } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { resolveVideoSrc, type BotEmotion } from "../constants/emotionMap";
 
 interface MoaAvatarProps {
@@ -18,6 +19,18 @@ export function MoaAvatar({
   circular = true,
 }: MoaAvatarProps) {
   const videoSrc = resolveVideoSrc(emotion, isTalking);
+  const player = useVideoPlayer(videoSrc, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+
+  useEffect(() => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  }, [player, videoSrc]);
+
   const radius = size / 2;
   const dotSize = Math.round(size * 0.07);
   const dotOffset = Math.round(size * 0.085);
@@ -30,14 +43,12 @@ export function MoaAvatar({
         { width: size, height: size, borderRadius: circular ? radius : 0 },
       ]}
     >
-      <Video
+      <VideoView
         key={`${emotion}_${String(isTalking)}`}
-        source={videoSrc}
+        player={player}
         style={{ width: size, height: size }}
-        resizeMode={circular ? ResizeMode.COVER : ResizeMode.CONTAIN}
-        isLooping
-        shouldPlay
-        isMuted
+        contentFit={circular ? "cover" : "contain"}
+        nativeControls={false}
       />
       {showOnlineDot && circular && (
         <View
