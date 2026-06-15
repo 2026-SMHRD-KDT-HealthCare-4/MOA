@@ -1,6 +1,7 @@
 # MOA MVP Scope
 
 > 부트캠프 발표용 MVP. Out of Scope 항목은 절대 구현하지 않음.
+> 신규 기준 문서는 루트 `global.md`와 `docs/01_product_planning.md`입니다. 이 파일은 프론트 MVP 범위 참고 문서로 유지합니다.
 
 ---
 
