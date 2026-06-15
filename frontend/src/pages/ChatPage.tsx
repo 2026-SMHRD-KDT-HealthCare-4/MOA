@@ -16,6 +16,23 @@ import { ArrowLeft, Send } from "lucide-react-native";
 import { BellIcon } from "../components/icons/BellIcon";
 import { useMoaChat, type ChatMessage } from "../features/chatbot/useMoaChat";
 import { MoaAvatar } from "../components/MoaAvatar";
+import type { BotEmotion } from "../constants/emotionMap";
+
+type DebugAvatarPreset = {
+  label: string;
+  emotion: BotEmotion;
+  isTalking: boolean;
+};
+
+const DEBUG_AVATAR_PRESETS: DebugAvatarPreset[] = [
+  { label: "기본", emotion: "default", isTalking: false },
+  { label: "생각", emotion: "thinking", isTalking: false },
+  { label: "말하기", emotion: "happy", isTalking: true },
+  { label: "듣기", emotion: "listening", isTalking: false },
+  { label: "기쁨", emotion: "happy", isTalking: false },
+  { label: "걱정", emotion: "worried", isTalking: false },
+  { label: "인사", emotion: "greeting", isTalking: false },
+];
 
 function UserBubble({ text }: { text: string }) {
   return (
@@ -53,6 +70,7 @@ export default function ChatPage() {
   // ── 챗봇 로직 (변경 금지) ──────────────────────────────
   const { messages, isBotTyping, botEmotion, sendMessage } = useMoaChat();
   const [input, setInput] = useState("");
+  const [debugAvatar, setDebugAvatar] = useState<DebugAvatarPreset | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   function handleSend() {
@@ -65,6 +83,8 @@ export default function ChatPage() {
 
   const renderItem = ({ item }: { item: ChatMessage }) =>
     item.role === "user" ? <UserBubble text={item.text} /> : <BotBubble text={item.text} />;
+  const avatarEmotion = debugAvatar?.emotion ?? botEmotion;
+  const avatarIsTalking = debugAvatar?.isTalking ?? false;
 
   return (
     <KeyboardAvoidingView
@@ -94,8 +114,37 @@ export default function ChatPage() {
 
       {/* 아바타 */}
       <View style={styles.avatarSection}>
-        <MoaAvatar emotion={botEmotion} size={80} showOnlineDot={false} />
+        <MoaAvatar
+          emotion={avatarEmotion}
+          isTalking={avatarIsTalking}
+          size={80}
+          showOnlineDot={false}
+        />
         <Text style={styles.avatarName}>모아</Text>
+        <View style={styles.debugAvatarControls}>
+          {DEBUG_AVATAR_PRESETS.map((preset) => {
+            const isActive =
+              debugAvatar?.emotion === preset.emotion &&
+              debugAvatar?.isTalking === preset.isTalking;
+            return (
+              <TouchableOpacity
+                key={preset.label}
+                style={[styles.debugAvatarButton, isActive && styles.debugAvatarButtonActive]}
+                onPress={() => setDebugAvatar(preset)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.debugAvatarButtonText,
+                    isActive && styles.debugAvatarButtonTextActive,
+                  ]}
+                >
+                  {preset.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {/* 메시지 목록 */}
@@ -189,6 +238,36 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     color: "#40332D",
+  },
+  debugAvatarControls: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+  },
+  debugAvatarButton: {
+    minHeight: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E6D9D2",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  debugAvatarButtonActive: {
+    borderColor: "#FF7955",
+    backgroundColor: "#FFF1EE",
+  },
+  debugAvatarButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#765E52",
+  },
+  debugAvatarButtonTextActive: {
+    color: "#FF7955",
   },
   msgList: {
     paddingHorizontal: 16,

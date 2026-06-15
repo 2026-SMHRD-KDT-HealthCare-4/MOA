@@ -2,9 +2,10 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type VideoAsset = any;
 
-export type BotEmotion = "greeting" | "happy" | "worried" | "listening" | "thinking";
+export type BotEmotion = "default" | "greeting" | "happy" | "worried" | "listening" | "thinking";
 
 export const EMOTION_VIDEO_MAP: Record<BotEmotion, { idle: VideoAsset; talking?: VideoAsset }> = {
+  default: { idle: require("../asset/기본.mp4") },
   greeting: {
     idle: require("../asset/모아인사.mp4"),
     talking: require("../asset/행복.mp4"),
