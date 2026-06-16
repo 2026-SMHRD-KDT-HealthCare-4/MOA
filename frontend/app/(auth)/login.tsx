@@ -1,5 +1,5 @@
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../../src/stores/authStore";
@@ -8,14 +8,18 @@ export default function LoginPage() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
   const insets = useSafeAreaInsets();
+  const { email: prefillEmail } = useLocalSearchParams<{ email?: string }>();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(prefillEmail ?? "");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  // TODO: 실제 API 연동 시 서버에서 받은 role로 교체
+  // mock 로그인: 가입 시 저장한 role로 직접사용자/보호자 홈 분기.
   function handleLogin() {
-    login("elder");
-    router.replace("/(elder)/");
+    const res = login(email, password);
+    if (!res.ok) return setError(res.error);
+
+    router.replace(res.role === "guardian" ? "/(guardian)/" : "/(elder)/");
   }
 
   return (
@@ -54,6 +58,8 @@ export default function LoginPage() {
             secureTextEntry
           />
         </View>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <TouchableOpacity
           style={styles.primaryBtn}
@@ -140,6 +146,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     color: "white",
+  },
+  errorText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#E8943A",
+    marginTop: -4,
   },
   registerLink: {
     textAlign: "center",

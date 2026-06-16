@@ -3,20 +3,29 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft } from "lucide-react-native";
-import type { UserRole } from "../../src/stores/authStore";
+import { useAuthStore, type UserRole } from "../../src/stores/authStore";
 
 export default function RegisterPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const register = useAuthStore((s) => s.register);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("elder");
+  const [error, setError] = useState("");
 
-  // TODO: 실제 API 연동 시 교체
+  // mock 가입 (백엔드 연동 전까지 메모리 저장). 가입 후 로그인 화면으로 이동.
   function handleRegister() {
-    router.replace("/(auth)/login");
+    if (!name.trim()) return setError("이름을 입력해 주세요.");
+    if (!email.includes("@")) return setError("올바른 이메일을 입력해 주세요.");
+    if (password.length < 8) return setError("비밀번호는 8자 이상이어야 해요.");
+
+    const res = register({ name: name.trim(), email, password, role });
+    if (!res.ok) return setError(res.error);
+
+    router.replace({ pathname: "/(auth)/login", params: { email: email.trim().toLowerCase() } });
   }
 
   return (
@@ -99,6 +108,8 @@ export default function RegisterPage() {
             />
           </View>
         </View>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <TouchableOpacity
           style={styles.primaryBtn}
@@ -216,5 +227,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     color: "white",
+  },
+  errorText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#E8943A",
+    marginTop: -8,
   },
 });
