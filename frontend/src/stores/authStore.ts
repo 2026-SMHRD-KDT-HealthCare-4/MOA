@@ -1,58 +1,63 @@
 import { create } from "zustand";
+import { restoreSession, logout as apiLogout } from "../api/auth";
 
 export type UserRole = "elder" | "guardian";
 
-export interface MockUser {
+export interface SessionUser {
+  id: string;
   name: string;
-  email: string;
-  password: string;
   role: UserRole;
+  token: string;
+  linkedElderName?: string; // 보호자인 경우 담당 어른 이름
 }
 
-export type AuthResult = { ok: true } | { ok: false; error: string };
-export type LoginResult = { ok: true; role: UserRole } | { ok: false; error: string };
+// mock 단계: 앱 시작 시 "로그인된 어른" 상태를 기본 주입한다.
+// → 어른은 로그인/PIN 관문 없이 바로 홈으로 진입 (CLAUDE.md: 어른 일상에 매일 입력 관문 금지).
+// 실제 연동 시: 초기 user를 null로 두고 hydrate()의 토큰 복원 결과로만 채운다.
+const MOCK_DEFAULT_ELDER: SessionUser = {
+  id: "elder-1",
+  name: "김순자",
+  role: "elder",
+  token: "mock-token-elder-1",
+};
 
 interface AuthState {
+  user: SessionUser | null;
+  // 편의 파생값 (화면에서 user?.role 대신 바로 사용)
   isLoggedIn: boolean;
   role: UserRole;
   name: string;
-  email: string;
 
-  // 백엔드 연동 전까지 메모리에 보관하는 mock 가입자 저장소.
-  // 앱을 새로고침하면 초기화됨 (실제 API 연동 시 이 부분 제거).
-  users: MockUser[];
-
-  register: (user: MockUser) => AuthResult;
-  login: (email: string, password: string) => LoginResult;
+  // 로그인/회원가입 성공 후 세션 주입 (api/auth.ts가 반환한 SessionUser).
+  setSession: (user: SessionUser) => void;
+  // 온보딩에서 어른 계정 생성 후 담당 어른 이름 연결.
+  setLinkedElder: (elderName: string) => void;
+  // 앱 시작 시 저장된 토큰으로 세션 복원 (mock: 토큰 없으면 기본 어른 유지).
+  hydrate: () => Promise<void>;
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-  isLoggedIn: false,
-  role: "elder",
-  name: "",
-  email: "",
-  users: [],
+export const useAuthStore = create<AuthState>((set) => ({
+  user: MOCK_DEFAULT_ELDER,
+  isLoggedIn: true,
+  role: MOCK_DEFAULT_ELDER.role,
+  name: MOCK_DEFAULT_ELDER.name,
 
-  register: (user) => {
-    const email = user.email.trim().toLowerCase();
-    const exists = get().users.some((u) => u.email === email);
-    if (exists) {
-      return { ok: false, error: "이미 가입된 이메일이에요." };
+  setSession: (user) => set({ user, isLoggedIn: true, role: user.role, name: user.name }),
+
+  setLinkedElder: (elderName) =>
+    set((state) => (state.user ? { user: { ...state.user, linkedElderName: elderName } } : {})),
+
+  hydrate: async () => {
+    const restored = await restoreSession();
+    if (restored) {
+      set({ user: restored, isLoggedIn: true, role: restored.role, name: restored.name });
     }
-    set((state) => ({ users: [...state.users, { ...user, email }] }));
-    return { ok: true };
+    // mock: 복원 실패 시 기본 어른 세션 유지 (관문 없이 통과).
   },
 
-  login: (email, password) => {
-    const normalized = email.trim().toLowerCase();
-    const found = get().users.find((u) => u.email === normalized);
-    if (!found || found.password !== password) {
-      return { ok: false, error: "이메일 또는 비밀번호가 올바르지 않아요." };
-    }
-    set({ isLoggedIn: true, role: found.role, name: found.name, email: found.email });
-    return { ok: true, role: found.role };
+  logout: () => {
+    void apiLogout();
+    set({ user: null, isLoggedIn: false, role: "elder", name: "" });
   },
-
-  logout: () => set({ isLoggedIn: false, role: "elder", name: "", email: "" }),
 }));
