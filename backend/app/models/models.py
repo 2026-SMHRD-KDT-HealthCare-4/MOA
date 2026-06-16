@@ -31,10 +31,27 @@ class VoiceRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    transcript = Column(String, nullable=False)
-    score = Column(Float, nullable=False)
-    status = Column(Enum(HealthStatus), nullable=False)
-    duration_ms = Column(Integer, default=0)
+    transcript = Column(String, nullable=True)
+
+    # 음성 특징점
+    f0_mean = Column(Float, nullable=True)
+    f0_std = Column(Float, nullable=True)
+    jitter_rap = Column(Float, nullable=True)
+    shimmer_apq = Column(Float, nullable=True)
+    shimmer_local = Column(Float, nullable=True)
+    shimmer_apq3 = Column(Float, nullable=True)
+    shimmer_apq11 = Column(Float, nullable=True)
+    hnr = Column(Float, nullable=True)
+    nhr = Column(Float, nullable=True)
+    mpt = Column(Float, nullable=True)
+    vsa_area = Column(Float, nullable=True)
+    pause_ratio = Column(Float, nullable=True)
+    speech_rate = Column(Float, nullable=True)
+    alpha_ratio = Column(Float, nullable=True)
+    spectral_centroid = Column(Float, nullable=True)
+
+    score = Column(Float, nullable=True)
+    status = Column(Enum(HealthStatus), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="records")
@@ -44,7 +61,7 @@ class ChatLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    role = Column(String, nullable=False)  # "user" or "bot"
+    role = Column(String, nullable=False)
     message = Column(String, nullable=False)
     emotion = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
