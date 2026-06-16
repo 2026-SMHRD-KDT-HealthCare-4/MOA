@@ -1,0 +1,89 @@
+# Voice, Chat, Record Feature Spec
+
+## 1. 범위
+
+이 문서는 음성 녹음, STT, 챗봇, TTS, 호출어 기능을 다룬다.
+
+## 2. 관련 파일
+
+| 파일 | 역할 |
+| --- | --- |
+| `frontend/src/features/record/useRecorder.ts` | 녹음, 권한, STT, 임시 파일 삭제 |
+| `frontend/src/features/chatbot/useMoaChat.ts` | 챗봇 메시지 상태, mock API, TTS |
+| `frontend/src/mocks/chatbotResponses.ts` | mock 챗봇 응답 |
+| `frontend/src/hooks/useWakeWord.ts` | 호출어 텍스트와 라우트 매핑 |
+| `frontend/src/stores/wakeWordStore.ts` | 호출어 활성 상태 |
+
+## 3. 녹음 플로우
+
+1. 사용자가 녹음 버튼을 누른다.
+2. 마이크 권한을 요청한다.
+3. 권한이 있으면 호출어 감지를 비활성화한다.
+4. `expo-av`로 녹음한다.
+5. 사용자가 중지하면 처리 상태로 전환한다.
+6. Whisper STT API를 호출하거나 mock transcript를 반환한다.
+7. 임시 음성 파일을 삭제한다.
+8. 결과 텍스트를 화면에 표시한다.
+9. 호출어 감지를 다시 활성화한다.
+
+## 4. 챗봇 플로우
+
+1. 사용자가 텍스트를 입력한다.
+2. 호출어 감지를 비활성화한다.
+3. 사용자 메시지를 채팅 목록에 추가한다.
+4. mock 챗봇 API를 호출한다.
+5. bot emotion을 Moa 아바타 상태에 반영한다.
+6. 응답 텍스트를 표시한다.
+7. OpenAI TTS API 키가 있으면 음성을 재생한다.
+8. 실패해도 텍스트 응답은 유지한다.
+9. 호출어 감지를 다시 활성화한다.
+
+## 5. 채팅 아바타 영상 상태
+
+현재 채팅 화면의 Moa 아바타는 실제 TTS/STT API 성공 여부와 분리해서 대화 흐름 상태에 따라 자동 전환된다. 이 로직은 `frontend/src/pages/ChatPage.tsx`의 로컬 state로 관리하며, 별도 Zustand store는 만들지 않는다.
+
+| 상태 | 영상 |
+| --- | --- |
+| 세션 시작 첫 인사 | `greeting` / `모아인사.mp4` |
+| 세션 대기 중 | `default` / `기본.mp4` |
+| `isBotTyping === true` | `thinking` / `생각.mp4`, 최소 2초 후 전환 가능, 최대 3초 fallback 탈출 |
+| 봇 응답 도착 후 | `happy` + `isTalking=true` / `설명.mp4`, 최소 3초 후 전환 가능, 최대 4.5초 fallback 탈출 |
+| 녹음 상태가 `recording` | `listening` / `듣기.mp4` |
+| 말하기 타이머 종료 후 | `botEmotion` 기반 `기쁨.mp4` 또는 `걱정.mp4` 등 |
+
+`MoaAvatar`는 영상 전환 시 source를 매번 교체하지 않고, 매핑된 영상 player를 미리 생성한 뒤 `VideoView` 레이어 opacity를 0.3초 동안 크로스페이드한다. 단 **보이는 레이어만 재생하고, 안 보이는 레이어는 페이드 아웃 직후 `pause()`** 하여 동시 재생 디코더 수를 최소화한다(끊김·발열 방지). 들어오는 레이어는 `statusChange`로 `readyToPlay`(첫 프레임 준비)를 확인한 뒤에만 페이드 인하여 빈 화면 깜빡임을 막는다. `playToEnd` 이벤트는 자연스러운 전환을 돕는 보조 신호로만 사용하며, 이벤트가 오지 않아도 fallback 타이머로 반드시 상태를 탈출한다. TTS 재생 시간이 실제로 제공되면, 현재의 말하기 타이머는 TTS 재생 시작/종료 이벤트 기반으로 교체한다.
+
+영상 레이어 목록(`AVATAR_VIDEO_LAYERS`)은 `frontend/src/constants/emotionMap.ts`의 `EMOTION_VIDEO_MAP`에서 자동 생성된다. **영상 추가·삭제·교체는 `EMOTION_VIDEO_MAP` 한 곳만 수정**하면 되고, 렌더링 로직(`MoaAvatar`)은 손대지 않는다.
+
+## 6. 호출어 기능
+
+현재 호출어 기능은 실제 상시 백그라운드 감지가 아니다. `useWakeWord`의 `handleSpeech(text)`에 텍스트가 들어왔을 때 라우팅하는 구조다.
+
+예상 라우팅:
+
+| 호출 문장 | 이동 경로 |
+| --- | --- |
+| "모아야" | `/chat` |
+| "모아야 기록" | `/(elder)/history` |
+| "모아야 홈" | `/(elder)/` |
+| "모아야 설정" | `/(elder)/settings` |
+| "모아야 대화하자" | `/chat` |
+
+녹음 중 또는 대화 중에는 자동 비활성화해야 한다.
+
+## 7. API 이전 방향
+
+현재 OpenAI API 호출은 프론트 코드에 준비되어 있다. 실제 서비스에서는 다음처럼 변경한다.
+
+- 프론트: 음성/텍스트 요청을 백엔드로 전송
+- 백엔드: OpenAI API 호출, 결과 정제, 정책 필터링
+- 프론트: 결과 표시와 재생만 담당
+
+## 8. 변경 기록
+
+- 2026-06-15: 음성/챗봇/호출어 기능 상세 문서 신설.
+- 2026-06-15: 채팅 아바타 영상 상태 자동 전환 규칙 추가.
+- 2026-06-15: 아바타 영상 프리로드, 0.3초 크로스페이드, thinking/talking 최소 지속 시간 규칙 추가.
+- 2026-06-15: `playToEnd`를 필수 조건에서 보조 신호로 변경하고 fallback 탈출 시간을 명시.
+- 2026-06-15: "모아야" 단독 호출 시 `/chat`으로 이동하는 호출어 매핑 추가.
+- 2026-06-15: 아바타 영상 렌더링 최적화 — 안 보이는 레이어 pause, `readyToPlay` 게이트 크로스페이드, 영상 레이어를 `EMOTION_VIDEO_MAP` 기반 자동 생성(단일 소스).

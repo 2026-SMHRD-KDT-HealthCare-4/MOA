@@ -2,7 +2,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { type ComponentProps } from "react";
 import type { Tabs } from "expo-router";
 import {
-  Home, CalendarDays, Clock, Settings,
+  Home, CalendarDays, Settings,
   LayoutDashboard, Users, FileText,
 } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,8 +19,7 @@ interface TabConfig {
 // ── 탭 설정 ────────────────────────────────────────────────
 const ELDER_TABS: TabConfig[] = [
   { name: "index",    icon: Home,         label: "홈" },
-  { name: "record",   icon: CalendarDays, label: "기록" },
-  { name: "history",  icon: Clock,        label: "히스토리" },
+  { name: "history",  icon: CalendarDays, label: "기록" },
   { name: "settings", icon: Settings,     label: "설정" },
 ];
 
@@ -34,12 +33,13 @@ const GUARDIAN_TABS: TabConfig[] = [
 // ── 공통 베이스 ────────────────────────────────────────────
 function BottomNavBase({ state, navigation, tabs }: BottomTabBarProps & { tabs: TabConfig[] }) {
   const insets = useSafeAreaInsets();
+  const activeRouteName = state.routes[state.index]?.name;
 
   return (
     <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 7) }]}>
-      {tabs.map((tab, index) => {
+      {tabs.map((tab) => {
         const Icon = tab.icon;
-        const isActive = state.index === index;
+        const isActive = activeRouteName === tab.name;
 
         return (
           <TouchableOpacity
@@ -50,7 +50,7 @@ function BottomNavBase({ state, navigation, tabs }: BottomTabBarProps & { tabs: 
             accessibilityRole="button"
             activeOpacity={0.7}
           >
-            <Icon size={20} color={isActive ? "#FF706D" : "#b6aaa5"} />
+            <Icon size={27} color={isActive ? "#FF7657" : "#6D5A51"} fill={isActive ? "#FF7657" : "transparent"} />
             <Text style={[styles.label, isActive && styles.labelActive]}>
               {tab.label}
             </Text>
@@ -73,27 +73,27 @@ export function GuardianBottomNav(props: BottomTabBarProps) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
-    height: 70,
-    borderTopWidth: 1,
-    borderTopColor: "#eee5e0",
-    backgroundColor: "rgba(255,255,255,0.97)",
-    paddingTop: 8,
-    paddingHorizontal: 10,
-    shadowColor: "#4b342a",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.05,
-    shadowRadius: 24,
+    minHeight: 90,
+    marginHorizontal: 20,
+    marginBottom: 10,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: "rgba(117,76,42,0.08)",
+    backgroundColor: "rgba(255,255,255,0.88)",
+    paddingTop: 12,
+    paddingHorizontal: 18,
+    boxShadow: "0 -10px 26px rgba(75, 52, 42, 0.08)",
     elevation: 8,
   },
   tab: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    borderRadius: 13,
+    gap: 5,
+    borderRadius: 24,
     paddingVertical: 4,
   },
-  tabActive: { backgroundColor: "#fff1ee" },
-  label: { fontSize: 12, fontWeight: "600", color: "#b6aaa5" },
-  labelActive: { color: "#FF706D" },
+  tabActive: { backgroundColor: "rgba(255,118,87,0.10)" },
+  label: { fontSize: 17, lineHeight: 22, fontWeight: "800", color: "#6D5A51" },
+  labelActive: { color: "#FF7657" },
 });

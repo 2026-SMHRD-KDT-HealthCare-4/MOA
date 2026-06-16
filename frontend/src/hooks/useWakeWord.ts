@@ -7,6 +7,7 @@ const KEYWORD_ROUTES: [string, string][] = [
   ["모아야, 홈", "/(elder)/"],
   ["모아야, 설정", "/(elder)/settings"],
   ["모아야, 대화하자", "/chat"],
+  ["모아야", "/chat"],
 ];
 
 function matchRoute(text: string): string | null {

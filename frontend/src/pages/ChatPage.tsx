@@ -7,15 +7,29 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft, Send } from "lucide-react-native";
 import { BellIcon } from "../components/icons/BellIcon";
 import { useMoaChat, type ChatMessage } from "../features/chatbot/useMoaChat";
+import { useRecorder } from "../features/record/useRecorder";
 import { MoaAvatar } from "../components/MoaAvatar";
+import type { BotEmotion } from "../constants/emotionMap";
+
+const INTRO_GREETING_MS = 2500;
+const THINKING_MIN_MS = 2000;
+const THINKING_MAX_MS = 3000;
+const BOT_TALKING_MIN_MS = 3000;
+const BOT_TALKING_MAX_MS = 4500;
+
+type AvatarState = {
+  emotion: BotEmotion;
+  isTalking: boolean;
+};
 
 function UserBubble({ text }: { text: string }) {
   return (
@@ -50,10 +64,24 @@ function TypingDots() {
 export default function ChatPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // 아바타를 화면 절반 정도 크기로 — 너비 60% 기준, 높이 40%로 상한.
+  const avatarSize = Math.round(Math.min(Math.min(windowWidth, 430) * 0.6, windowHeight * 0.4));
   // ── 챗봇 로직 (변경 금지) ──────────────────────────────
   const { messages, isBotTyping, botEmotion, sendMessage } = useMoaChat();
+  const { state: recorderState } = useRecorder();
   const [input, setInput] = useState("");
+  const [showIntroGreeting, setShowIntroGreeting] = useState(true);
+  const [showThinking, setShowThinking] = useState(false);
+  const [thinkingMinElapsed, setThinkingMinElapsed] = useState(false);
+  const [isBotTalking, setIsBotTalking] = useState(false);
+  const [talkingMinElapsed, setTalkingMinElapsed] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
+  const lastBotMessageIdRef = useRef<string | null>(null);
+  const thinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thinkingFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const botTalkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const botTalkingFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleSend() {
     const text = input.trim();
@@ -63,8 +91,115 @@ export default function ChatPage() {
   }
   // ──────────────────────────────────────────────────────
 
+  useEffect(() => {
+    const timer = setTimeout(() => setShowIntroGreeting(false), INTRO_GREETING_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (isBotTyping) {
+      setShowThinking(true);
+      setThinkingMinElapsed(false);
+
+      if (thinkingTimerRef.current) {
+        clearTimeout(thinkingTimerRef.current);
+      }
+      if (thinkingFallbackTimerRef.current) {
+        clearTimeout(thinkingFallbackTimerRef.current);
+      }
+      thinkingTimerRef.current = setTimeout(() => {
+        setThinkingMinElapsed(true);
+        thinkingTimerRef.current = null;
+      }, THINKING_MIN_MS);
+      thinkingFallbackTimerRef.current = setTimeout(() => {
+        setShowThinking(false);
+        thinkingFallbackTimerRef.current = null;
+      }, THINKING_MAX_MS);
+    }
+  }, [isBotTyping]);
+
+  useEffect(() => {
+    if (!showThinking || isBotTyping || !thinkingMinElapsed) return;
+    setShowThinking(false);
+  }, [isBotTyping, showThinking, thinkingMinElapsed]);
+
+  useEffect(() => {
+    const lastBotMessage = [...messages].reverse().find((message) => message.role === "bot");
+    if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) return;
+
+    lastBotMessageIdRef.current = lastBotMessage.id;
+    setIsBotTalking(true);
+    setTalkingMinElapsed(false);
+
+    if (botTalkingTimerRef.current) {
+      clearTimeout(botTalkingTimerRef.current);
+    }
+    if (botTalkingFallbackTimerRef.current) {
+      clearTimeout(botTalkingFallbackTimerRef.current);
+    }
+    botTalkingTimerRef.current = setTimeout(() => {
+      setTalkingMinElapsed(true);
+      botTalkingTimerRef.current = null;
+    }, BOT_TALKING_MIN_MS);
+    botTalkingFallbackTimerRef.current = setTimeout(() => {
+      setIsBotTalking(false);
+      botTalkingFallbackTimerRef.current = null;
+    }, BOT_TALKING_MAX_MS);
+  }, [messages]);
+
+  useEffect(() => {
+    if (!isBotTalking || !talkingMinElapsed) return;
+    setIsBotTalking(false);
+  }, [isBotTalking, talkingMinElapsed]);
+
+  useEffect(() => {
+    return () => {
+      if (thinkingTimerRef.current) {
+        clearTimeout(thinkingTimerRef.current);
+      }
+      if (thinkingFallbackTimerRef.current) {
+        clearTimeout(thinkingFallbackTimerRef.current);
+      }
+      if (botTalkingTimerRef.current) {
+        clearTimeout(botTalkingTimerRef.current);
+      }
+      if (botTalkingFallbackTimerRef.current) {
+        clearTimeout(botTalkingFallbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  function handleActiveVideoLoop(state: AvatarState) {
+    if (state.emotion === "thinking" && !state.isTalking && thinkingMinElapsed) {
+      setShowThinking(false);
+    }
+    if (state.emotion === "happy" && state.isTalking && talkingMinElapsed) {
+      setIsBotTalking(false);
+    }
+  }
+
+  function resolveAvatarState(): AvatarState {
+    if (recorderState === "recording") {
+      return { emotion: "listening", isTalking: false };
+    }
+    if (showThinking) {
+      return { emotion: "thinking", isTalking: false };
+    }
+    if (isBotTalking) {
+      return { emotion: "happy", isTalking: true };
+    }
+    if (showIntroGreeting && messages.length === 0) {
+      return { emotion: "greeting", isTalking: false };
+    }
+    if (messages.length === 0 || botEmotion === "greeting") {
+      return { emotion: "default", isTalking: false };
+    }
+    return { emotion: botEmotion, isTalking: false };
+  }
+
   const renderItem = ({ item }: { item: ChatMessage }) =>
     item.role === "user" ? <UserBubble text={item.text} /> : <BotBubble text={item.text} />;
+  const avatarState = resolveAvatarState();
 
   return (
     <KeyboardAvoidingView
@@ -94,7 +229,13 @@ export default function ChatPage() {
 
       {/* 아바타 */}
       <View style={styles.avatarSection}>
-        <MoaAvatar emotion={botEmotion} size={80} showOnlineDot={false} />
+        <MoaAvatar
+          emotion={avatarState.emotion}
+          isTalking={avatarState.isTalking}
+          size={avatarSize}
+          showOnlineDot={false}
+          onActiveVideoLoop={handleActiveVideoLoop}
+        />
         <Text style={styles.avatarName}>모아</Text>
       </View>
 

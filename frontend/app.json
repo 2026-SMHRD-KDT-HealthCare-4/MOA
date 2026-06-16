@@ -33,7 +33,8 @@
     "plugins": [
       "expo-router",
       "expo-av",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-video"
     ]
   }
 }
