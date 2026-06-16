@@ -51,7 +51,9 @@
 | 녹음 상태가 `recording` | `listening` / `듣기.mp4` |
 | 말하기 타이머 종료 후 | `botEmotion` 기반 `기쁨.mp4` 또는 `걱정.mp4` 등 |
 
-`MoaAvatar`는 영상 전환 시 source를 매번 교체하지 않고, 매핑된 영상 player를 미리 생성한 뒤 `VideoView` 레이어 opacity를 0.3초 동안 크로스페이드한다. `playToEnd` 이벤트는 자연스러운 전환을 돕는 보조 신호로만 사용하며, 이벤트가 오지 않아도 fallback 타이머로 반드시 상태를 탈출한다. TTS 재생 시간이 실제로 제공되면, 현재의 말하기 타이머는 TTS 재생 시작/종료 이벤트 기반으로 교체한다.
+`MoaAvatar`는 영상 전환 시 source를 매번 교체하지 않고, 매핑된 영상 player를 미리 생성한 뒤 `VideoView` 레이어 opacity를 0.3초 동안 크로스페이드한다. 단 **보이는 레이어만 재생하고, 안 보이는 레이어는 페이드 아웃 직후 `pause()`** 하여 동시 재생 디코더 수를 최소화한다(끊김·발열 방지). 들어오는 레이어는 `statusChange`로 `readyToPlay`(첫 프레임 준비)를 확인한 뒤에만 페이드 인하여 빈 화면 깜빡임을 막는다. `playToEnd` 이벤트는 자연스러운 전환을 돕는 보조 신호로만 사용하며, 이벤트가 오지 않아도 fallback 타이머로 반드시 상태를 탈출한다. TTS 재생 시간이 실제로 제공되면, 현재의 말하기 타이머는 TTS 재생 시작/종료 이벤트 기반으로 교체한다.
+
+영상 레이어 목록(`AVATAR_VIDEO_LAYERS`)은 `frontend/src/constants/emotionMap.ts`의 `EMOTION_VIDEO_MAP`에서 자동 생성된다. **영상 추가·삭제·교체는 `EMOTION_VIDEO_MAP` 한 곳만 수정**하면 되고, 렌더링 로직(`MoaAvatar`)은 손대지 않는다.
 
 ## 6. 호출어 기능
 
@@ -84,3 +86,4 @@
 - 2026-06-15: 아바타 영상 프리로드, 0.3초 크로스페이드, thinking/talking 최소 지속 시간 규칙 추가.
 - 2026-06-15: `playToEnd`를 필수 조건에서 보조 신호로 변경하고 fallback 탈출 시간을 명시.
 - 2026-06-15: "모아야" 단독 호출 시 `/chat`으로 이동하는 호출어 매핑 추가.
+- 2026-06-15: 아바타 영상 렌더링 최적화 — 안 보이는 레이어 pause, `readyToPlay` 게이트 크로스페이드, 영상 레이어를 `EMOTION_VIDEO_MAP` 기반 자동 생성(단일 소스).

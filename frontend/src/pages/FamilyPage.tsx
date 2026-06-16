@@ -1,6 +1,7 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { UserPlus, ChevronRight } from "lucide-react-native";
+import { WEATHER_IMAGE } from "../constants/weatherIcons";
 
 // mock 데이터
 const FAMILY_MEMBERS = [
@@ -16,7 +17,6 @@ const FAMILY_MEMBERS = [
   },
 ];
 
-const WEATHER_ICON: Record<string, string> = { sunny: "☀️", cloudy: "⛅", rainy: "🌧️" };
 const WEATHER_LABEL: Record<string, string> = { sunny: "맑음", cloudy: "흐림", rainy: "비" };
 
 export default function FamilyPage() {
@@ -58,7 +58,7 @@ export default function FamilyPage() {
             {/* 상태 요약 */}
             <View style={styles.statusRow}>
               <View style={styles.statusItem}>
-                <Text style={styles.statusIcon}>{WEATHER_ICON[member.todayStatus]}</Text>
+                <Image source={WEATHER_IMAGE[member.todayStatus]} style={styles.statusIconImg} resizeMode="contain" />
                 <View>
                   <Text style={styles.statusLabel}>오늘 상태</Text>
                   <Text style={styles.statusValue}>{WEATHER_LABEL[member.todayStatus]}</Text>
@@ -152,6 +152,7 @@ const styles = StyleSheet.create({
   statusItem: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
   statusDivider: { width: 1, height: 36, backgroundColor: "#f0e8e2" },
   statusIcon: { fontSize: 22 },
+  statusIconImg: { width: 26, height: 26 },
   statusLabel: { fontSize: 12, color: "#b6aaa5" },
   statusValue: { fontSize: 15, fontWeight: "700", color: "#40332D" },
   addBtn: {

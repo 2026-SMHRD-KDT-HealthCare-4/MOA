@@ -25,7 +25,7 @@
 - **NativeWind v4** (TailwindCSS for React Native, 인라인 style 지양, 유틸리티 우선)
 - 라우팅: **Expo Router** (파일 기반 라우팅, app/ 디렉토리)
 - 상태관리: **Zustand** (전역 상태), useState/useRef (로컬·컴포넌트 단위 상태)
-- 미디어: **expo-av** (음성 녹음 · 영상 재생), **expo-notifications** (알림)
+- 미디어: 음성 녹음·오디오는 **expo-av**(`useRecorder`, `useMoaChat`), 캐릭터 영상 재생은 **expo-video**(`MoaAvatar`, `CharacterPlayer`). 알림은 **expo-notifications**. (영상은 expo-av → expo-video로 마이그레이션됨. 신규 영상 재생은 expo-video 사용)
 - STT: OpenAI Whisper API / TTS: OpenAI TTS API (테스트 후 변경 가능)
 - 차트: Victory Native (보호자 리포트 화면)
 - HTTP: fetch (axios 도입은 팀 합의 전까지 보류)
@@ -95,3 +95,4 @@
 - 2026-06-15: 메타 규칙(자동 보강 · 충돌 시 재확인) 추가.
 - 2026-06-15: 메타 규칙 3 추가 — 충돌 재확인 후에도 승인된 경우 CLAUDE.md에 결정 재반영.
 - 2026-06-15: 루트 `global.md` 및 최상위 `docs/` 문서 체계 우선 원칙 추가.
+- 2026-06-15: 미디어 스택 갱신 — 캐릭터 영상 재생을 expo-av → expo-video로 마이그레이션 반영 (오디오는 expo-av 유지).

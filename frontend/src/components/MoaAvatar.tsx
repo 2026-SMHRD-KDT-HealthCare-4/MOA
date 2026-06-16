@@ -1,37 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 import { useEventListener } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { resolveVideoSrc, type BotEmotion } from "../constants/emotionMap";
+import {
+  AVATAR_VIDEO_LAYERS,
+  getAvatarVideoKey,
+  resolveVideoSrc,
+  type AvatarVideoLayer,
+  type BotEmotion,
+} from "../constants/emotionMap";
 
 const CROSSFADE_MS = 300;
-
-type AvatarVideoKey =
-  | "default"
-  | "greetingIdle"
-  | "greetingTalking"
-  | "happyIdle"
-  | "happyTalking"
-  | "worried"
-  | "listening"
-  | "thinking";
-
-type AvatarVideoLayer = {
-  key: AvatarVideoKey;
-  emotion: BotEmotion;
-  isTalking: boolean;
-};
-
-const AVATAR_VIDEO_LAYERS: AvatarVideoLayer[] = [
-  { key: "default", emotion: "default", isTalking: false },
-  { key: "greetingIdle", emotion: "greeting", isTalking: false },
-  { key: "greetingTalking", emotion: "greeting", isTalking: true },
-  { key: "happyIdle", emotion: "happy", isTalking: false },
-  { key: "happyTalking", emotion: "happy", isTalking: true },
-  { key: "worried", emotion: "worried", isTalking: false },
-  { key: "listening", emotion: "listening", isTalking: false },
-  { key: "thinking", emotion: "thinking", isTalking: false },
-];
 
 interface MoaAvatarProps {
   emotion?: BotEmotion;
@@ -40,13 +19,6 @@ interface MoaAvatarProps {
   showOnlineDot?: boolean;
   circular?: boolean;
   onActiveVideoLoop?: (state: { emotion: BotEmotion; isTalking: boolean }) => void;
-}
-
-function getAvatarVideoKey(emotion: BotEmotion, isTalking: boolean): AvatarVideoKey {
-  if (emotion === "default") return "default";
-  if (emotion === "greeting") return isTalking ? "greetingTalking" : "greetingIdle";
-  if (emotion === "happy") return isTalking ? "happyTalking" : "happyIdle";
-  return emotion;
 }
 
 function VideoLayer({
@@ -64,31 +36,42 @@ function VideoLayer({
 }) {
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const videoSrc = resolveVideoSrc(layer.emotion, layer.isTalking);
-  const player = useVideoPlayer(videoSrc, (player) => {
-    player.loop = true;
-    player.muted = true;
-    player.play();
+  // 모든 레이어를 mount해 소스를 미리 로드하되, 재생은 보이는 레이어만 (아래 effect).
+  const player = useVideoPlayer(videoSrc, (p) => {
+    p.loop = true;
+    p.muted = true;
+  });
+
+  // 첫 프레임 준비 여부 추적 — 준비된 뒤에만 페이드 인 (빈 화면 깜빡임 방지).
+  const [ready, setReady] = useState(player.status === "readyToPlay");
+  useEventListener(player, "statusChange", ({ status }) => {
+    setReady(status === "readyToPlay");
   });
 
   useEffect(() => {
-    player.loop = true;
-    player.muted = true;
-    player.play();
-  }, [player]);
-
-  useEffect(() => {
     if (visible) {
-      player.currentTime = 0;
       player.play();
+      if (ready) {
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: CROSSFADE_MS,
+          useNativeDriver: true,
+        }).start();
+      }
+      // 아직 준비 전이면 ready가 true로 바뀔 때 effect가 재실행되어 페이드 인.
+    } else {
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: CROSSFADE_MS,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        // 페이드 아웃 완료 후 정지 → 동시 재생 디코더를 최소화(끊김의 주원인 제거).
+        if (finished) player.pause();
+      });
     }
+  }, [visible, ready, opacity, player]);
 
-    Animated.timing(opacity, {
-      toValue: visible ? 1 : 0,
-      duration: CROSSFADE_MS,
-      useNativeDriver: true,
-    }).start();
-  }, [opacity, player, visible]);
-
+  // 자연스러운 전환 보조 신호 — 보이는(재생 중) 레이어에서만 발생.
   useEventListener(player, "playToEnd", () => {
     if (!visible) return;
     onActiveVideoLoop?.({ emotion: layer.emotion, isTalking: layer.isTalking });
@@ -97,14 +80,7 @@ function VideoLayer({
   return (
     <Animated.View
       pointerEvents="none"
-      style={[
-        styles.videoLayer,
-        {
-          width: size,
-          height: size,
-          opacity,
-        },
-      ]}
+      style={[styles.videoLayer, { width: size, height: size, opacity }]}
     >
       <VideoView
         player={player}

@@ -1,7 +1,8 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Bell, ChevronRight, TrendingUp, Calendar } from "lucide-react-native";
+import { WEATHER_IMAGE } from "../constants/weatherIcons";
 
 // mock 데이터 — 실제 연동 시 API 응답으로 교체
 const ELDER = {
@@ -13,7 +14,6 @@ const ELDER = {
   weekSummary: ["sunny", "sunny", "cloudy", "sunny", "rainy", "sunny", "sunny"] as const,
 };
 
-const WEATHER_ICON: Record<string, string> = { sunny: "☀️", cloudy: "⛅", rainy: "🌧️" };
 const WEATHER_LABEL: Record<string, string> = { sunny: "맑음", cloudy: "흐림", rainy: "비" };
 const WEATHER_BG: Record<string, string> = {
   sunny: "#fff9e6",
@@ -47,7 +47,7 @@ export default function DashboardPage() {
 
         {/* 오늘의 상태 카드 */}
         <View style={[styles.statusCard, { backgroundColor: WEATHER_BG[ELDER.recentStatus] }]}>
-          <Text style={styles.statusEmoji}>{WEATHER_ICON[ELDER.recentStatus]}</Text>
+          <Image source={WEATHER_IMAGE[ELDER.recentStatus]} style={styles.statusEmoji} resizeMode="contain" />
           <View style={styles.statusInfo}>
             <Text style={styles.statusLabel}>오늘의 목소리 상태</Text>
             <Text style={styles.statusValue}>{WEATHER_LABEL[ELDER.recentStatus]}</Text>
@@ -62,7 +62,7 @@ export default function DashboardPage() {
             {ELDER.weekSummary.map((status, i) => (
               <View key={i} style={styles.weekCell}>
                 <Text style={styles.weekDay}>{days[i]}</Text>
-                <Text style={styles.weekIcon}>{WEATHER_ICON[status]}</Text>
+                <Image source={WEATHER_IMAGE[status]} style={styles.weekIcon} resizeMode="contain" />
               </View>
             ))}
           </View>
@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#f0e8e2",
   },
-  statusEmoji: { fontSize: 52 },
+  statusEmoji: { width: 56, height: 56 },
   statusInfo: { gap: 3 },
   statusLabel: { fontSize: 14, color: "#765E52" },
   statusValue: { fontSize: 24, fontWeight: "800", color: "#342C28" },
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
   weekRow: { flexDirection: "row", justifyContent: "space-between" },
   weekCell: { alignItems: "center", gap: 6 },
   weekDay: { fontSize: 13, color: "#b6aaa5", fontWeight: "600" },
-  weekIcon: { fontSize: 24 },
+  weekIcon: { width: 30, height: 30 },
   streakCard: {
     backgroundColor: "white",
     borderRadius: 18,

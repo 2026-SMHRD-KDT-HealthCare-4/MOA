@@ -1,15 +1,11 @@
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
+import { View, Text, Image, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronLeft, ChevronRight } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react-native";
 import { useState } from "react";
+import { WEATHER_IMAGE } from "../constants/weatherIcons";
 
 type DayStatus = "sunny" | "cloudy" | "rainy" | null;
-
-const WEATHER_ICON: Record<NonNullable<DayStatus>, string> = {
-  sunny: "☀️",
-  cloudy: "⛅",
-  rainy: "🌧️",
-};
 
 const WEATHER_LABEL: Record<NonNullable<DayStatus>, string> = {
   sunny: "맑음",
@@ -52,6 +48,7 @@ function buildCalendar(year: number, month: number): (number | null)[][] {
 
 export default function HistoryPage() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -122,7 +119,7 @@ export default function HistoryPage() {
                   <View key={di} style={[styles.dayCell, isToday && styles.todayCell]}>
                     <Text style={[styles.dayNum, isToday && styles.todayNum]}>{day}</Text>
                     {status ? (
-                      <Text style={styles.weatherIcon}>{WEATHER_ICON[status]}</Text>
+                      <Image source={WEATHER_IMAGE[status]} style={styles.weatherIcon} resizeMode="contain" />
                     ) : (
                       <View style={styles.emptyDot} />
                     )}
@@ -137,7 +134,7 @@ export default function HistoryPage() {
         <View style={styles.legend}>
           {(["sunny", "cloudy", "rainy"] as DayStatus[]).filter(Boolean).map((s) => (
             <View key={s!} style={styles.legendItem}>
-              <Text style={styles.legendEmoji}>{WEATHER_ICON[s!]}</Text>
+              <Image source={WEATHER_IMAGE[s!]} style={styles.legendEmoji} resizeMode="contain" />
               <Text style={styles.legendLabel}>{WEATHER_LABEL[s!]}</Text>
             </View>
           ))}
@@ -146,7 +143,7 @@ export default function HistoryPage() {
         {/* 이번 달 요약 카드 */}
         {isThisMonth && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryEmoji}>🎉</Text>
+            <Text style={styles.summaryEmoji}>🎈</Text>
             <Text style={styles.summaryText}>
               이번 달 <Text style={styles.summaryHighlight}>{sunnyCount}일</Text> 동안{"\n"}
               맑은 목소리를 들려주셨어요!
@@ -155,6 +152,17 @@ export default function HistoryPage() {
         )}
 
       </ScrollView>
+
+      {/* 챗봇 바로가기 — 네비게이션바 위에 떠 있는 버튼 */}
+      <TouchableOpacity
+        style={styles.chatFab}
+        onPress={() => router.push("/chat")}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="모아와 대화하기"
+      >
+        <MessageCircle size={28} color="#FFFFFF" strokeWidth={2.5} />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -206,7 +214,7 @@ const styles = StyleSheet.create({
   todayCell: { backgroundColor: "#fff5f4", borderWidth: 1.5, borderColor: "#FF7955" },
   dayNum: { fontSize: 14, color: "#5f4c45", fontWeight: "500" },
   todayNum: { color: "#FF7955", fontWeight: "800" },
-  weatherIcon: { fontSize: 20 },
+  weatherIcon: { width: 24, height: 24 },
   emptyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#ede4df" },
   legend: {
     flexDirection: "row",
@@ -220,7 +228,7 @@ const styles = StyleSheet.create({
     borderColor: "#f0e8e2",
   },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendEmoji: { fontSize: 18 },
+  legendEmoji: { width: 22, height: 22 },
   legendLabel: { fontSize: 16, color: "#8b7871" },
   summaryCard: {
     marginTop: 16,
@@ -241,4 +249,20 @@ const styles = StyleSheet.create({
   summaryEmoji: { fontSize: 36 },
   summaryText: { flex: 1, fontSize: 18, color: "#40332D", lineHeight: 28 },
   summaryHighlight: { color: "#FF7955", fontWeight: "800" },
+  chatFab: {
+    position: "absolute",
+    right: 22,
+    bottom: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#78A56F",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    boxShadow: "0 9px 17px rgba(72, 106, 63, 0.24)",
+    elevation: 6,
+    zIndex: 20,
+  },
 });

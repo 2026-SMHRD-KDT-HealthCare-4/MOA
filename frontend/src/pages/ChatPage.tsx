@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useEffect, useState, useRef } from "react";
@@ -63,6 +64,9 @@ function TypingDots() {
 export default function ChatPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  // 아바타를 화면 절반 정도 크기로 — 너비 60% 기준, 높이 40%로 상한.
+  const avatarSize = Math.round(Math.min(Math.min(windowWidth, 430) * 0.6, windowHeight * 0.4));
   // ── 챗봇 로직 (변경 금지) ──────────────────────────────
   const { messages, isBotTyping, botEmotion, sendMessage } = useMoaChat();
   const { state: recorderState } = useRecorder();
@@ -228,7 +232,7 @@ export default function ChatPage() {
         <MoaAvatar
           emotion={avatarState.emotion}
           isTalking={avatarState.isTalking}
-          size={80}
+          size={avatarSize}
           showOnlineDot={false}
           onActiveVideoLoop={handleActiveVideoLoop}
         />
