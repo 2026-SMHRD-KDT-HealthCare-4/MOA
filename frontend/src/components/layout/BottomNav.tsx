@@ -17,6 +17,47 @@ interface TabConfig {
   label: string;
 }
 
+// ── 역할별 네비 테마 ───────────────────────────────────────
+// 어르신: 따뜻한 코랄 + 큰 글씨(친근·심플). 보호자: 네이비/틸 스마트 톤(삼성헬스풍).
+// 두 화면이 BottomNavBase를 공유하므로, 톤이 섞이지 않도록 테마로 분리한다.
+interface NavTheme {
+  iconSize: number;
+  labelSize: number;
+  labelLineHeight: number;
+  activeColor: string;
+  inactiveColor: string;
+  activeBg: string;
+  containerBorder: string;
+  containerBg: string;
+  shadow: string;
+}
+
+// 어르신 화면 라벨은 규칙상 최소 18pt 유지.
+const ELDER_THEME: NavTheme = {
+  iconSize: 27,
+  labelSize: 18,
+  labelLineHeight: 23,
+  activeColor: "#FF7657",
+  inactiveColor: "#6D5A51",
+  activeBg: "rgba(255,118,87,0.10)",
+  containerBorder: "rgba(117,76,42,0.08)",
+  containerBg: "rgba(255,255,255,0.92)",
+  shadow: "0 -10px 26px rgba(75, 52, 42, 0.08)",
+};
+
+const GUARDIAN_THEME: NavTheme = {
+  iconSize: 26,
+  labelSize: 15,
+  labelLineHeight: 20,
+  activeColor: "#0F766E",
+  inactiveColor: "#64748B",
+  activeBg: "rgba(15,118,110,0.10)",
+  containerBorder: "rgba(15,35,66,0.08)",
+  containerBg: "rgba(255,255,255,0.94)",
+  shadow: "0 -12px 30px rgba(15, 35, 66, 0.10)",
+};
+
+// ── 탭 설정 ────────────────────────────────────────────────
 const ELDER_TABS: TabConfig[] = [
   { name: "index", icon: Home, label: "홈" },
   { name: "history", icon: CalendarDays, label: "기록" },
@@ -30,12 +71,28 @@ const GUARDIAN_TABS: TabConfig[] = [
   { name: "settings", icon: Settings, label: "설정" },
 ];
 
-function BottomNavBase({ state, navigation, tabs }: BottomTabBarProps & { tabs: TabConfig[] }) {
+// ── 공통 베이스 ────────────────────────────────────────────
+function BottomNavBase({
+  state,
+  navigation,
+  tabs,
+  theme,
+}: BottomTabBarProps & { tabs: TabConfig[]; theme: NavTheme }) {
   const insets = useSafeAreaInsets();
   const activeRouteName = state.routes[state.index]?.name;
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 7) }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          paddingBottom: Math.max(insets.bottom, 7),
+          borderColor: theme.containerBorder,
+          backgroundColor: theme.containerBg,
+          boxShadow: theme.shadow,
+        },
+      ]}
+    >
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeRouteName === tab.name;
@@ -43,18 +100,26 @@ function BottomNavBase({ state, navigation, tabs }: BottomTabBarProps & { tabs: 
         return (
           <TouchableOpacity
             key={tab.name}
-            style={[styles.tab, isActive && styles.tabActive]}
+            style={[styles.tab, isActive && { backgroundColor: theme.activeBg }]}
             onPress={() => navigation.navigate(tab.name)}
             accessibilityLabel={tab.label}
             accessibilityRole="button"
             activeOpacity={0.72}
           >
             <Icon
-              size={26}
-              color={isActive ? "#0F766E" : "#64748B"}
-              fill={isActive ? "#0F766E" : "transparent"}
+              size={theme.iconSize}
+              color={isActive ? theme.activeColor : theme.inactiveColor}
+              fill={isActive ? theme.activeColor : "transparent"}
             />
-            <Text style={[styles.label, isActive && styles.labelActive]}>{tab.label}</Text>
+            <Text
+              style={[
+                styles.label,
+                { fontSize: theme.labelSize, lineHeight: theme.labelLineHeight, color: theme.inactiveColor },
+                isActive && { color: theme.activeColor },
+              ]}
+            >
+              {tab.label}
+            </Text>
           </TouchableOpacity>
         );
       })}
@@ -62,12 +127,13 @@ function BottomNavBase({ state, navigation, tabs }: BottomTabBarProps & { tabs: 
   );
 }
 
+// ── 역할별 export ──────────────────────────────────────────
 export function ElderBottomNav(props: BottomTabBarProps) {
-  return <BottomNavBase {...props} tabs={ELDER_TABS} />;
+  return <BottomNavBase {...props} tabs={ELDER_TABS} theme={ELDER_THEME} />;
 }
 
 export function GuardianBottomNav(props: BottomTabBarProps) {
-  return <BottomNavBase {...props} tabs={GUARDIAN_TABS} />;
+  return <BottomNavBase {...props} tabs={GUARDIAN_TABS} theme={GUARDIAN_THEME} />;
 }
 
 const styles = StyleSheet.create({
@@ -78,11 +144,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderRadius: 32,
     borderWidth: 1,
-    borderColor: "rgba(15,35,66,0.08)",
-    backgroundColor: "rgba(255,255,255,0.94)",
     paddingTop: 12,
     paddingHorizontal: 14,
-    boxShadow: "0 -12px 30px rgba(15, 35, 66, 0.10)",
     elevation: 8,
   },
   tab: {
@@ -93,16 +156,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingVertical: 4,
   },
-  tabActive: {
-    backgroundColor: "rgba(15,118,110,0.10)",
-  },
   label: {
-    fontSize: 15,
-    lineHeight: 20,
     fontWeight: "800",
-    color: "#64748B",
-  },
-  labelActive: {
-    color: "#0F766E",
   },
 });
