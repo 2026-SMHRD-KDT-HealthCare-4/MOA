@@ -21,7 +21,13 @@ export default function LoginPage() {
     try {
       const user = await authApi.login({ email, password });
       setSession(user);
-      router.replace(user.role === "guardian" ? "/(guardian)/" : "/(elder)/");
+      // 보호자는 가족 탭(부모 상태부터), 연결 전이면 홈으로 안내된다.
+      const hasGuardianTab = useAuthStore.getState().hasGuardianTab;
+      if (user.role === "guardian") {
+        router.replace(hasGuardianTab ? "/(guardian)/family" : "/(guardian)/");
+      } else {
+        router.replace("/(elder)/");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "로그인에 실패했어요.");
     } finally {

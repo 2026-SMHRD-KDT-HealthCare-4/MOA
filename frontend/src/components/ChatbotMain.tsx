@@ -2,13 +2,20 @@ import { View, Text, Pressable, StyleSheet, useWindowDimensions } from "react-na
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CharacterPlayer } from "../components/CharacterPlayer";
-import { MicIcon } from "../components/icons/MicIcon";
+import { CharacterPlayer } from "./CharacterPlayer";
+import { MicIcon } from "./icons/MicIcon";
+import { useAuthStore } from "../stores/authStore";
 
-export default function HomePage() {
+// 음성 챗봇 메인 — 직접사용자/보호자 공통(스펙 §2: 메인 챗봇 화면 공통 컴포넌트).
+// 보호자도 같은 화면에서 자기 음성 체크인을 한다.
+// 역할별로 녹음 화면 경로만 분기(나머지 동작은 동일, 회귀 없음).
+export default function ChatbotMain() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const role = useAuthStore((s) => s.role);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
 
   const W = Math.min(windowWidth, 430);
   const H = windowHeight;
@@ -81,7 +88,7 @@ export default function HomePage() {
           { bottom: recordBottom },
           pressed && styles.pressed,
         ]}
-        onPress={() => router.push("/(elder)/record")}
+        onPress={() => router.push(recordHref)}
         accessibilityRole="button"
         accessibilityLabel="녹음하러가기, 오늘의 목소리를 남겨요"
       >
