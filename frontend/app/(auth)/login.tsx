@@ -3,19 +3,30 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../../src/stores/authStore";
+import * as authApi from "../../src/api/auth";
 
 export default function LoginPage() {
   const router = useRouter();
-  const login = useAuthStore((s) => s.login);
+  const setSession = useAuthStore((s) => s.setSession);
   const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // TODO: 실제 API 연동 시 서버에서 받은 role로 교체
-  function handleLogin() {
-    login("elder");
-    router.replace("/(elder)/");
+  // 로그인은 보호자/세션 복구용. 어른 일상 진입은 자동 로그인이라 이 화면을 거치지 않음.
+  async function handleLogin() {
+    setSubmitting(true);
+    try {
+      const user = await authApi.login({ email, password });
+      setSession(user);
+      router.replace(user.role === "guardian" ? "/(guardian)/" : "/(elder)/");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "로그인에 실패했어요.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -55,12 +66,15 @@ export default function LoginPage() {
           />
         </View>
 
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
         <TouchableOpacity
-          style={styles.primaryBtn}
+          style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
           onPress={handleLogin}
           activeOpacity={0.85}
+          disabled={submitting}
         >
-          <Text style={styles.primaryBtnText}>로그인</Text>
+          <Text style={styles.primaryBtnText}>{submitting ? "로그인 중…" : "로그인"}</Text>
         </TouchableOpacity>
       </View>
 
@@ -136,10 +150,19 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 5,
   },
+  primaryBtnDisabled: {
+    opacity: 0.6,
+  },
   primaryBtnText: {
     fontSize: 18,
     fontWeight: "700",
     color: "white",
+  },
+  errorText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#E8943A",
+    marginTop: -4,
   },
   registerLink: {
     textAlign: "center",

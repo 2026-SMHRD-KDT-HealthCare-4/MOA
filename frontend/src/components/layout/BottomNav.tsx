@@ -2,8 +2,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { type ComponentProps } from "react";
 import { useRouter, type Tabs } from "expo-router";
 import { CalendarDays, FileText, Home, MessageCircle, Settings, Users } from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LucideIcon } from "lucide-react-native";
 
 type BottomTabBarProps = NonNullable<ComponentProps<typeof Tabs>["tabBar"]> extends (
@@ -18,9 +18,6 @@ interface TabConfig {
   label: string;
 }
 
-// ── 역할별 네비 테마 ───────────────────────────────────────
-// 어르신: 따뜻한 코랄 + 큰 글씨(친근·심플). 보호자: 네이비/틸 스마트 톤(삼성헬스풍).
-// 두 화면이 BottomNavBase를 공유하므로, 톤이 섞이지 않도록 테마로 분리한다.
 interface NavTheme {
   iconSize: number;
   labelSize: number;
@@ -35,7 +32,6 @@ interface NavTheme {
   shadow: string;
 }
 
-// 어르신 화면 라벨은 규칙상 최소 18pt 유지.
 const ELDER_THEME: NavTheme = {
   iconSize: 30,
   labelSize: 19,
@@ -54,17 +50,16 @@ const GUARDIAN_THEME: NavTheme = {
   iconSize: 26,
   labelSize: 15,
   labelLineHeight: 20,
-  activeColor: "#0F766E",
-  inactiveColor: "#64748B",
-  activeBg: "rgba(15,118,110,0.10)",
-  containerBorder: "rgba(15,35,66,0.08)",
-  containerBg: "rgba(255,255,255,0.94)",
-  areaColors: ["rgba(248,250,252,0.0)", "#F8FAFC", "#EEF6F8"],
-  areaTopPadding: 16,
-  shadow: "0 -12px 30px rgba(15, 35, 66, 0.10)",
+  activeColor: "#E8943A",
+  inactiveColor: "#8A8A86",
+  activeBg: "rgba(232,148,58,0.14)",
+  containerBorder: "rgba(74,74,72,0.08)",
+  containerBg: "rgba(252,248,243,0.98)",
+  areaColors: ["rgba(252,248,243,0)", "#FCF8F3", "#F4EEE7"],
+  areaTopPadding: 12,
+  shadow: "0 -12px 30px rgba(74, 74, 72, 0.08)",
 };
 
-// ── 탭 설정 ────────────────────────────────────────────────
 const ELDER_TABS: TabConfig[] = [
   { name: "index", icon: Home, label: "홈" },
   { name: "history", icon: CalendarDays, label: "기록" },
@@ -78,7 +73,6 @@ const GUARDIAN_TABS: TabConfig[] = [
   { name: "settings", icon: Settings, label: "설정" },
 ];
 
-// ── 공통 베이스 ────────────────────────────────────────────
 function BottomNavBase({
   state,
   navigation,
@@ -133,7 +127,11 @@ function BottomNavBase({
               <Text
                 style={[
                   styles.label,
-                  { fontSize: theme.labelSize, lineHeight: theme.labelLineHeight, color: theme.inactiveColor },
+                  {
+                    fontSize: theme.labelSize,
+                    lineHeight: theme.labelLineHeight,
+                    color: theme.inactiveColor,
+                  },
                   isActive && { color: theme.activeColor },
                 ]}
               >
@@ -143,6 +141,7 @@ function BottomNavBase({
           );
         })}
       </View>
+
       {isElderTabs && (
         <TouchableOpacity
           style={styles.floatingChat}
@@ -159,7 +158,6 @@ function BottomNavBase({
   );
 }
 
-// ── 역할별 export ──────────────────────────────────────────
 export function ElderBottomNav(props: BottomTabBarProps) {
   return <BottomNavBase {...props} tabs={ELDER_TABS} theme={ELDER_THEME} />;
 }
