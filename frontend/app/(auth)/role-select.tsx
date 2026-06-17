@@ -9,15 +9,19 @@ export default function RoleSelectPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // 직접사용자: 동의 → 초대코드 클레임 흐름으로 진입(Stage 3에서 화면 연결).
-  // 현재 단계에선 로그인 화면으로 보낸다(클레임 화면 미구현).
+  // 직접사용자: 생체정보 동의 → 초대코드 클레임 흐름으로 진입.
   function handleElder() {
-    router.push("/(auth)/login");
+    router.push("/(auth)/elder-consent");
   }
 
   // 보호자: 회원가입.
   function handleGuardian() {
     router.push("/(auth)/register");
+  }
+
+  // 이미 계정이 있는 경우(보호자 재로그인 등).
+  function handleLogin() {
+    router.push("/(auth)/login");
   }
 
   return (
@@ -64,7 +68,7 @@ export default function RoleSelectPage() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity onPress={handleElder} activeOpacity={0.7}>
+      <TouchableOpacity onPress={handleLogin} activeOpacity={0.7}>
         <Text style={styles.loginLink}>
           이미 계정이 있으신가요?{" "}
           <Text style={styles.loginLinkHighlight}>로그인</Text>

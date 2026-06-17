@@ -134,7 +134,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrate: async () => {
     const restored = await restoreSession();
     if (restored) {
-      set({ ...sessionState(restored), hydrated: true });
+      set({
+        ...sessionState(restored.user, {
+          refreshToken: restored.refreshToken,
+          consentDone: restored.consentDone,
+        }),
+        hydrated: true,
+      });
     } else {
       // 복원 실패: 개발용 토글이 켜져 있으면 그 세션 유지, 아니면 비로그인.
       set({ hydrated: true });

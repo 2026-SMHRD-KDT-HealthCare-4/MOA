@@ -34,7 +34,8 @@
       "expo-router",
       "expo-av",
       "expo-notifications",
-      "expo-video"
+      "expo-video",
+      "expo-secure-store"
     ]
   }
 }

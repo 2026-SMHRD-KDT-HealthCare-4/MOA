@@ -8,7 +8,7 @@ import { useAuthStore } from "../src/stores/authStore";
 // 인증/역할 라우트 가드.
 // 로그인 상태·역할을 보고 (auth)/(elder)/(guardian) 영역으로 정리한다.
 // - 비로그인: 보호 영역((elder)/(guardian)/onboarding) 접근 시 역할 선택으로.
-// - 직접사용자: (guardian) 접근 차단.
+// - 직접사용자: (guardian) 접근 차단. 동의 미완료면 동의/클레임 흐름으로.
 // - 보호자: (elder) 접근 차단. 온보딩은 보호자 전용.
 function useAuthGuard() {
   const router = useRouter();
@@ -16,11 +16,13 @@ function useAuthGuard() {
   const hydrated = useAuthStore((s) => s.hydrated);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const role = useAuthStore((s) => s.role);
+  const consentDone = useAuthStore((s) => s.consentDone);
 
   useEffect(() => {
     if (!hydrated) return; // 세션 복원 전에는 분기하지 않음(깜빡임 방지)
 
     const root = segments[0]; // undefined(인트로) | "(auth)" | "(elder)" | "(guardian)" | "onboarding" | "chat" | "done"
+    const inAuth = root === "(auth)";
     const inElder = root === "(elder)";
     const inGuardian = root === "(guardian)";
     const inOnboarding = root === "onboarding";
@@ -32,13 +34,19 @@ function useAuthGuard() {
       return;
     }
 
+    // 직접사용자 동의 미완료 → 동의/클레임 흐름으로. ((auth) 안에서는 통과시켜 흐름 진행)
+    if (role === "elder" && !consentDone && !inAuth) {
+      router.replace("/(auth)/elder-consent");
+      return;
+    }
+
     // 교차 역할 접근 차단. ((auth)→홈 자동 이동은 각 화면이 직접 처리 — race 방지)
     if (role === "elder" && (inGuardian || inOnboarding)) {
       router.replace("/(elder)/");
     } else if (role === "guardian" && inElder) {
       router.replace("/(guardian)/");
     }
-  }, [hydrated, isLoggedIn, role, segments, router]);
+  }, [hydrated, isLoggedIn, role, consentDone, segments, router]);
 }
 
 export default function RootLayout() {
