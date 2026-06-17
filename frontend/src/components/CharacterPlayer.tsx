@@ -22,6 +22,16 @@ const MOOD_MAP: Record<CharacterMood, BotEmotion> = {
   worried:   "worried",
 };
 
+function safePlay(player: { play: () => void | Promise<void> }) {
+  try {
+    void Promise.resolve(player.play()).catch(() => {
+      // Screen transitions can interrupt playback while the video element is being removed.
+    });
+  } catch {
+    // Ignore transient playback failures during unmount/navigation.
+  }
+}
+
 function AbsoluteCharacterVideo({
   emotion,
   containerStyle,
@@ -33,13 +43,13 @@ function AbsoluteCharacterVideo({
   const player = useVideoPlayer(videoSrc, (player) => {
     player.loop = true;
     player.muted = true;
-    player.play();
+    safePlay(player);
   });
 
   useEffect(() => {
     player.loop = true;
     player.muted = true;
-    player.play();
+    safePlay(player);
   }, [player, videoSrc]);
 
   return (

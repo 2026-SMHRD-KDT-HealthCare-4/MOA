@@ -3,25 +3,24 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { HeartHandshake, User } from "lucide-react-native";
 
-// 앱 최초 진입 역할 선택 (스펙 §4 role-select).
-// 큰 버튼 2개 · 색+아이콘+텍스트 병행(색각 이상 대응) · 빨강 미사용.
 export default function RoleSelectPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // 직접사용자: 생체정보 동의 → 초대코드 클레임 흐름으로 진입.
   function handleElder() {
     router.push("/(auth)/elder-consent");
   }
 
-  // 보호자: 회원가입.
   function handleGuardian() {
     router.push("/(auth)/register");
   }
 
-  // 이미 계정이 있는 경우(보호자 재로그인 등).
   function handleLogin() {
     router.push("/(auth)/login");
+  }
+
+  function handleGuardianInvite() {
+    router.push("/(auth)/guardian-invite");
   }
 
   return (
@@ -33,7 +32,6 @@ export default function RoleSelectPage() {
       </View>
 
       <View style={styles.cards}>
-        {/* 직접사용자 */}
         <TouchableOpacity
           style={[styles.card, styles.cardElder]}
           onPress={handleElder}
@@ -46,11 +44,10 @@ export default function RoleSelectPage() {
           </View>
           <View style={styles.cardTextWrap}>
             <Text style={styles.cardTitle}>직접사용자</Text>
-            <Text style={styles.cardDesc}>매일 목소리로 건강을 기록해요</Text>
+            <Text style={styles.cardDesc}>초대 코드를 입력해 가족과 연결해요</Text>
           </View>
         </TouchableOpacity>
 
-        {/* 보호자 */}
         <TouchableOpacity
           style={[styles.card, styles.cardGuardian]}
           onPress={handleGuardian}
@@ -63,17 +60,21 @@ export default function RoleSelectPage() {
           </View>
           <View style={styles.cardTextWrap}>
             <Text style={styles.cardTitle}>보호자</Text>
-            <Text style={styles.cardDesc}>가족의 오늘을 곁에서 살펴봐요</Text>
+            <Text style={styles.cardDesc}>부모님을 등록하고 함께 돌봐요</Text>
           </View>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity onPress={handleLogin} activeOpacity={0.7}>
-        <Text style={styles.loginLink}>
-          이미 계정이 있으신가요?{" "}
-          <Text style={styles.loginLinkHighlight}>로그인</Text>
-        </Text>
-      </TouchableOpacity>
+      <View style={styles.footerLinks}>
+        <TouchableOpacity onPress={handleLogin} activeOpacity={0.7}>
+          <Text style={styles.loginLink}>
+            이미 계정이 있으신가요? <Text style={styles.loginLinkHighlight}>로그인</Text>
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleGuardianInvite} activeOpacity={0.7}>
+          <Text style={styles.inviteLink}>보호자 초대 코드를 받았어요</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -86,10 +87,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   header: { alignItems: "center", gap: 8, marginTop: 8 },
-  logo: { fontSize: 20, fontWeight: "800", color: "#FF7955", letterSpacing: 4, marginBottom: 8 },
+  logo: { fontSize: 20, fontWeight: "800", color: "#4F5A60", letterSpacing: 4, marginBottom: 8 },
   title: { fontSize: 26, fontWeight: "800", color: "#342C28" },
   subtitle: { fontSize: 18, color: "#765E52" },
-
   cards: { gap: 18 },
   card: {
     flexDirection: "row",
@@ -116,7 +116,8 @@ const styles = StyleSheet.create({
   cardTextWrap: { flex: 1, gap: 4 },
   cardTitle: { fontSize: 22, fontWeight: "800", color: "#342C28" },
   cardDesc: { fontSize: 16, color: "#765E52", lineHeight: 22 },
-
+  footerLinks: { gap: 10 },
   loginLink: { textAlign: "center", fontSize: 16, color: "#765E52" },
-  loginLinkHighlight: { color: "#FF7955", fontWeight: "700" },
+  loginLinkHighlight: { color: "#4F5A60", fontWeight: "700" },
+  inviteLink: { textAlign: "center", fontSize: 15, color: "#765E52", fontWeight: "700" },
 });

@@ -20,7 +20,14 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const user = await authApi.login({ email, password });
-      setSession(user);
+      const restored = await authApi.restoreSession();
+      setSession(user, restored ? {
+        refreshToken: restored.refreshToken,
+        consentDone: restored.consentDone,
+        familyGroup: restored.familyGroup,
+        links: restored.links,
+        guardianMembers: restored.guardianMembers,
+      } : undefined);
       // 보호자는 가족 탭(부모 상태부터), 연결 전이면 홈으로 안내된다.
       const hasGuardianTab = useAuthStore.getState().hasGuardianTab;
       if (user.role === "guardian") {
