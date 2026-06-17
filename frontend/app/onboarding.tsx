@@ -84,9 +84,9 @@ export default function OnboardingPage() {
             <View style={styles.heroIcon}>
               <UserPlus size={28} color="#FF7955" />
             </View>
-            <Text style={styles.title}>돌볼 직접사용자을 등록해 주세요</Text>
+            <Text style={styles.title}>돌볼 직접사용자를 등록해 주세요</Text>
             <Text style={styles.subtitle}>
-              직접사용자은 따로 가입할 필요 없이, 등록 후 바로 사용하실 수 있어요.
+              직접사용자는 따로 가입할 필요 없이, 등록 후 바로 사용하실 수 있어요.
             </Text>
 
             <View style={styles.form}>
