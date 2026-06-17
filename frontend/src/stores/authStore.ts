@@ -11,6 +11,7 @@ export interface FamilyLink {
   counterpartName: string;
   relation: UserRole; // 상대방의 역할
   status: "PENDING" | "ACTIVE";
+  pairingCode?: string; // PENDING 동안 재공유용(클레임되면 의미 없음)
 }
 
 export interface SessionUser {
@@ -41,6 +42,14 @@ void MOCK_GUARDIAN_SESSION;
 
 // 개발 중 자동 로그인하려면 위 상수 중 하나로 교체. 운영/기본값은 null(비로그인).
 const DEV_MOCK_SESSION: SessionUser | null = null;
+
+// 보호자 가족 탭/대시보드를 바로 보려면 DEV_MOCK_SESSION = MOCK_GUARDIAN_SESSION으로 두고
+// 아래 링크를 사용한다(ACTIVE 1 + PENDING 1로 허브·상세·대기카드·게이팅 모두 확인 가능).
+const DEV_MOCK_LINKS: FamilyLink[] = [
+  { linkId: 1, counterpartId: 101, counterpartName: "김순자", relation: "elder", status: "ACTIVE" },
+  { linkId: 2, counterpartId: 102, counterpartName: "박무남", relation: "elder", status: "PENDING", pairingCode: "MOA-PND" },
+];
+void DEV_MOCK_LINKS;
 // ────────────────────────────────────────────────────────────────────────
 
 const userIdOf = (user: SessionUser | null): number | null => {
@@ -115,7 +124,12 @@ const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
   };
 };
 
-const initialState = DEV_MOCK_SESSION ? sessionState(DEV_MOCK_SESSION) : loggedOutState;
+const initialState = DEV_MOCK_SESSION
+  ? sessionState(DEV_MOCK_SESSION, {
+      consentDone: true,
+      links: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_LINKS : [],
+    })
+  : loggedOutState;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   ...initialState,
