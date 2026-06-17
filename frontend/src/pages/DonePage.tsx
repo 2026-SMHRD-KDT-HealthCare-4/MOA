@@ -5,11 +5,17 @@ import { LinearGradient } from "expo-linear-gradient";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { SunIcon } from "../components/icons/SunIcon";
 import { MicIcon } from "../components/icons/MicIcon";
+import { useAuthStore } from "../stores/authStore";
 
 export default function DonePage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const role = useAuthStore((s) => s.role);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  // 녹음은 직접사용자/보호자 공통 → 역할별 경로로 복귀.
+  const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
+  const homeHref = role === "guardian" ? "/(guardian)/" : "/(elder)/";
 
   const W = Math.min(windowWidth, 430);
   const H = windowHeight;
@@ -62,7 +68,7 @@ export default function DonePage() {
           { bottom: cardBottom - 74, left: 18, right: 18 },
           pressed && { opacity: 0.92, transform: [{ scale: 0.985 }] },
         ]}
-        onPress={() => router.replace("/(elder)/record")}
+        onPress={() => router.replace(recordHref)}
         accessibilityLabel="다시 녹음하기"
       >
         <MicIcon color="#FFFFFF" size={28} />
@@ -72,7 +78,7 @@ export default function DonePage() {
       {/* 처음으로 */}
       <Pressable
         style={[styles.restartBtn, { top: insets.top + 24, right: 18 }]}
-        onPress={() => router.replace("/(elder)/")}
+        onPress={() => router.replace(homeHref)}
         accessibilityRole="button"
       >
         <Text style={styles.restartText}>처음으로</Text>

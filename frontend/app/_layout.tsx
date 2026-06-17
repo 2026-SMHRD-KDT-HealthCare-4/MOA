@@ -17,6 +17,7 @@ function useAuthGuard() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const role = useAuthStore((s) => s.role);
   const consentDone = useAuthStore((s) => s.consentDone);
+  const hasGuardianTab = useAuthStore((s) => s.hasGuardianTab);
 
   useEffect(() => {
     if (!hydrated) return; // 세션 복원 전에는 분기하지 않음(깜빡임 방지)
@@ -44,9 +45,9 @@ function useAuthGuard() {
     if (role === "elder" && (inGuardian || inOnboarding)) {
       router.replace("/(elder)/");
     } else if (role === "guardian" && inElder) {
-      router.replace("/(guardian)/");
+      router.replace(hasGuardianTab ? "/(guardian)/family" : "/(guardian)/");
     }
-  }, [hydrated, isLoggedIn, role, consentDone, segments, router]);
+  }, [hydrated, isLoggedIn, role, consentDone, hasGuardianTab, segments, router]);
 }
 
 export default function RootLayout() {

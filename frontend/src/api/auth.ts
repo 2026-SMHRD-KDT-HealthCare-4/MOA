@@ -125,6 +125,7 @@ export async function provisionGuardianElder({
     counterpartName: elder.name,
     relation: "elder",
     status: "PENDING",
+    pairingCode,
   };
   mockFamilyLinks.push(link);
 
