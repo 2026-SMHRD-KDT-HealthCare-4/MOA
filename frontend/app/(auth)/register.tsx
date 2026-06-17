@@ -3,20 +3,37 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft } from "lucide-react-native";
-import type { UserRole } from "../../src/stores/authStore";
+import { useAuthStore } from "../../src/stores/authStore";
+import * as authApi from "../../src/api/auth";
 
 export default function RegisterPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const setSession = useAuthStore((s) => s.setSession);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>("elder");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // TODO: 실제 API 연동 시 교체
-  function handleRegister() {
-    router.replace("/(auth)/login");
+  // 자가 가입하는 사람 = 보호자. (어른 계정은 보호자가 온보딩에서 생성하므로 여기서 가입하지 않음)
+  async function handleRegister() {
+    if (!name.trim()) return setError("이름을 입력해 주세요.");
+    if (!email.includes("@")) return setError("올바른 이메일을 입력해 주세요.");
+    if (password.length < 8) return setError("비밀번호는 8자 이상이어야 해요.");
+
+    setSubmitting(true);
+    try {
+      const user = await authApi.register({ name: name.trim(), email, password, role: "guardian" });
+      setSession(user);
+      // 가입 직후 보호자 주도 온보딩(어른 등록 + 음성 동의)으로 이동.
+      router.replace("/onboarding");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "회원가입에 실패했어요.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -39,29 +56,6 @@ export default function RegisterPage() {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-
-        {/* 역할 선택 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>가입 유형을 선택해 주세요</Text>
-          <View style={styles.roleRow}>
-            <TouchableOpacity
-              style={[styles.roleBtn, role === "elder" && styles.roleBtnActive]}
-              onPress={() => setRole("elder")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.roleEmoji}>👴</Text>
-              <Text style={[styles.roleLabel, role === "elder" && styles.roleLabelActive]}>직접사용자</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.roleBtn, role === "guardian" && styles.roleBtnActive]}
-              onPress={() => setRole("guardian")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.roleEmoji}>👨‍👩‍👧</Text>
-              <Text style={[styles.roleLabel, role === "guardian" && styles.roleLabelActive]}>보호자</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
 
         {/* 입력 필드 */}
         <View style={styles.form}>
@@ -100,12 +94,15 @@ export default function RegisterPage() {
           </View>
         </View>
 
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
         <TouchableOpacity
-          style={styles.primaryBtn}
+          style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
           onPress={handleRegister}
           activeOpacity={0.85}
+          disabled={submitting}
         >
-          <Text style={styles.primaryBtnText}>가입 완료</Text>
+          <Text style={styles.primaryBtnText}>{submitting ? "가입 중…" : "가입 완료"}</Text>
         </TouchableOpacity>
 
       </ScrollView>
@@ -142,43 +139,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     gap: 24,
   },
-  section: {
-    gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#4d403b",
-  },
-  roleRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  roleBtn: {
-    flex: 1,
-    paddingVertical: 20,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: "#e8ddd9",
-    backgroundColor: "white",
-    alignItems: "center",
-    gap: 8,
-  },
-  roleBtnActive: {
-    borderColor: "#FF7955",
-    backgroundColor: "#fff5f4",
-  },
-  roleEmoji: {
-    fontSize: 32,
-  },
-  roleLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#b6aaa5",
-  },
-  roleLabelActive: {
-    color: "#FF7955",
-  },
   form: {
     gap: 16,
   },
@@ -212,9 +172,18 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 5,
   },
+  primaryBtnDisabled: {
+    opacity: 0.6,
+  },
   primaryBtnText: {
     fontSize: 18,
     fontWeight: "700",
     color: "white",
+  },
+  errorText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#E8943A",
+    marginTop: -8,
   },
 });

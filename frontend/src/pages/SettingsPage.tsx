@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
 import { useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 import { Bell, LogOut, Info, ChevronRight } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
 
@@ -45,6 +46,7 @@ export default function SettingsPage() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#FFF0DD"]} style={StyleSheet.absoluteFill} />
 
       {/* 헤더 */}
       <View style={styles.header}>
@@ -147,26 +149,33 @@ export default function SettingsPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFF9F2" },
+  container: { flex: 1 },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 24,
+    paddingBottom: 18,
   },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
-  scroll: { paddingHorizontal: 20, gap: 6 },
-  section: { gap: 8 },
-  sectionTitle: { fontSize: 14, fontWeight: "600", color: "#b6aaa5", paddingLeft: 4, marginTop: 8 },
+  headerTitle: { fontSize: 31, lineHeight: 38, fontWeight: "900", color: "#3B2318" },
+  scroll: { paddingHorizontal: 20, gap: 8 },
+  section: { gap: 9 },
+  sectionTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    color: "#80675C",
+    paddingLeft: 4,
+    marginTop: 10,
+  },
   card: {
-    backgroundColor: "white",
-    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.82)",
+    borderRadius: 20,
     paddingVertical: 4,
     borderWidth: 1,
-    borderColor: "#f0e8e2",
-    shadowColor: "#c0a99f",
+    borderColor: "rgba(117,76,42,0.08)",
+    shadowColor: "#7C513B",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
     elevation: 1,
   },
   row: {
@@ -175,33 +184,33 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    minHeight: 56,
+    minHeight: 60,
   },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
   rowIcon: {
     width: 34,
     height: 34,
-    borderRadius: 10,
-    backgroundColor: "#faf4f2",
+    borderRadius: 12,
+    backgroundColor: "rgba(255,118,87,0.10)",
     alignItems: "center",
     justifyContent: "center",
   },
-  rowTitle: { fontSize: 17, fontWeight: "600", color: "#342C28" },
-  rowSub: { fontSize: 13, color: "#765E52", marginTop: 2 },
-  rowValue: { fontSize: 16, color: "#b6aaa5" },
-  divider: { height: 1, backgroundColor: "#f5eeea", marginHorizontal: 16 },
+  rowTitle: { fontSize: 17, fontWeight: "800", color: "#342C28" },
+  rowSub: { fontSize: 13, color: "#765E52", marginTop: 2, fontWeight: "600" },
+  rowValue: { fontSize: 16, color: "#8B7871", fontWeight: "700" },
+  divider: { height: 1, backgroundColor: "rgba(117,76,42,0.08)", marginHorizontal: 16 },
   roleDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#FF7955" },
   logoutBtn: {
-    marginTop: 8,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
     height: 56,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: "#E8943A",
-    backgroundColor: "#fff5e6",
+    borderColor: "rgba(255,118,87,0.34)",
+    backgroundColor: "rgba(255,255,255,0.74)",
   },
-  logoutText: { fontSize: 18, fontWeight: "700", color: "#E8943A" },
+  logoutText: { fontSize: 18, fontWeight: "800", color: "#C7753D" },
 });

@@ -1,7 +1,7 @@
 import { View, Text, Image, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useState } from "react";
 import { WEATHER_IMAGE } from "../constants/weatherIcons";
 
@@ -48,7 +48,6 @@ function buildCalendar(year: number, month: number): (number | null)[][] {
 
 export default function HistoryPage() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -69,6 +68,7 @@ export default function HistoryPage() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#FFF0DD"]} style={StyleSheet.absoluteFill} />
 
       {/* 헤더 */}
       <View style={styles.header}>
@@ -152,54 +152,49 @@ export default function HistoryPage() {
         )}
 
       </ScrollView>
-
-      {/* 챗봇 바로가기 — 네비게이션바 위에 떠 있는 버튼 */}
-      <TouchableOpacity
-        style={styles.chatFab}
-        onPress={() => router.push("/chat")}
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityLabel="모아와 대화하기"
-      >
-        <MessageCircle size={28} color="#FFFFFF" strokeWidth={2.5} />
-      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFF9F2" },
+  container: { flex: 1 },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 8,
-    gap: 4,
+    paddingTop: 24,
+    paddingBottom: 16,
+    gap: 7,
   },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
-  headerSub: { fontSize: 16, color: "#765E52" },
+  headerTitle: { fontSize: 31, lineHeight: 38, fontWeight: "900", color: "#3B2318" },
+  headerSub: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: "#668D5F" },
   scroll: { paddingHorizontal: 16 },
   monthNav: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 8,
+    marginTop: 4,
+    paddingHorizontal: 10,
     paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(117,76,42,0.08)",
   },
   navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  monthText: { fontSize: 20, fontWeight: "700", color: "#40332D" },
+  monthText: { fontSize: 21, fontWeight: "900", color: "#3B2318" },
   weekdayRow: {
     flexDirection: "row",
+    paddingTop: 16,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0e8e2",
+    borderBottomColor: "rgba(117,76,42,0.10)",
     marginBottom: 4,
   },
   weekday: {
     flex: 1,
     textAlign: "center",
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#b6aaa5",
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#80675C",
   },
   grid: { gap: 4 },
   weekRow: { flexDirection: "row" },
@@ -211,8 +206,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 2,
   },
-  todayCell: { backgroundColor: "#fff5f4", borderWidth: 1.5, borderColor: "#FF7955" },
-  dayNum: { fontSize: 14, color: "#5f4c45", fontWeight: "500" },
+  todayCell: { backgroundColor: "rgba(255,255,255,0.78)", borderWidth: 1.5, borderColor: "#FF7657" },
+  dayNum: { fontSize: 14, color: "#5f4c45", fontWeight: "700" },
   todayNum: { color: "#FF7955", fontWeight: "800" },
   weatherIcon: { width: 24, height: 24 },
   emptyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#ede4df" },
@@ -222,10 +217,10 @@ const styles = StyleSheet.create({
     gap: 24,
     marginTop: 16,
     padding: 14,
-    backgroundColor: "white",
-    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.78)",
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#f0e8e2",
+    borderColor: "rgba(117,76,42,0.08)",
   },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendEmoji: { width: 22, height: 22 },
@@ -233,13 +228,13 @@ const styles = StyleSheet.create({
   summaryCard: {
     marginTop: 16,
     padding: 20,
-    backgroundColor: "white",
+    backgroundColor: "rgba(255,255,255,0.82)",
     borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     borderWidth: 1,
-    borderColor: "#f0e8e2",
+    borderColor: "rgba(117,76,42,0.08)",
     shadowColor: "#c0a99f",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -249,20 +244,4 @@ const styles = StyleSheet.create({
   summaryEmoji: { fontSize: 36 },
   summaryText: { flex: 1, fontSize: 18, color: "#40332D", lineHeight: 28 },
   summaryHighlight: { color: "#FF7955", fontWeight: "800" },
-  chatFab: {
-    position: "absolute",
-    right: 22,
-    bottom: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#78A56F",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 4,
-    borderColor: "#FFFFFF",
-    boxShadow: "0 9px 17px rgba(72, 106, 63, 0.24)",
-    elevation: 6,
-    zIndex: 20,
-  },
 });

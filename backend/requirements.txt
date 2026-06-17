@@ -8,3 +8,8 @@ passlib[bcrypt]
 openai
 python-multipart
 supabase
+# 음성 특징점 추출
+numpy
+librosa
+praat-parselmouth
+opensmile
