@@ -1,8 +1,14 @@
 // 인증 API 레이어.
 // 함수 시그니처는 실제 API 규격(backend /auth/*)에 맞추고, 내부는 지금 mock 응답을 반환한다.
 // 백엔드 명세가 확정되면 각 함수 "내부만" fetch로 교체하면 됨 (호출부는 그대로).
-import type { SessionUser, UserRole } from "../stores/authStore";
+import type { SessionUser, UserRole, FamilyLink } from "../stores/authStore";
 import { saveToken, getToken, clearToken } from "./session";
+
+// 백엔드 공통 응답 엔벨로프 (spec §6: { success, data }).
+export interface ApiEnvelope<T> {
+  success: true;
+  data: T;
+}
 
 // ── mock 계정 저장소 (백엔드 연동 시 이 블록 전체 제거) ──────────────
 interface MockAccount {
@@ -20,8 +26,15 @@ interface MockAccount {
 const mockAccounts: MockAccount[] = [
   { id: "elder-1", name: "김순자", email: "elder@moa.app", password: "moa00000", role: "elder" },
 ];
+const mockFamilyLinks: FamilyLink[] = [];
 
 const makeToken = (id: string) => `mock-token-${id}`;
+const idNumberOf = (id: string): number => {
+  const digits = id.replace(/\D/g, "");
+  return digits ? Number(digits) : Date.now();
+};
+const makePairingCode = (): string =>
+  `${Math.random().toString(36).slice(2, 5)}-${Math.random().toString(36).slice(2, 5)}`.toUpperCase();
 
 function toSession(acc: MockAccount): SessionUser {
   return { id: acc.id, name: acc.name, role: acc.role, token: makeToken(acc.id) };
@@ -74,6 +87,62 @@ export interface CreateElderPayload {
   guardianId: string;
   name: string;
   relation?: string;
+}
+
+export interface ProvisionGuardianElderPayload {
+  guardianId: string;
+  name: string;
+  relation?: string;
+}
+
+export interface GuardianElderProvisioningData {
+  elder: SessionUser;
+  link: FamilyLink;
+  pairing_code: string;
+}
+
+// 실제: POST /guardian/elders
+// 보호자가 어른 계정과 PENDING 가족 링크를 만들고, 어르신 기기에서 입력할 페어링 코드를 받는다.
+export async function provisionGuardianElder({
+  guardianId,
+  name,
+  relation,
+}: ProvisionGuardianElderPayload): Promise<ApiEnvelope<GuardianElderProvisioningData>> {
+  const now = Date.now();
+  const id = `elder-${now}`;
+  const elder: MockAccount = {
+    id,
+    name: name.trim(),
+    email: `${id}@moa.app`,
+    password: "",
+    role: "elder",
+    relation,
+  };
+  mockAccounts.push(elder);
+
+  const link: FamilyLink = {
+    linkId: now,
+    counterpartId: idNumberOf(id),
+    counterpartName: elder.name,
+    relation: "elder",
+    status: "PENDING",
+  };
+  mockFamilyLinks.push(link);
+
+  const guardian = mockAccounts.find((a) => a.id === guardianId);
+  if (guardian) {
+    guardian.linkedElderId = id;
+    guardian.relation = relation;
+  }
+
+  return {
+    success: true,
+    data: {
+      elder: toSession(elder),
+      link,
+      pairing_code: makePairingCode(),
+    },
+  };
 }
 
 // 보호자가 어른 계정을 생성·연결 (어른 본인은 가입 절차를 거치지 않음).

@@ -2,62 +2,147 @@ import { create } from "zustand";
 import { restoreSession, logout as apiLogout } from "../api/auth";
 
 export type UserRole = "elder" | "guardian";
+export type Role = UserRole; // 스펙 표기 호환 별칭
+
+// 가족 연동 링크 (보호자 ↔ 직접사용자). 스펙 §3 기준.
+export interface FamilyLink {
+  linkId: number;
+  counterpartId: number;
+  counterpartName: string;
+  relation: UserRole; // 상대방의 역할
+  status: "PENDING" | "ACTIVE";
+}
 
 export interface SessionUser {
   id: string;
   name: string;
   role: UserRole;
   token: string;
-  linkedElderName?: string; // 보호자인 경우 담당 어른 이름
+  linkedElderName?: string; // 보호자인 경우 담당 직접사용자 이름
 }
 
-// mock 단계: 앱 시작 시 "로그인된 어른" 상태를 기본 주입한다.
-// → 어른은 로그인/PIN 관문 없이 바로 홈으로 진입 (CLAUDE.md: 어른 일상에 매일 입력 관문 금지).
-// 실제 연동 시: 초기 user를 null로 두고 hydrate()의 토큰 복원 결과로만 채운다.
-const MOCK_DEFAULT_ELDER: SessionUser = {
+// ── 개발용 자동 로그인 토글 ─────────────────────────────────────────────
+// 기본은 비로그인 시작(→ 역할 선택 화면 노출).
+// 특정 역할 화면을 바로 띄워 테스트하려면 DEV_MOCK_SESSION에 MOCK_* 중 하나를 넣는다.
+const MOCK_ELDER_SESSION: SessionUser = {
   id: "elder-1",
   name: "김순자",
   role: "elder",
   token: "mock-token-elder-1",
 };
+const MOCK_GUARDIAN_SESSION: SessionUser = {
+  id: "guardian-1",
+  name: "김보호",
+  role: "guardian",
+  token: "mock-token-guardian-1",
+};
+void MOCK_ELDER_SESSION;
+void MOCK_GUARDIAN_SESSION;
+
+// 개발 중 자동 로그인하려면 위 상수 중 하나로 교체. 운영/기본값은 null(비로그인).
+const DEV_MOCK_SESSION: SessionUser | null = null;
+// ────────────────────────────────────────────────────────────────────────
+
+const userIdOf = (user: SessionUser | null): number | null => {
+  if (!user) return null;
+  const n = Number(user.id.replace(/\D/g, ""));
+  return Number.isFinite(n) && user.id.replace(/\D/g, "") !== "" ? n : null;
+};
+
+const computeHasGuardianTab = (role: UserRole | null, links: FamilyLink[]): boolean =>
+  role === "guardian" && links.some((l) => l.status === "ACTIVE");
+
+interface SetSessionOptions {
+  refreshToken?: string | null;
+  consentDone?: boolean;
+  links?: FamilyLink[];
+}
 
 interface AuthState {
   user: SessionUser | null;
   // 편의 파생값 (화면에서 user?.role 대신 바로 사용)
   isLoggedIn: boolean;
-  role: UserRole;
+  role: UserRole | null;
   name: string;
 
+  // 스펙 §3 필드
+  userId: number | null;
+  refreshToken: string | null; // 직접사용자 장수명 토큰(자동 로그인)
+  consentDone: boolean;
+  links: FamilyLink[];
+  hasGuardianTab: boolean; // role==='guardian' && ACTIVE 링크 ≥1
+
+  // 앱 시작 시 세션 복원이 끝났는지 (라우트 가드가 깜빡임 없이 분기하기 위함)
+  hydrated: boolean;
+
   // 로그인/회원가입 성공 후 세션 주입 (api/auth.ts가 반환한 SessionUser).
-  setSession: (user: SessionUser) => void;
-  // 온보딩에서 어른 계정 생성 후 담당 어른 이름 연결.
+  setSession: (user: SessionUser, opts?: SetSessionOptions) => void;
+  // 온보딩에서 직접사용자 계정 생성 후 담당 직접사용자 이름 연결.
   setLinkedElder: (elderName: string) => void;
-  // 앱 시작 시 저장된 토큰으로 세션 복원 (mock: 토큰 없으면 기본 어른 유지).
+  // 가족 링크 갱신 (가족 탭 노출 여부 재계산).
+  setLinks: (links: FamilyLink[]) => void;
+  // 생체정보 동의 완료 표시.
+  setConsentDone: (done: boolean) => void;
+  // 앱 시작 시 저장된 토큰으로 세션 복원.
   hydrate: () => Promise<void>;
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: MOCK_DEFAULT_ELDER,
-  isLoggedIn: true,
-  role: MOCK_DEFAULT_ELDER.role,
-  name: MOCK_DEFAULT_ELDER.name,
+const loggedOutState = {
+  user: null as SessionUser | null,
+  isLoggedIn: false,
+  role: null as UserRole | null,
+  name: "",
+  userId: null as number | null,
+  refreshToken: null as string | null,
+  consentDone: false,
+  links: [] as FamilyLink[],
+  hasGuardianTab: false,
+};
 
-  setSession: (user) => set({ user, isLoggedIn: true, role: user.role, name: user.name }),
+const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
+  const links = opts?.links ?? [];
+  return {
+    user,
+    isLoggedIn: true,
+    role: user.role,
+    name: user.name,
+    userId: userIdOf(user),
+    refreshToken: opts?.refreshToken ?? null,
+    consentDone: opts?.consentDone ?? false,
+    links,
+    hasGuardianTab: computeHasGuardianTab(user.role, links),
+  };
+};
+
+const initialState = DEV_MOCK_SESSION ? sessionState(DEV_MOCK_SESSION) : loggedOutState;
+
+export const useAuthStore = create<AuthState>((set, get) => ({
+  ...initialState,
+  hydrated: false,
+
+  setSession: (user, opts) => set(sessionState(user, opts)),
 
   setLinkedElder: (elderName) =>
     set((state) => (state.user ? { user: { ...state.user, linkedElderName: elderName } } : {})),
 
+  setLinks: (links) =>
+    set({ links, hasGuardianTab: computeHasGuardianTab(get().role, links) }),
+
+  setConsentDone: (done) => set({ consentDone: done }),
+
   hydrate: async () => {
     const restored = await restoreSession();
     if (restored) {
-      set({ user: restored, isLoggedIn: true, role: restored.role, name: restored.name });
+      set({ ...sessionState(restored), hydrated: true });
+    } else {
+      // 복원 실패: 개발용 토글이 켜져 있으면 그 세션 유지, 아니면 비로그인.
+      set({ hydrated: true });
     }
-    // mock: 복원 실패 시 기본 어른 세션 유지 (관문 없이 통과).
   },
 
   logout: () => {
     void apiLogout();
-    set({ user: null, isLoggedIn: false, role: "elder", name: "" });
+    set(loggedOutState);
   },
 }));

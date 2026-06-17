@@ -30,7 +30,7 @@ export default function IntroScreen() {
     if (isLoggedIn) {
       router.replace(role === "guardian" ? "/(guardian)/" : "/(elder)/");
     } else {
-      router.push("/(auth)/login");
+      router.push("/(auth)/role-select");
     }
   }
 
