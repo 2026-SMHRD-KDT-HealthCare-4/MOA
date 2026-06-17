@@ -5,6 +5,7 @@ import { CalendarDays, FileText, Home, MessageCircle, Settings, Users } from "lu
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LucideIcon } from "lucide-react-native";
+import { useAuthStore } from "../../stores/authStore";
 
 type BottomTabBarProps = NonNullable<ComponentProps<typeof Tabs>["tabBar"]> extends (
   props: infer P
@@ -163,7 +164,9 @@ export function ElderBottomNav(props: BottomTabBarProps) {
 }
 
 export function GuardianBottomNav(props: BottomTabBarProps) {
-  return <BottomNavBase {...props} tabs={GUARDIAN_TABS} theme={GUARDIAN_THEME} />;
+  const hasGuardianTab = useAuthStore((s) => s.hasGuardianTab);
+  const tabs = hasGuardianTab ? GUARDIAN_TABS : GUARDIAN_TABS.filter((tab) => tab.name !== "family");
+  return <BottomNavBase {...props} tabs={tabs} theme={GUARDIAN_THEME} />;
 }
 
 const styles = StyleSheet.create({
