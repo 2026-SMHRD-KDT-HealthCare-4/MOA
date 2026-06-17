@@ -1,1 +1,1 @@
-export { default } from "../../src/pages/HomePage";
+export { default } from "../../src/components/ChatbotMain";

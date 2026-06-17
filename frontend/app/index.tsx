@@ -8,7 +8,7 @@ import { TouchIcon } from "../src/components/icons/TouchIcon";
 
 export default function IntroScreen() {
   const router = useRouter();
-  const { isLoggedIn, role } = useAuthStore();
+  const { isLoggedIn, role, hasGuardianTab } = useAuthStore();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
@@ -27,10 +27,15 @@ export default function IntroScreen() {
   const logoPaddingTop   = Math.round(64 * v)  + insets.top;
 
   function handleTouch() {
-    if (isLoggedIn) {
-      router.replace(role === "guardian" ? "/(guardian)/" : "/(elder)/");
-    } else {
+    if (!isLoggedIn) {
       router.push("/(auth)/role-select");
+      return;
+    }
+    if (role === "guardian") {
+      // 보호자 기본 랜딩: 연결된 부모(ACTIVE)가 있으면 가족 탭(부모 상태부터), 없으면 홈(챗봇).
+      router.replace(hasGuardianTab ? "/(guardian)/family" : "/(guardian)/");
+    } else {
+      router.replace("/(elder)/");
     }
   }
 

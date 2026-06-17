@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuthStore } from "../stores/authStore";
 import {
   VictoryChart,
   VictoryLine,
@@ -33,14 +34,15 @@ export default function ReportPage() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const chartWidth = width - 40;
+  const myName = useAuthStore((s) => s.name) || "나";
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
 
       {/* 헤더 */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>변화 패턴 리포트</Text>
-        <Text style={styles.headerSub}>김순자 님 · 최근 7일</Text>
+        <Text style={styles.headerTitle}>내 변화 패턴 리포트</Text>
+        <Text style={styles.headerSub}>{myName} 님 · 최근 7일</Text>
       </View>
 
       <ScrollView

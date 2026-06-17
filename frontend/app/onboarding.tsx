@@ -144,7 +144,11 @@ export default function OnboardingPage() {
 
             <TouchableOpacity
               style={styles.primaryBtn}
-              onPress={() => router.replace("/(guardian)/")}
+              onPress={() =>
+                router.replace(
+                  useAuthStore.getState().hasGuardianTab ? "/(guardian)/family" : "/(guardian)/"
+                )
+              }
               activeOpacity={0.85}
             >
               <Text style={styles.primaryBtnText}>메인으로 이동</Text>

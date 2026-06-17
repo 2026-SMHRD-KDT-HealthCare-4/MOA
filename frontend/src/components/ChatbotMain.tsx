@@ -1,14 +1,36 @@
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from "react-native";
+import { View, Text, Pressable, StyleSheet, useWindowDimensions, Share } from "react-native";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CharacterPlayer } from "../components/CharacterPlayer";
-import { MicIcon } from "../components/icons/MicIcon";
+import { UserPlus, Clock, Share2 } from "lucide-react-native";
+import { CharacterPlayer } from "./CharacterPlayer";
+import { MicIcon } from "./icons/MicIcon";
+import { useAuthStore, type FamilyLink } from "../stores/authStore";
 
-export default function HomePage() {
+// 음성 챗봇 메인 — 직접사용자/보호자 공통(스펙 §2: 메인 챗봇 화면 공통 컴포넌트).
+// 보호자도 같은 화면에서 자기 음성 체크인을 한다.
+// 역할별로 녹음 화면 경로만 분기(나머지 동작은 동일, 회귀 없음).
+export default function ChatbotMain() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const role = useAuthStore((s) => s.role);
+  const links = useAuthStore((s) => s.links);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
+
+  // 보호자 안내 영역: ACTIVE 부모가 없으면(연결 0명 또는 대기 중) 홈에서 안내한다.
+  // (ACTIVE가 있으면 가족 탭으로 랜딩되므로 홈엔 안내를 띄우지 않음)
+  const pendingLinks = links.filter((l) => l.status === "PENDING");
+  const hasActive = links.some((l) => l.status === "ACTIVE");
+  const showGuardianNotice = role === "guardian" && !hasActive;
+
+  async function resharePairingCode(link: FamilyLink) {
+    if (!link.pairingCode) return;
+    await Share.share({
+      message: `MOA 페어링 코드: ${link.pairingCode}\n${link.counterpartName}님 기기에서 이 코드를 입력해 연결을 완료해 주세요.`,
+    });
+  }
 
   const W = Math.min(windowWidth, 430);
   const H = windowHeight;
@@ -41,10 +63,46 @@ export default function HomePage() {
         </View>
       </View>
 
-      <View style={[styles.speechBubble, { top: bubbleTop }]}>
-        <Text style={styles.speechText}>오늘도{"\n"}목소리 들려주세요</Text>
-        <View style={styles.speechTail} />
-      </View>
+      {showGuardianNotice ? (
+        <View style={[styles.noticeWrap, { top: bubbleTop }]}>
+          {pendingLinks.length === 0 ? (
+            // empty-state: 연동 0명
+            <View style={styles.noticeCard}>
+              <Text style={styles.noticeTitle}>부모님을 연결해 주세요</Text>
+              <Text style={styles.noticeBody}>등록 후 페어링 코드를 전달하면 가족 탭에서 함께 살펴볼 수 있어요.</Text>
+              <Pressable style={styles.noticePrimaryBtn} onPress={() => router.push("/onboarding")} accessibilityRole="button">
+                <UserPlus size={20} color="#FFFFFF" />
+                <Text style={styles.noticePrimaryText}>부모님 연결하기</Text>
+              </Pressable>
+            </View>
+          ) : (
+            // PENDING: 연결 대기 중 + 코드 재공유 (provision 직후 사라지지 않게 store 기반으로 노출)
+            pendingLinks.map((link) => (
+              <View key={link.linkId} style={styles.noticeCard}>
+                <View style={styles.noticeHead}>
+                  <Clock size={20} color="#E8943A" strokeWidth={2.4} />
+                  <Text style={styles.noticePendTitle}>{link.counterpartName}님 연결 대기 중</Text>
+                </View>
+                {link.pairingCode ? <Text style={styles.noticeCode}>{link.pairingCode}</Text> : null}
+                <Pressable
+                  style={styles.noticeReshareBtn}
+                  onPress={() => resharePairingCode(link)}
+                  accessibilityRole="button"
+                  disabled={!link.pairingCode}
+                >
+                  <Share2 size={18} color="#FF7955" />
+                  <Text style={styles.noticeReshareText}>페어링 코드 재공유</Text>
+                </Pressable>
+              </View>
+            ))
+          )}
+        </View>
+      ) : (
+        <View style={[styles.speechBubble, { top: bubbleTop }]}>
+          <Text style={styles.speechText}>오늘도{"\n"}목소리 들려주세요</Text>
+          <View style={styles.speechTail} />
+        </View>
+      )}
 
       <View
         pointerEvents="none"
@@ -81,7 +139,7 @@ export default function HomePage() {
           { bottom: recordBottom },
           pressed && styles.pressed,
         ]}
-        onPress={() => router.push("/(elder)/record")}
+        onPress={() => router.push(recordHref)}
         accessibilityRole="button"
         accessibilityLabel="녹음하러가기, 오늘의 목소리를 남겨요"
       >
@@ -168,6 +226,48 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.87)",
     transform: [{ rotate: "45deg" }],
   },
+  noticeWrap: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    zIndex: 8,
+    gap: 12,
+  },
+  noticeCard: {
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderRadius: 20,
+    padding: 18,
+    gap: 10,
+    boxShadow: "0 18px 38px rgba(95, 55, 30, 0.12)",
+  },
+  noticeTitle: { fontSize: 19, fontWeight: "900", color: "#3B2318" },
+  noticeBody: { fontSize: 15, lineHeight: 22, color: "#765E52" },
+  noticePrimaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 54,
+    borderRadius: 15,
+    backgroundColor: "#FF7955",
+    marginTop: 2,
+  },
+  noticePrimaryText: { fontSize: 17, fontWeight: "800", color: "#FFFFFF" },
+  noticeHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  noticePendTitle: { fontSize: 17, fontWeight: "800", color: "#9A6B25" },
+  noticeCode: { fontSize: 26, fontWeight: "900", letterSpacing: 3, color: "#342C28" },
+  noticeReshareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#FFD3C6",
+    backgroundColor: "white",
+  },
+  noticeReshareText: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
   characterWrap: {
     position: "absolute",
     alignItems: "center",

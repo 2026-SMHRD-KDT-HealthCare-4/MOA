@@ -1,21 +1,18 @@
 import { View, Text, ScrollView, Pressable, Image, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { Bell, ChevronDown, Footprints, Gauge, Smile, Volume2 } from "lucide-react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { ArrowLeft, Bell, ChevronDown, Footprints, Gauge, Smile, Volume2 } from "lucide-react-native";
 import type { LucideIcon } from "lucide-react-native";
 import { colors } from "../styles/tokens";
-import { resolveCharacter, type Gender, type HealthState } from "../constants/characterImages";
+import { resolveCharacter, type HealthState } from "../constants/characterImages";
+import { useAuthStore } from "../stores/authStore";
+import { getParentMeta } from "../mocks/family";
 
 const g = colors.guardian;
 
-// mock — 백엔드 연동 시 보호자 담당 직접사용자 정보로 교체.
-const ELDER: { name: string; gender: Gender; state: HealthState; checkedAt: string; date: string } = {
-  name: "김서자",
-  gender: "female",
-  state: "normal",
-  checkedAt: "오늘 09:42",
-  date: "2025.05.22 목요일",
-};
+// 부모 상세 리포트(가족 탭 drill-down). 어떤 부모인지는 라우트 param(elderlyId)으로 받는다.
+// mock — 7일 흐름·포인트 등 세부 수치는 백엔드 연동 시 교체.
+const CHECKED = { checkedAt: "오늘 09:42", date: "2025.05.22 목요일" };
 
 const STATE_META: Record<HealthState, { title: string; sub: string }> = {
   normal: { title: "안정적으로 좋아요", sub: "최근 7일과 비슷한 편안한 흐름이에요" },
@@ -45,14 +42,29 @@ const Y_TICKS = [100, 75, 50, 25, 0];
 export default function DashboardPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const meta = STATE_META[ELDER.state];
+  const params = useLocalSearchParams<{ elderlyId?: string }>();
+  const links = useAuthStore((s) => s.links);
+
+  // 라우트 param으로 어떤 부모인지 식별 → 이름·표정 결정.
+  const link = links.find((l) => String(l.counterpartId) === String(params.elderlyId));
+  const elderName = link?.counterpartName ?? "부모님";
+  const parentMeta = getParentMeta(elderName);
+  const meta = STATE_META[parentMeta.state];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* 헤더 */}
       <View style={styles.header}>
+        <Pressable
+          style={styles.backButton}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="뒤로 가기"
+        >
+          <ArrowLeft size={22} color={g.textPrimary} strokeWidth={2.2} />
+        </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={styles.greeting}>안녕하세요, {ELDER.name}님 💗</Text>
+          <Text style={styles.greeting}>{elderName}님 리포트</Text>
           <Text style={styles.greetingSub}>부모님의 하루를 따뜻하게 살펴보세요.</Text>
         </View>
         <Pressable style={styles.bellButton} accessibilityRole="button" accessibilityLabel="알림">
@@ -73,15 +85,15 @@ export default function DashboardPage() {
               <Text style={styles.heroSub}>{meta.sub}</Text>
               <View style={styles.heroMetaRow}>
                 <Text style={styles.heroMeta}>마지막 기록</Text>
-                <Text style={styles.heroMetaStrong}>{ELDER.checkedAt}</Text>
-                <Text style={styles.heroMeta}>· {ELDER.date}</Text>
+                <Text style={styles.heroMetaStrong}>{CHECKED.checkedAt}</Text>
+                <Text style={styles.heroMeta}>· {CHECKED.date}</Text>
               </View>
             </View>
             <Image
-              source={resolveCharacter(ELDER.gender, ELDER.state)}
+              source={resolveCharacter(parentMeta.gender, parentMeta.state)}
               style={styles.character}
               resizeMode="contain"
-              accessibilityLabel={`${ELDER.name}님 상태 캐릭터`}
+              accessibilityLabel={`${elderName}님 상태 캐릭터`}
             />
           </View>
           {/* 장식 잎 — 문구(왼쪽)와 겹치지 않게 오른쪽·캐릭터 쪽 가장자리에만 살짝 걸치게 */}
@@ -126,9 +138,6 @@ export default function DashboardPage() {
         {/* 오늘의 포인트 */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>오늘의 포인트</Text>
-          <Pressable onPress={() => router.push("/(guardian)/report")} hitSlop={8}>
-            <Text style={styles.linkText}>자세히 보기</Text>
-          </Pressable>
         </View>
         <View style={styles.card}>
           {POINTS.map((p, i) => {
@@ -173,6 +182,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+  },
+  backButton: {
+    width: 42,
+    height: 46,
+    alignItems: "flex-start",
+    justifyContent: "center",
   },
   headerCopy: { flex: 1, gap: 3 },
   greeting: { color: g.textPrimary, fontSize: 22, lineHeight: 28, fontWeight: "900" },
