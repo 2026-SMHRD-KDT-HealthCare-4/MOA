@@ -94,7 +94,7 @@ function VideoLayer({
 }
 
 export function MoaAvatar({
-  emotion = "greeting",
+  emotion = "default",
   isTalking = false,
   size = 235,
   showOnlineDot = true,
@@ -115,9 +115,9 @@ export function MoaAvatar({
         { width: size, height: size, borderRadius: circular ? radius : 0 },
       ]}
     >
-      {AVATAR_VIDEO_LAYERS.map((layer) => (
+      {AVATAR_VIDEO_LAYERS.map((layer, index) => (
         <VideoLayer
-          key={layer.key}
+          key={`avatar-video-layer-${index}`}
           layer={layer}
           visible={activeVideoKey === layer.key}
           size={size}

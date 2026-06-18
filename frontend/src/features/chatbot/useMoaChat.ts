@@ -1,6 +1,7 @@
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { Platform } from "react-native";
 import { Audio } from "expo-av";
+
 import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse } from "../../mocks/chatbotResponses";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
@@ -13,15 +14,17 @@ export interface ChatMessage {
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const TTS_VOICE = "nova"; // 여자 어린이 계열 목소리
+const TTS_VOICE = "nova";
 
 async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buffer);
   let binary = "";
-  const CHUNK = 8192;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as unknown as number[]));
+  const chunk = 8192;
+
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...(bytes.subarray(i, i + chunk) as unknown as number[]));
   }
+
   return btoa(binary);
 }
 
@@ -48,7 +51,6 @@ async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | nul
       blobUrl = URL.createObjectURL(blob);
       uri = blobUrl;
     } else {
-      // expo-file-system 없이 data URI 방식으로 재생 (iOS/Android 모두 지원)
       const buffer = await response.arrayBuffer();
       const base64 = await arrayBufferToBase64(buffer);
       uri = `data:audio/mpeg;base64,${base64}`;
@@ -62,38 +64,41 @@ async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | nul
       if (status.isLoaded && status.didJustFinish) {
         sound.unloadAsync();
         (soundRef as React.MutableRefObject<Audio.Sound | null>).current = null;
-        if (blobUrl) URL.revokeObjectURL(blobUrl); // web 메모리 해제
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
       }
     });
   } catch {
-    // TTS 실패 시 텍스트 표시만 유지
+    // Text response remains available even when TTS fails.
   }
 }
 
 function mapBotEmotion(rawEmotion: string): BotEmotion {
   const map: Record<string, BotEmotion> = {
+    default: "default",
+    listening: "listening",
+    thinking: "thinking",
     happy: "happy",
     worried: "worried",
-    thinking: "thinking",
-    greeting: "greeting",
-    listening: "listening",
+    clapping: "clapping",
   };
-  return map[rawEmotion] ?? "happy";
+
+  return map[rawEmotion] ?? "default";
 }
 
 export function useMoaChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isBotTyping, setIsBotTyping] = useState(false);
-  const [botEmotion, setBotEmotion] = useState<BotEmotion>("greeting");
+  const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const soundRef = useRef<Audio.Sound | null>(null);
-
-  // FR-10: UC-01b 세션 중 호출어 감지 중단
+  const conversationTurnRef = useRef(0);
+  const validSpeechDurationRef = useRef(0);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
   async function sendMessage(text: string, acousticMeta?: Partial<ChatbotApiParams["acoustic_meta"]>) {
     if (!text.trim()) return;
 
-    disableWakeWord(); // UC-01b 시작
+    disableWakeWord();
+
     const userMsg: ChatMessage = { id: `u_${Date.now()}`, role: "user", text };
     setMessages((prev) => [...prev, userMsg]);
     setIsBotTyping(true);
@@ -102,27 +107,32 @@ export function useMoaChat() {
     try {
       const params: ChatbotApiParams = {
         message: text,
+        conversation_turn: conversationTurnRef.current,
+        valid_speech_duration_ms: validSpeechDurationRef.current,
         acoustic_meta: { duration_ms: 0, pause_events: 0, ...acousticMeta },
       };
 
       const res: ChatbotResponse = await mockChatbotApi(params);
-      const emotion = mapBotEmotion(res.data.emotion_controls.bot_emotion);
+      conversationTurnRef.current += 1;
+      validSpeechDurationRef.current += params.acoustic_meta.duration_ms;
+
+      const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);
 
       const botMsg: ChatMessage = {
         id: `b_${Date.now()}`,
         role: "bot",
-        text: res.data.message,
+        text: res.data.reply,
         emotion,
       };
       setMessages((prev) => [...prev, botMsg]);
 
-      await playTTS(res.data.message, soundRef);
+      await playTTS(res.data.reply, soundRef);
     } catch {
-      // 무시
+      setBotEmotion("worried");
     } finally {
       setIsBotTyping(false);
-      enableWakeWord(); // UC-01b 종료
+      enableWakeWord();
     }
   }
 

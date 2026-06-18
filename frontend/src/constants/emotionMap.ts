@@ -1,33 +1,32 @@
-// React Native: require() returns number(native) | string(web) for media assets
+// React Native: require() returns number(native) | string(web) for media assets.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type VideoAsset = any;
+export type VideoAsset = any;
 
-export type BotEmotion = "default" | "greeting" | "happy" | "worried" | "listening" | "thinking";
+export type BotEmotion = "default" | "listening" | "thinking" | "happy" | "worried" | "clapping";
 
 export const EMOTION_VIDEO_MAP: Record<BotEmotion, { idle: VideoAsset; talking?: VideoAsset }> = {
-  default: { idle: require("../asset/세로기본.mp4") },
-  greeting: {
-    idle: require("../asset/세로기본.mp4"),
-    talking: require("../asset/세로기본.mp4"),
-  },
+  default: { idle: require("../asset/기본2.mp4") },
+  listening: { idle: require("../asset/듣기.mp4") },
+  thinking: { idle: require("../asset/생각.mp4") },
   happy: {
-    idle: require("../asset/메인홈.mp4"),
-    talking: require("../asset/메인홈.mp4"),
+    idle: require("../asset/행복.mp4"),
+    talking: require("../asset/행복.mp4"),
   },
-  worried: { idle: require("../asset/메인홈.mp4") },
-  listening: { idle: require("../asset/세로듣기.mp4") },
-  thinking: { idle: require("../asset/세로듣기.mp4") },
+  worried: { idle: require("../asset/생각.mp4") },
+  clapping: {
+    idle: require("../asset/박수.mp4"),
+    talking: require("../asset/박수.mp4"),
+  },
 };
 
-export const FALLBACK_VIDEO: VideoAsset = require("../asset/메인홈.mp4");
+export const INTRO_VIDEO: VideoAsset = require("../asset/인트로.mp4");
+export const FALLBACK_VIDEO: VideoAsset = require("../asset/기본2.mp4");
 
 export function resolveVideoSrc(emotion: BotEmotion, isTalking: boolean): VideoAsset {
   const videos = EMOTION_VIDEO_MAP[emotion];
   return (isTalking ? videos.talking : undefined) ?? videos.idle;
 }
 
-// ── 아바타 영상 레이어 (EMOTION_VIDEO_MAP에서 자동 생성) ────────────────
-// 영상 추가·삭제·교체는 위 EMOTION_VIDEO_MAP 한 곳만 고치면 됨 (단일 소스).
 export type AvatarVideoLayer = {
   key: string;
   emotion: BotEmotion;

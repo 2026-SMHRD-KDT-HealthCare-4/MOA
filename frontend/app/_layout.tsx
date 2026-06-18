@@ -27,7 +27,8 @@ function useAuthGuard() {
     const inElder = root === "(elder)";
     const inGuardian = root === "(guardian)";
     const inOnboarding = root === "onboarding";
-    const inProtected = inElder || inGuardian || inOnboarding;
+    const inHome = root === "home";
+    const inProtected = inElder || inGuardian || inOnboarding || inHome;
 
     if (!isLoggedIn) {
       // 보호 영역에 들어와 있으면 역할 선택으로 돌려보낸다. 인트로/(auth)는 통과.
@@ -68,6 +69,7 @@ export default function RootLayout() {
         <Stack.Screen name="(elder)" />
         <Stack.Screen name="(guardian)" />
         <Stack.Screen name="onboarding" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="home" />
         <Stack.Screen name="chat" />
         <Stack.Screen name="done" />
       </Stack>

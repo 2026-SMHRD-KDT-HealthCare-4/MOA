@@ -189,9 +189,9 @@ export default function ChatPage() {
       return { emotion: "happy", isTalking: true };
     }
     if (showIntroGreeting && messages.length === 0) {
-      return { emotion: "greeting", isTalking: false };
+      return { emotion: "default", isTalking: false };
     }
-    if (messages.length === 0 || botEmotion === "greeting") {
+    if (messages.length === 0) {
       return { emotion: "default", isTalking: false };
     }
     return { emotion: botEmotion, isTalking: false };

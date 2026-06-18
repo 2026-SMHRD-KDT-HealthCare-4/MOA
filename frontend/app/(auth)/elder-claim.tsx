@@ -39,7 +39,7 @@ export default function ElderClaimPage() {
 
       setSession(user, { refreshToken, consentDone, familyGroup, links, guardianMembers });
       setError("");
-      router.replace("/(elder)/");
+      router.replace("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
     } finally {

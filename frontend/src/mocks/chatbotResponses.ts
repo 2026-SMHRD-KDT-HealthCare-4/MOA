@@ -1,102 +1,85 @@
-// docs/02 §5 API 규격 준수. mock 단계에서 실제 백엔드 대역.
+import type { BotEmotion } from "../constants/emotionMap";
+
+export type UserIntent =
+  | "greeting"
+  | "daily_talk"
+  | "family_talk"
+  | "meal_talk"
+  | "positive_mood"
+  | "negative_mood"
+  | "health_discomfort"
+  | "loneliness"
+  | "start_recording"
+  | "show_result"
+  | "goodbye"
+  | "unknown";
+
+export type NextAction = "continue" | "finish";
 
 export interface ChatbotResponse {
   status: "success";
   data: {
-    intent: string;
-    confidence: number;
-    reply_type: "TEXT" | "TEXT_WITH_CHART";
-    message: string;
-    emotion_controls: {
-      user_emotion: string;
-      bot_emotion: string;
-    };
-    payload: {
-      score: number;
-      status: "NORMAL" | "CAUTION" | "ALERT";
-    };
+    reply: string;
+    user_intent: UserIntent;
+    bot_emotion: BotEmotion;
+    next_action: NextAction;
+    chat_state: "idle" | "botSpeaking" | "listening" | "thinking" | "completed" | "error";
+    should_end: boolean;
   };
 }
 
 export interface ChatbotApiParams {
   message: string;
+  conversation_turn?: number;
+  valid_speech_duration_ms?: number;
   acoustic_meta: {
     duration_ms: number;
     pause_events: number;
   };
 }
 
-const GREETING: ChatbotResponse[] = [
+const MOCK_RESPONSES: ChatbotResponse[] = [
   {
     status: "success",
     data: {
-      intent: "INT_001",
-      confidence: 0.92,
-      reply_type: "TEXT",
-      message: "오늘도 이렇게 이야기해 주셔서 기뻐요! 어떻게 지내셨어요?",
-      emotion_controls: { user_emotion: "neutral", bot_emotion: "happy" },
-      payload: { score: 70, status: "NORMAL" },
+      reply: "안녕하세요. 오늘은 어떤 하루였나요?",
+      user_intent: "greeting",
+      bot_emotion: "happy",
+      next_action: "continue",
+      chat_state: "botSpeaking",
+      should_end: false,
     },
   },
   {
     status: "success",
     data: {
-      intent: "INT_001",
-      confidence: 0.88,
-      reply_type: "TEXT",
-      message: "목소리가 참 따뜻하게 들려요. 오늘 하루도 잘 보내셨나요?",
-      emotion_controls: { user_emotion: "happy", bot_emotion: "happy" },
-      payload: { score: 75, status: "NORMAL" },
-    },
-  },
-];
-
-const STATUS: ChatbotResponse[] = [
-  {
-    status: "success",
-    data: {
-      intent: "INT_002",
-      confidence: 0.94,
-      reply_type: "TEXT",
-      message: "요즘 목소리 패턴을 살펴보니 평소와 비슷한 좋은 흐름이에요. 잘 지내고 계신 것 같아서 참 다행이에요!",
-      emotion_controls: { user_emotion: "curious", bot_emotion: "happy" },
-      payload: { score: 45, status: "NORMAL" },
+      reply: "와, 좋은 일이 있으셨군요. 저도 기분이 좋아요.",
+      user_intent: "positive_mood",
+      bot_emotion: "happy",
+      next_action: "continue",
+      chat_state: "botSpeaking",
+      should_end: false,
     },
   },
   {
     status: "success",
     data: {
-      intent: "INT_002",
-      confidence: 0.87,
-      reply_type: "TEXT",
-      message: "오늘 목소리에서 평소와 조금 다른 변화가 느껴져요. 충분히 쉬고 계시나요?",
-      emotion_controls: { user_emotion: "tired", bot_emotion: "worried" },
-      payload: { score: 35, status: "CAUTION" },
+      reply: "아이고, 불편하셨겠어요. 무리하지 마시고 잠깐 쉬어 주세요.",
+      user_intent: "health_discomfort",
+      bot_emotion: "worried",
+      next_action: "continue",
+      chat_state: "botSpeaking",
+      should_end: false,
     },
   },
 ];
 
-const GUIDE: ChatbotResponse[] = [
-  {
-    status: "success",
-    data: {
-      intent: "INT_003",
-      confidence: 0.95,
-      reply_type: "TEXT",
-      message: "모아는 매일 목소리를 들으며 건강 변화를 함께 살펴봐요. 편하게 이야기해 주시면 돼요!",
-      emotion_controls: { user_emotion: "curious", bot_emotion: "happy" },
-      payload: { score: 0, status: "NORMAL" },
-    },
-  },
-];
-
-const ALL = [...GREETING, ...STATUS, ...GUIDE];
 let idx = 0;
 
 export function mockChatbotApi(_params: ChatbotApiParams): Promise<ChatbotResponse> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     setTimeout(() => {
-      resolve(ALL[idx++ % ALL.length]);
+      resolve(MOCK_RESPONSES[idx++ % MOCK_RESPONSES.length]);
     }, 1500);
   });
 }

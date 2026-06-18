@@ -46,7 +46,7 @@ export default function GuardianInvitePage() {
         guardianMembers: members.data.guardianMembers,
       });
       setFamilyState(members.data);
-      router.replace("/(guardian)/family");
+      router.replace("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : "초대 수락에 실패했어요.");
     } finally {
