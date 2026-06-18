@@ -28,7 +28,7 @@ export default function ElderClaimPage() {
     setSubmitting(true);
     try {
       const res = await authApi.claim({ code });
-      const { user, refreshToken, consent_required } = res.data;
+      const { user, refreshToken, consent_required, familyGroup, links, guardianMembers } = res.data;
 
       // 커밋 순서: 클레임 성공 후, 보관해 둔 동의를 제출.
       let consentDone = !consent_required;
@@ -37,7 +37,7 @@ export default function ElderClaimPage() {
         consentDone = true;
       }
 
-      setSession(user, { refreshToken, consentDone });
+      setSession(user, { refreshToken, consentDone, familyGroup, links, guardianMembers });
       setError("");
       router.replace("/(elder)/");
     } catch (e) {

@@ -1,25 +1,28 @@
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+﻿import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, ShieldCheck, Info } from "lucide-react-native";
 
-// 직접사용자 생체정보(음성) 동의 화면.
-// 화면 순서상 동의가 먼저(사용자 요구). 동의 의사는 아직 서버에 보내지 않고,
-// 다음 화면(초대코드 클레임)으로 넘겨 클레임 성공 직후 함께 제출한다(claim → consent).
-// 글자: 본문 18pt+ / 핵심 22pt+, 단일 대형 버튼.
 export default function ElderConsentPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  function handleBack() {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(auth)/role-select");
+    }
+  }
+
   function handleAgree() {
-    // 동의 의사를 코드 입력 화면으로 전달(로컬 보관 → 클레임 직후 제출).
     router.push({ pathname: "/(auth)/elder-claim", params: { consented: "1" } });
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel="뒤로 가기">
+        <TouchableOpacity style={styles.backBtn} onPress={handleBack} accessibilityLabel="뒤로 가기">
           <ArrowLeft size={24} color="#756a66" />
         </TouchableOpacity>
         <Text style={styles.topTitle}>음성 데이터 동의</Text>
@@ -34,23 +37,20 @@ export default function ElderConsentPage() {
           <ShieldCheck size={34} color="#FF7955" />
         </View>
 
-        <Text style={styles.title}>목소리로 건강을{"\n"}살펴봐도 될까요?</Text>
+        <Text style={styles.title}>목소리로 건강을{ "\n" }살펴봐도 될까요?</Text>
         <Text style={styles.lead}>
-          매일의 목소리에서 변화와 패턴을 감지해, 가족이 안심할 수 있도록 참고 정보로 알려드려요.
+          매일의 목소리 변화를 참고 정보로 살펴보고, 가족이 안심할 수 있도록 알려드려요.
         </Text>
 
         <View style={styles.card}>
-          <Text style={styles.cardItem}>• 목소리의 변화·패턴을 참고용으로 기록하고 살펴봐요.</Text>
-          <Text style={styles.cardItem}>• 녹음한 원음은 분석이 끝나면 바로 지우고, 기기에 저장하지 않아요.</Text>
-          <Text style={styles.cardItem}>• 병을 진단하지 않는, 일상 돌봄을 돕는 참고용 서비스예요.</Text>
+          <Text style={styles.cardItem}>목소리의 변화 패턴을 참고용으로 기록하고 살펴봐요.</Text>
+          <Text style={styles.cardItem}>녹음 파일은 분석이 끝나면 바로 지우고, 기기에 저장하지 않아요.</Text>
+          <Text style={styles.cardItem}>질병을 진단하지 않는 일상 변화 참고 서비스예요.</Text>
         </View>
 
-        {/* 주의 안내 — 색만이 아니라 아이콘+텍스트 병행 */}
         <View style={styles.noticeRow}>
           <Info size={22} color="#E8943A" strokeWidth={2.4} />
-          <Text style={styles.noticeText}>
-            동의는 언제든지 설정에서 다시 멈출 수 있어요.
-          </Text>
+          <Text style={styles.noticeText}>동의는 언제든 설정에서 다시 멈출 수 있어요.</Text>
         </View>
 
         <TouchableOpacity style={styles.primaryBtn} onPress={handleAgree} activeOpacity={0.85}>

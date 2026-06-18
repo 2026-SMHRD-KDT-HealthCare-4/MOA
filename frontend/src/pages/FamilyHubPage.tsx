@@ -1,38 +1,82 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share } from "react-native";
+import { useState } from "react";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
-  UserPlus,
-  ChevronRight,
-  CheckCircle2,
   AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
   Clock,
   Share2,
+  UserPlus,
+  Users,
 } from "lucide-react-native";
-import { useAuthStore, type FamilyLink } from "../stores/authStore";
+import {
+  useAuthStore,
+  type FamilyLink,
+  type GuardianMember,
+} from "../stores/authStore";
 import { getParentMeta, PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
+import * as authApi from "../api/auth";
 
-// 가족 구성 허브 — 돌보는 부모 카드 + 함께 돌보는 가족 + 연결 대기/추가.
-// 카드 탭 → 부모 상세 리포트(detail)로 drill-down.
 export default function FamilyHubPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
   const links = useAuthStore((s) => s.links);
+  const familyGroupId = useAuthStore((s) => s.familyGroupId);
+  const guardianMemberRole = useAuthStore((s) => s.guardianMemberRole);
+  const guardianMembers = useAuthStore((s) => s.guardianMembers);
+  const setGuardianMembers = useAuthStore((s) => s.setGuardianMembers);
+
+  const [inviteName, setInviteName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [inviteError, setInviteError] = useState("");
+  const [inviting, setInviting] = useState(false);
 
   const active = links.filter((l) => l.status === "ACTIVE");
   const pending = links.filter((l) => l.status === "PENDING");
+  const isOwner = guardianMemberRole === "OWNER";
 
   async function resharePairingCode(link: FamilyLink) {
     if (!link.pairingCode) return;
     await Share.share({
-      message: `MOA 페어링 코드: ${link.pairingCode}\n${link.counterpartName}님 기기에서 이 코드를 입력해 연결을 완료해 주세요.`,
+      message: `MOA 페어링 코드: ${link.pairingCode}\n${link.counterpartName}님 기기에서 이 코드를 입력해 연결해 주세요.`,
     });
+  }
+
+  async function shareGuardianInvite(code: string) {
+    await Share.share({
+      message: `MOA 가족 초대 코드: ${code}\n보호자로 가입한 뒤 이 코드를 입력하면 함께 돌볼 수 있어요.`,
+    });
+  }
+
+  async function handleInviteGuardian() {
+    if (!familyGroupId || !user) return setInviteError("가족 그룹을 먼저 만들어 주세요.");
+    if (!inviteName.trim()) return setInviteError("초대할 보호자 이름을 입력해 주세요.");
+
+    setInviting(true);
+    try {
+      const res = await authApi.inviteGuardian({
+        familyGroupId,
+        inviterGuardianId: user.id,
+        name: inviteName.trim(),
+      });
+      setGuardianMembers([...guardianMembers, res.data.guardianMember]);
+      setInviteCode(res.data.inviteCode);
+      setInviteError("");
+      setInviteName("");
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : "보호자 초대에 실패했어요.");
+    } finally {
+      setInviting(false);
+    }
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>돌보는 분</Text>
+        <Text style={styles.headerTitle}>돌보는 부모님</Text>
         <Text style={styles.headerSub}>가족의 오늘을 함께 살펴봐요</Text>
       </View>
 
@@ -51,7 +95,6 @@ export default function FamilyHubPage() {
           </View>
         ) : null}
 
-        {/* 연동된 부모 카드 */}
         {active.map((link) => {
           const meta = getParentMeta(link.counterpartName);
           return (
@@ -72,37 +115,17 @@ export default function FamilyHubPage() {
                   <Text style={styles.memberName}>{link.counterpartName} 님</Text>
                   <View style={styles.lastRow}>
                     <Clock size={13} color="#a99a92" />
-                    <Text style={styles.lastText}>마지막 안부 {meta.lastGreeting}</Text>
+                    <Text style={styles.lastText}>마지막 인사 {meta.lastGreeting}</Text>
                   </View>
                 </View>
                 <ChevronRight size={20} color="#c4b5ae" />
               </View>
 
-              {/* 오늘 상태 — 색+아이콘+텍스트 병행 */}
               <StatusPill status={meta.status} />
-
-              <View style={styles.divider} />
-
-              {/* 함께 돌보는 가족 */}
-              <View style={styles.siblingsWrap}>
-                <Text style={styles.siblingsLabel}>함께 돌보는 가족</Text>
-                <View style={styles.siblingsRow}>
-                  {meta.siblings.map((s, i) => (
-                    <View key={`${s.name}-${i}`} style={styles.siblingChip}>
-                      <View style={styles.siblingAvatar}>
-                        <Text style={styles.siblingInitial}>{s.name[0]}</Text>
-                      </View>
-                      <Text style={styles.siblingName}>{s.name}</Text>
-                      <Text style={styles.siblingRole}>{s.role}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
             </TouchableOpacity>
           );
         })}
 
-        {/* 연결 대기 중 */}
         {pending.map((link) => (
           <View key={link.linkId} style={styles.pendingCard}>
             <View style={styles.pendingHead}>
@@ -120,19 +143,81 @@ export default function FamilyHubPage() {
               disabled={!link.pairingCode}
             >
               <Share2 size={18} color="#FF7955" />
-              <Text style={styles.reshareText}>페어링 코드 재공유</Text>
+              <Text style={styles.reshareText}>페어링 코드 공유</Text>
             </TouchableOpacity>
           </View>
         ))}
 
-        {/* 부모님 추가 */}
         {(active.length > 0 || pending.length > 0) && (
           <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => router.push("/onboarding")}>
             <UserPlus size={22} color="#FF7955" />
             <Text style={styles.addBtnText}>부모님 연결 추가</Text>
           </TouchableOpacity>
         )}
+
+        {(active.length > 0 || pending.length > 0 || guardianMembers.length > 0) && (
+          <View style={styles.guardianCard}>
+            <View style={styles.guardianHeader}>
+              <Users size={20} color="#765E52" />
+              <Text style={styles.guardianTitle}>함께 돌보는 보호자</Text>
+            </View>
+
+            {guardianMembers.map((member) => (
+              <GuardianMemberRow key={member.id} member={member} />
+            ))}
+
+            {isOwner ? (
+              <View style={styles.inviteBox}>
+                <Text style={styles.inviteTitle}>부보호자 초대</Text>
+                <TextInput
+                  style={styles.inviteInput}
+                  value={inviteName}
+                  onChangeText={setInviteName}
+                  placeholder="예: 김지훈"
+                  placeholderTextColor="#c4b5ae"
+                />
+                {inviteError ? <Text style={styles.inviteError}>{inviteError}</Text> : null}
+                <TouchableOpacity
+                  style={[styles.inviteBtn, inviting && styles.disabled]}
+                  onPress={handleInviteGuardian}
+                  activeOpacity={0.85}
+                  disabled={inviting}
+                >
+                  <Text style={styles.inviteBtnText}>{inviting ? "초대 중..." : "초대 코드 발급"}</Text>
+                </TouchableOpacity>
+                {inviteCode ? (
+                  <TouchableOpacity
+                    style={styles.inviteCodeBtn}
+                    onPress={() => shareGuardianInvite(inviteCode)}
+                    activeOpacity={0.85}
+                  >
+                    <Share2 size={17} color="#FF7955" />
+                    <Text style={styles.inviteCodeText}>{inviteCode}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        )}
       </ScrollView>
+    </View>
+  );
+}
+
+function GuardianMemberRow({ member }: { member: GuardianMember }) {
+  const active = member.status === "ACTIVE";
+  return (
+    <View style={styles.guardianRow}>
+      <View style={[styles.guardianDot, active ? styles.guardianDotActive : styles.guardianDotPending]} />
+      <View style={styles.guardianCopy}>
+        <Text style={styles.guardianName}>{member.guardianName}</Text>
+        <Text style={styles.guardianRole}>
+          {member.memberRole === "OWNER" ? "대표보호자" : "부보호자"} · {active ? "참여 중" : "초대 대기"}
+        </Text>
+      </View>
+      {member.inviteCode && member.status === "PENDING" ? (
+        <Text style={styles.guardianCode}>{member.inviteCode}</Text>
+      ) : null}
     </View>
   );
 }
@@ -156,7 +241,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
   headerSub: { fontSize: 16, color: "#765E52" },
   scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 12 },
-
   memberCard: {
     backgroundColor: "white",
     borderRadius: 20,
@@ -195,7 +279,6 @@ const styles = StyleSheet.create({
   memberName: { fontSize: 18, fontWeight: "700", color: "#342C28" },
   lastRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   lastText: { fontSize: 13, color: "#a99a92" },
-
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -206,24 +289,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusPillText: { fontSize: 15, fontWeight: "800" },
-
-  divider: { height: 1, backgroundColor: "#f5eeea" },
-  siblingsWrap: { gap: 10 },
-  siblingsLabel: { fontSize: 13, fontWeight: "700", color: "#a99a92" },
-  siblingsRow: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
-  siblingChip: { alignItems: "center", gap: 3 },
-  siblingAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f3ece6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  siblingInitial: { fontSize: 16, fontWeight: "800", color: "#8a766c" },
-  siblingName: { fontSize: 13, fontWeight: "700", color: "#40332D" },
-  siblingRole: { fontSize: 11, color: "#a99a92" },
-
   pendingCard: {
     backgroundColor: "#FFFDF9",
     borderRadius: 20,
@@ -235,13 +300,7 @@ const styles = StyleSheet.create({
   pendingHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   pendingTitle: { fontSize: 17, fontWeight: "800", color: "#9A6B25" },
   pendingBody: { fontSize: 14, lineHeight: 20, color: "#765E52" },
-  pendingCode: {
-    fontSize: 26,
-    fontWeight: "900",
-    letterSpacing: 3,
-    color: "#342C28",
-    paddingVertical: 4,
-  },
+  pendingCode: { fontSize: 26, fontWeight: "900", letterSpacing: 3, color: "#342C28" },
   reshareBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -254,7 +313,6 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
   reshareText: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
-
   emptyCard: {
     backgroundColor: "white",
     borderRadius: 20,
@@ -278,7 +336,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   primaryBtnText: { fontSize: 18, fontWeight: "800", color: "white" },
-
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -292,4 +349,56 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
   addBtnText: { fontSize: 18, fontWeight: "600", color: "#FF7955" },
+  guardianCard: {
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#f0e8e2",
+    gap: 12,
+  },
+  guardianHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  guardianTitle: { fontSize: 18, fontWeight: "800", color: "#342C28" },
+  guardianRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  guardianDot: { width: 10, height: 10, borderRadius: 5 },
+  guardianDotActive: { backgroundColor: "#2ECC71" },
+  guardianDotPending: { backgroundColor: "#E8943A" },
+  guardianCopy: { flex: 1, gap: 2 },
+  guardianName: { fontSize: 15, fontWeight: "800", color: "#40332D" },
+  guardianRole: { fontSize: 12, color: "#a99a92", fontWeight: "700" },
+  guardianCode: { fontSize: 13, fontWeight: "900", color: "#765E52" },
+  inviteBox: { gap: 8, borderTopWidth: 1, borderTopColor: "#f5eeea", paddingTop: 12 },
+  inviteTitle: { fontSize: 14, fontWeight: "800", color: "#765E52" },
+  inviteInput: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: "#e8ddd9",
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: "#342C28",
+    backgroundColor: "#FFFDF9",
+  },
+  inviteBtn: {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#FF7955",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inviteBtnText: { fontSize: 16, fontWeight: "800", color: "white" },
+  disabled: { opacity: 0.6 },
+  inviteError: { fontSize: 13, fontWeight: "700", color: "#E8943A" },
+  inviteCodeBtn: {
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#FFD3C6",
+    backgroundColor: "white",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  inviteCodeText: { fontSize: 17, fontWeight: "900", color: "#FF7955", letterSpacing: 1 },
 });
