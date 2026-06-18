@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.database import engine, Base
-from app.routes import auth, chat, record, analyze
+from app.routes import auth, record, analyze, chat, medication, notification, report
 
-# DB 테이블 자동 생성
-Base.metadata.create_all(bind=engine)
+# DB 스키마는 Alembic 마이그레이션으로 관리한다.
+# 테이블 생성/변경은 `alembic upgrade head` 로 적용하며, 여기서 create_all 을 호출하지 않는다.
+# (create_all 은 기존 테이블 변경을 반영하지 못해 Alembic 과 충돌하므로 제거함)
 
 app = FastAPI(title="MOA Backend API")
 
@@ -19,9 +19,12 @@ app.add_middleware(
 
 # 라우터 등록
 app.include_router(auth.router)
-app.include_router(chat.router)
 app.include_router(record.router)
 app.include_router(analyze.router)
+app.include_router(chat.router)
+app.include_router(medication.router)
+app.include_router(notification.router)
+app.include_router(report.router)
 
 @app.get("/")
 def root():

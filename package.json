@@ -1,0 +1,11 @@
+{
+  "name": "moa-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "npm run start --prefix frontend",
+    "android": "npm run android --prefix frontend",
+    "ios": "npm run ios --prefix frontend",
+    "web": "npm run web --prefix frontend"
+  }
+}

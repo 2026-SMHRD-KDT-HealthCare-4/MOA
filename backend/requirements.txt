@@ -3,12 +3,14 @@ uvicorn[standard]
 python-dotenv
 psycopg2-binary
 sqlalchemy
+alembic
+pydantic[email]
 python-jose[cryptography]
 passlib[bcrypt]
 openai
 python-multipart
 supabase
-# 음성 특징점 추출
+# 음성 특징점 추출 (2단계에서 사용)
 numpy
 librosa
 praat-parselmouth
