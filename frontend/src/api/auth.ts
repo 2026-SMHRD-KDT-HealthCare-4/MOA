@@ -1,34 +1,45 @@
-// 인증 API 레이어.
-// 함수 시그니처는 실제 API 규격(backend /auth/*)에 맞추고, 내부는 지금 mock 응답을 반환한다.
-// 백엔드 명세가 확정되면 각 함수 "내부만" fetch로 교체하면 됨 (호출부는 그대로).
-import type { SessionUser, UserRole, FamilyLink } from "../stores/authStore";
+import type {
+  FamilyGroup,
+  FamilyLink,
+  GuardianMember,
+  GuardianMemberRole,
+  SessionUser,
+  UserRole,
+} from "../stores/authStore";
 import { saveToken, getToken, clearToken, saveRefreshToken, getRefreshToken } from "./session";
 
-// 백엔드 공통 응답 엔벨로프 (spec §6: { success, data }).
 export interface ApiEnvelope<T> {
   success: true;
   data: T;
 }
 
-// ── mock 계정 저장소 (백엔드 연동 시 이 블록 전체 제거) ──────────────
 interface MockAccount {
   id: string;
   name: string;
   email: string;
   password: string;
   role: UserRole;
-  relation?: string; // 어른 ↔ 보호자 관계 (예: "어머니")
-  linkedElderId?: string; // 보호자 → 담당 어른 id
-  voiceConsentAt?: string; // 음성 데이터 동의 시각(ISO)
-  pairingCode?: string; // 직접사용자 계정의 클레임용 페어링 코드
+  relation?: string;
+  linkedElderId?: string;
+  voiceConsentAt?: string;
+  pairingCode?: string;
 }
 
-// 어른 일상 테스트용 기본 계정. "보호자가 미리 생성해 둔 어른 계정"이라는 가정.
-// dev 편의: 페어링 코드 "MOA-DEV"로 클레임 가능.
+const nowIso = () => new Date().toISOString();
+
 const mockAccounts: MockAccount[] = [
-  { id: "elder-1", name: "김순자", email: "elder@moa.app", password: "moa00000", role: "elder", pairingCode: "MOA-DEV" },
+  {
+    id: "elder-1",
+    name: "김순자",
+    email: "elder@moa.app",
+    password: "moa00000",
+    role: "elder",
+    pairingCode: "MOA-DEV",
+  },
 ];
+const mockFamilyGroups: FamilyGroup[] = [];
 const mockFamilyLinks: FamilyLink[] = [];
+const mockGuardianMembers: GuardianMember[] = [];
 
 const makeToken = (id: string) => `mock-token-${id}`;
 const makeRefreshToken = (id: string) => `mock-refresh-${id}`;
@@ -38,11 +49,67 @@ const idNumberOf = (id: string): number => {
 };
 const makePairingCode = (): string =>
   `${Math.random().toString(36).slice(2, 5)}-${Math.random().toString(36).slice(2, 5)}`.toUpperCase();
+const makeInviteCode = (): string =>
+  `FAM-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
 function toSession(acc: MockAccount): SessionUser {
   return { id: acc.id, name: acc.name, role: acc.role, token: makeToken(acc.id) };
 }
-// ─────────────────────────────────────────────────────────────────────
+
+function groupForGuardian(guardianId: string): FamilyGroup | null {
+  const member = mockGuardianMembers.find(
+    (m) => m.guardianId === guardianId && m.status === "ACTIVE",
+  );
+  return member ? mockFamilyGroups.find((g) => g.id === member.familyGroupId) ?? null : null;
+}
+
+function ensureFamilyGroupForOwner(guardian: MockAccount): FamilyGroup {
+  const existing = groupForGuardian(guardian.id);
+  if (existing) return existing;
+
+  const ts = Date.now();
+  const familyGroup: FamilyGroup = {
+    id: `family-${ts}`,
+    name: `${guardian.name} 가족`,
+    createdByGuardianId: guardian.id,
+    status: "ACTIVE",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+  mockFamilyGroups.push(familyGroup);
+  mockGuardianMembers.push({
+    id: `guardian-member-${ts}`,
+    familyGroupId: familyGroup.id,
+    guardianId: guardian.id,
+    guardianName: guardian.name,
+    memberRole: "OWNER",
+    status: "ACTIVE",
+    joinedAt: nowIso(),
+    createdAt: nowIso(),
+  });
+  return familyGroup;
+}
+
+function membersForFamily(familyGroupId: string) {
+  return {
+    familyGroup: mockFamilyGroups.find((g) => g.id === familyGroupId) ?? null,
+    links: mockFamilyLinks.filter((l) => l.familyGroupId === familyGroupId),
+    guardianMembers: mockGuardianMembers.filter((m) => m.familyGroupId === familyGroupId),
+  };
+}
+
+function familyStateForUser(user: SessionUser) {
+  if (user.role === "guardian") {
+    const familyGroup = groupForGuardian(user.id);
+    if (!familyGroup) return { familyGroup: null, links: [], guardianMembers: [] };
+    return membersForFamily(familyGroup.id);
+  }
+
+  const elderId = idNumberOf(user.id);
+  const link = mockFamilyLinks.find((l) => l.counterpartId === elderId);
+  if (!link?.familyGroupId) return { familyGroup: null, links: [], guardianMembers: [] };
+  return membersForFamily(link.familyGroupId);
+}
 
 export interface LoginPayload {
   email: string;
@@ -56,7 +123,6 @@ export interface RegisterPayload {
   role: UserRole;
 }
 
-// 실제: POST /auth/login → { access_token, role, name, id }
 export async function login({ email, password }: LoginPayload): Promise<SessionUser> {
   const normalized = email.trim().toLowerCase();
   const acc = mockAccounts.find((a) => a.email === normalized);
@@ -65,10 +131,10 @@ export async function login({ email, password }: LoginPayload): Promise<SessionU
   }
   const user = toSession(acc);
   await saveToken(user.token);
+  await saveRefreshToken(makeRefreshToken(user.id));
   return user;
 }
 
-// 실제: POST /auth/register
 export async function register({ name, email, password, role }: RegisterPayload): Promise<SessionUser> {
   const normalized = email.trim().toLowerCase();
   if (mockAccounts.some((a) => a.email === normalized)) {
@@ -78,10 +144,10 @@ export async function register({ name, email, password, role }: RegisterPayload)
   mockAccounts.push(acc);
   const user = toSession(acc);
   await saveToken(user.token);
+  await saveRefreshToken(makeRefreshToken(user.id));
   return user;
 }
 
-// 실제: POST /auth/logout (+ 토큰 폐기)
 export async function logout(): Promise<void> {
   await clearToken();
 }
@@ -93,20 +159,25 @@ export interface ProvisionGuardianElderPayload {
 }
 
 export interface GuardianElderProvisioningData {
+  familyGroup: FamilyGroup;
   elder: SessionUser;
   link: FamilyLink;
+  guardianMembers: GuardianMember[];
   pairing_code: string;
 }
 
-// 실제: POST /guardian/elders
-// 보호자가 어른 계정과 PENDING 가족 링크를 만들고, 어르신 기기에서 입력할 페어링 코드를 받는다.
+// Mock for POST /guardian/elders. Creates FamilyGroup + OWNER when needed.
 export async function provisionGuardianElder({
   guardianId,
   name,
   relation,
 }: ProvisionGuardianElderPayload): Promise<ApiEnvelope<GuardianElderProvisioningData>> {
-  const now = Date.now();
-  const id = `elder-${now}`;
+  const guardian = mockAccounts.find((a) => a.id === guardianId && a.role === "guardian");
+  if (!guardian) throw new Error("보호자 계정을 찾을 수 없어요.");
+
+  const familyGroup = ensureFamilyGroupForOwner(guardian);
+  const ts = Date.now();
+  const id = `elder-${ts}`;
   const pairingCode = makePairingCode();
   const elder: MockAccount = {
     id,
@@ -120,7 +191,8 @@ export async function provisionGuardianElder({
   mockAccounts.push(elder);
 
   const link: FamilyLink = {
-    linkId: now,
+    linkId: ts,
+    familyGroupId: familyGroup.id,
     counterpartId: idNumberOf(id),
     counterpartName: elder.name,
     relation: "elder",
@@ -129,20 +201,135 @@ export async function provisionGuardianElder({
   };
   mockFamilyLinks.push(link);
 
-  const guardian = mockAccounts.find((a) => a.id === guardianId);
-  if (guardian) {
-    guardian.linkedElderId = id;
-    guardian.relation = relation;
-  }
+  guardian.linkedElderId = id;
+  guardian.relation = relation;
 
   return {
     success: true,
     data: {
+      familyGroup,
       elder: toSession(elder),
       link,
+      guardianMembers: membersForFamily(familyGroup.id).guardianMembers,
       pairing_code: pairingCode,
     },
   };
+}
+
+export interface InviteGuardianPayload {
+  familyGroupId: string;
+  inviterGuardianId: string;
+  name: string;
+  phoneOrEmail?: string;
+  memberRole?: GuardianMemberRole;
+}
+
+export interface InviteGuardianData {
+  guardianMember: GuardianMember;
+  inviteCode: string;
+  inviteLink: string;
+}
+
+export async function inviteGuardian({
+  familyGroupId,
+  inviterGuardianId,
+  name,
+  memberRole = "SUB_GUARDIAN",
+}: InviteGuardianPayload): Promise<ApiEnvelope<InviteGuardianData>> {
+  const inviter = mockGuardianMembers.find(
+    (m) =>
+      m.familyGroupId === familyGroupId &&
+      m.guardianId === inviterGuardianId &&
+      m.status === "ACTIVE" &&
+      m.memberRole === "OWNER",
+  );
+  if (!inviter) throw new Error("대표보호자만 부보호자를 초대할 수 있어요.");
+
+  const inviteCode = makeInviteCode();
+  const guardianMember: GuardianMember = {
+    id: `guardian-member-${Date.now()}`,
+    familyGroupId,
+    guardianName: name.trim(),
+    memberRole,
+    status: "PENDING",
+    invitedByGuardianId: inviterGuardianId,
+    inviteCode,
+    inviteExpiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+    createdAt: nowIso(),
+  };
+  mockGuardianMembers.push(guardianMember);
+
+  return {
+    success: true,
+    data: {
+      guardianMember,
+      inviteCode,
+      inviteLink: `moa://guardian-invite/${inviteCode}`,
+    },
+  };
+}
+
+export interface AcceptGuardianInvitePayload {
+  guardianId: string;
+  guardianName: string;
+  inviteCode: string;
+}
+
+export interface AcceptGuardianInviteData {
+  familyGroup: FamilyGroup;
+  guardianMember: GuardianMember;
+}
+
+export async function acceptGuardianInvite({
+  guardianId,
+  guardianName,
+  inviteCode,
+}: AcceptGuardianInvitePayload): Promise<ApiEnvelope<AcceptGuardianInviteData>> {
+  const normalized = inviteCode.trim().toUpperCase();
+  const member = mockGuardianMembers.find(
+    (m) => m.inviteCode === normalized && m.status === "PENDING",
+  );
+  if (!member) throw new Error("초대 코드를 확인해 주세요.");
+
+  member.guardianId = guardianId;
+  member.guardianName = guardianName;
+  member.status = "ACTIVE";
+  member.joinedAt = nowIso();
+
+  const familyGroup = mockFamilyGroups.find((g) => g.id === member.familyGroupId);
+  if (!familyGroup) throw new Error("가족 그룹을 찾을 수 없어요.");
+
+  return { success: true, data: { familyGroup, guardianMember: member } };
+}
+
+export async function removeGuardian({
+  familyGroupId,
+  guardianMemberId,
+  requesterGuardianId,
+}: {
+  familyGroupId: string;
+  guardianMemberId: string;
+  requesterGuardianId: string;
+}): Promise<ApiEnvelope<{ guardianMemberId: string; status: "REVOKED" }>> {
+  const requester = mockGuardianMembers.find(
+    (m) =>
+      m.familyGroupId === familyGroupId &&
+      m.guardianId === requesterGuardianId &&
+      m.status === "ACTIVE" &&
+      m.memberRole === "OWNER",
+  );
+  if (!requester) throw new Error("대표보호자만 부보호자를 제거할 수 있어요.");
+
+  const target = mockGuardianMembers.find((m) => m.id === guardianMemberId);
+  if (!target || target.memberRole === "OWNER") throw new Error("제거할 부보호자를 찾을 수 없어요.");
+  target.status = "REVOKED";
+  return { success: true, data: { guardianMemberId, status: "REVOKED" } };
+}
+
+export async function listFamilyMembers(
+  familyGroupId: string,
+): Promise<ApiEnvelope<{ familyGroup: FamilyGroup | null; links: FamilyLink[]; guardianMembers: GuardianMember[] }>> {
+  return { success: true, data: membersForFamily(familyGroupId) };
 }
 
 export interface ClaimPayload {
@@ -150,29 +337,27 @@ export interface ClaimPayload {
 }
 
 export interface ClaimData {
-  user: SessionUser; // access 토큰 포함
+  user: SessionUser;
   accessToken: string;
   refreshToken: string;
-  consent_required: boolean; // 생체정보 동의가 아직 안 된 경우 true
+  consent_required: boolean;
+  familyGroup: FamilyGroup | null;
+  links: FamilyLink[];
+  guardianMembers: GuardianMember[];
 }
 
-// 직접사용자 초대코드 클레임.
-// 실제: POST /auth/claim → 코드 검증 후 JWT(access+refresh) 발급.
-// mock: provision이 발급한 코드(또는 dev 코드 "MOA-DEV")를 수락하고 토큰을 보관한다.
 export async function claim({ code }: ClaimPayload): Promise<ApiEnvelope<ClaimData>> {
   const normalized = code.trim().toUpperCase();
-  if (!normalized) {
-    throw new Error("초대 코드를 입력해 주세요.");
-  }
+  if (!normalized) throw new Error("초대 코드를 입력해 주세요.");
+
   const elder = mockAccounts.find((a) => a.role === "elder" && a.pairingCode === normalized);
-  if (!elder) {
-    throw new Error("코드를 확인해 주세요. 보호자에게 받은 코드와 다른 것 같아요.");
-  }
+  if (!elder) throw new Error("코드를 확인해 주세요. 보호자에게 받은 코드와 다른 것 같아요.");
 
   const accessToken = makeToken(elder.id);
   const refreshToken = makeRefreshToken(elder.id);
   await saveToken(accessToken);
   await saveRefreshToken(refreshToken);
+  const familyState = familyStateForUser(toSession(elder));
 
   return {
     success: true,
@@ -181,20 +366,19 @@ export async function claim({ code }: ClaimPayload): Promise<ApiEnvelope<ClaimDa
       accessToken,
       refreshToken,
       consent_required: !elder.voiceConsentAt,
+      ...familyState,
     },
   };
 }
 
 export interface SubmitConsentData {
   consentDone: true;
-  link: FamilyLink | null; // PENDING→ACTIVE로 전환된 가족 링크
+  link: FamilyLink | null;
 }
 
-// 직접사용자 본인의 생체정보 동의 제출(클레임 직후).
-// 실제: POST /elders/me/consent → 해당 GUARDIAN_LINK를 PENDING→ACTIVE로 전환.
 export async function submitElderConsent(elderId: string): Promise<ApiEnvelope<SubmitConsentData>> {
   const elder = mockAccounts.find((a) => a.id === elderId);
-  if (elder) elder.voiceConsentAt = new Date().toISOString();
+  if (elder) elder.voiceConsentAt = nowIso();
 
   const link = mockFamilyLinks.find((l) => l.counterpartId === idNumberOf(elderId)) ?? null;
   if (link) link.status = "ACTIVE";
@@ -206,18 +390,19 @@ export interface RestoredSession {
   user: SessionUser;
   consentDone: boolean;
   refreshToken: string;
+  familyGroup: FamilyGroup | null;
+  links: FamilyLink[];
+  guardianMembers: GuardianMember[];
 }
 
-// 앱 시작 시 세션 복원(자동 로그인).
-// 실제: SecureStore의 refresh 토큰을 검증하고 새 access 토큰을 발급받는다.
-// mock: refresh 토큰에서 계정을 찾아 세션을 재구성(없으면 메모리 access 토큰으로 폴백).
 export async function restoreSession(): Promise<RestoredSession | null> {
   const refreshToken = await getRefreshToken();
   if (refreshToken) {
     const acc = mockAccounts.find((a) => makeRefreshToken(a.id) === refreshToken);
     if (acc) {
       await saveToken(makeToken(acc.id));
-      return { user: toSession(acc), consentDone: !!acc.voiceConsentAt, refreshToken };
+      const user = toSession(acc);
+      return { user, consentDone: !!acc.voiceConsentAt, refreshToken, ...familyStateForUser(user) };
     }
   }
 
@@ -225,5 +410,6 @@ export async function restoreSession(): Promise<RestoredSession | null> {
   if (!token) return null;
   const acc = mockAccounts.find((a) => makeToken(a.id) === token);
   if (!acc) return null;
-  return { user: toSession(acc), consentDone: !!acc.voiceConsentAt, refreshToken: refreshToken ?? "" };
+  const user = toSession(acc);
+  return { user, consentDone: !!acc.voiceConsentAt, refreshToken: refreshToken ?? "", ...familyStateForUser(user) };
 }

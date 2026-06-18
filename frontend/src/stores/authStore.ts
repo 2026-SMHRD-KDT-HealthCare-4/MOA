@@ -2,16 +2,42 @@ import { create } from "zustand";
 import { restoreSession, logout as apiLogout } from "../api/auth";
 
 export type UserRole = "elder" | "guardian";
-export type Role = UserRole; // 스펙 표기 호환 별칭
+export type Role = UserRole;
+export type LinkStatus = "PENDING" | "ACTIVE" | "REVOKED";
+export type GuardianMemberRole = "OWNER" | "SUB_GUARDIAN";
 
-// 가족 연동 링크 (보호자 ↔ 직접사용자). 스펙 §3 기준.
+export interface FamilyGroup {
+  id: string;
+  name: string;
+  createdByGuardianId: string;
+  status: "ACTIVE" | "REVOKED";
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Existing elder-link compatibility model. In the FamilyGroup model this maps to FamilyElderMember.
 export interface FamilyLink {
   linkId: number;
+  familyGroupId?: string;
   counterpartId: number;
   counterpartName: string;
-  relation: UserRole; // 상대방의 역할
-  status: "PENDING" | "ACTIVE";
-  pairingCode?: string; // PENDING 동안 재공유용(클레임되면 의미 없음)
+  relation: UserRole;
+  status: LinkStatus;
+  pairingCode?: string;
+}
+
+export interface GuardianMember {
+  id: string;
+  familyGroupId: string;
+  guardianId?: string;
+  guardianName: string;
+  memberRole: GuardianMemberRole;
+  status: LinkStatus;
+  invitedByGuardianId?: string;
+  inviteCode?: string;
+  inviteExpiresAt?: string;
+  joinedAt?: string;
+  createdAt: string;
 }
 
 export interface SessionUser {
@@ -19,12 +45,9 @@ export interface SessionUser {
   name: string;
   role: UserRole;
   token: string;
-  linkedElderName?: string; // 보호자인 경우 담당 직접사용자 이름
+  linkedElderName?: string;
 }
 
-// ── 개발용 자동 로그인 토글 ─────────────────────────────────────────────
-// 기본은 비로그인 시작(→ 역할 선택 화면 노출).
-// 특정 역할 화면을 바로 띄워 테스트하려면 DEV_MOCK_SESSION에 MOCK_* 중 하나를 넣는다.
 const MOCK_ELDER_SESSION: SessionUser = {
   id: "elder-1",
   name: "김순자",
@@ -40,61 +63,96 @@ const MOCK_GUARDIAN_SESSION: SessionUser = {
 void MOCK_ELDER_SESSION;
 void MOCK_GUARDIAN_SESSION;
 
-// 개발 중 자동 로그인하려면 위 상수 중 하나로 교체. 운영/기본값은 null(비로그인).
-const DEV_MOCK_SESSION: SessionUser | null = null;
-
-// 보호자 가족 탭/대시보드를 바로 보려면 DEV_MOCK_SESSION = MOCK_GUARDIAN_SESSION으로 두고
-// 아래 링크를 사용한다(ACTIVE 1 + PENDING 1로 허브·상세·대기카드·게이팅 모두 확인 가능).
+// Switch to MOCK_ELDER_SESSION or MOCK_GUARDIAN_SESSION during demos.
+const DEV_MOCK_SESSION = null as SessionUser | null;
+const DEV_MOCK_FAMILY_GROUP: FamilyGroup = {
+  id: "family-dev",
+  name: "김순자 가족",
+  createdByGuardianId: "guardian-1",
+  status: "ACTIVE",
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+};
 const DEV_MOCK_LINKS: FamilyLink[] = [
-  { linkId: 1, counterpartId: 101, counterpartName: "김순자", relation: "elder", status: "ACTIVE" },
-  { linkId: 2, counterpartId: 102, counterpartName: "박무남", relation: "elder", status: "PENDING", pairingCode: "MOA-PND" },
+  { linkId: 1, familyGroupId: "family-dev", counterpartId: 101, counterpartName: "김순자", relation: "elder", status: "ACTIVE" },
+  { linkId: 2, familyGroupId: "family-dev", counterpartId: 102, counterpartName: "박무남", relation: "elder", status: "PENDING", pairingCode: "MOA-PND" },
 ];
-void DEV_MOCK_LINKS;
-// ────────────────────────────────────────────────────────────────────────
+const DEV_MOCK_GUARDIAN_MEMBERS: GuardianMember[] = [
+  {
+    id: "guardian-member-owner-dev",
+    familyGroupId: "family-dev",
+    guardianId: "guardian-1",
+    guardianName: "김보호",
+    memberRole: "OWNER",
+    status: "ACTIVE",
+    joinedAt: new Date(0).toISOString(),
+    createdAt: new Date(0).toISOString(),
+  },
+  {
+    id: "guardian-member-sub-dev",
+    familyGroupId: "family-dev",
+    guardianName: "김지훈",
+    memberRole: "SUB_GUARDIAN",
+    status: "PENDING",
+    invitedByGuardianId: "guardian-1",
+    inviteCode: "FAM-PND",
+    createdAt: new Date(0).toISOString(),
+  },
+];
 
 const userIdOf = (user: SessionUser | null): number | null => {
   if (!user) return null;
-  const n = Number(user.id.replace(/\D/g, ""));
-  return Number.isFinite(n) && user.id.replace(/\D/g, "") !== "" ? n : null;
+  const digits = user.id.replace(/\D/g, "");
+  const n = Number(digits);
+  return Number.isFinite(n) && digits !== "" ? n : null;
 };
 
-const computeHasGuardianTab = (role: UserRole | null, links: FamilyLink[]): boolean =>
-  role === "guardian" && links.some((l) => l.status === "ACTIVE");
+const computeHasGuardianTab = (
+  role: UserRole | null,
+  links: FamilyLink[],
+  guardianMembers: GuardianMember[],
+): boolean =>
+  role === "guardian" &&
+  (guardianMembers.some((m) => m.status === "ACTIVE") || links.some((l) => l.status === "ACTIVE"));
 
 interface SetSessionOptions {
   refreshToken?: string | null;
   consentDone?: boolean;
   links?: FamilyLink[];
+  familyGroup?: FamilyGroup | null;
+  guardianMembers?: GuardianMember[];
 }
 
 interface AuthState {
   user: SessionUser | null;
-  // 편의 파생값 (화면에서 user?.role 대신 바로 사용)
   isLoggedIn: boolean;
   role: UserRole | null;
   name: string;
 
-  // 스펙 §3 필드
   userId: number | null;
-  refreshToken: string | null; // 직접사용자 장수명 토큰(자동 로그인)
+  refreshToken: string | null;
   consentDone: boolean;
   links: FamilyLink[];
-  hasGuardianTab: boolean; // role==='guardian' && ACTIVE 링크 ≥1
-
-  // 앱 시작 시 세션 복원이 끝났는지 (라우트 가드가 깜빡임 없이 분기하기 위함)
+  familyGroup: FamilyGroup | null;
+  familyGroupId: string | null;
+  guardianMemberRole: GuardianMemberRole | null;
+  guardianMembers: GuardianMember[];
+  hasGuardianTab: boolean;
   hydrated: boolean;
 
-  // 로그인/회원가입 성공 후 세션 주입 (api/auth.ts가 반환한 SessionUser).
   setSession: (user: SessionUser, opts?: SetSessionOptions) => void;
-  // 온보딩에서 직접사용자 계정 생성 후 담당 직접사용자 이름 연결.
   setLinkedElder: (elderName: string) => void;
-  // 가족 링크 갱신 (가족 탭 노출 여부 재계산).
   setLinks: (links: FamilyLink[]) => void;
-  // 생체정보 동의 완료 표시.
+  setFamilyGroup: (familyGroup: FamilyGroup | null) => void;
+  setGuardianMembers: (guardianMembers: GuardianMember[]) => void;
+  setFamilyState: (state: {
+    familyGroup?: FamilyGroup | null;
+    links?: FamilyLink[];
+    guardianMembers?: GuardianMember[];
+  }) => void;
   setConsentDone: (done: boolean) => void;
-  // 앱 시작 시 저장된 토큰으로 세션 복원.
   hydrate: () => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const loggedOutState = {
@@ -106,11 +164,27 @@ const loggedOutState = {
   refreshToken: null as string | null,
   consentDone: false,
   links: [] as FamilyLink[],
+  familyGroup: null as FamilyGroup | null,
+  familyGroupId: null as string | null,
+  guardianMemberRole: null as GuardianMemberRole | null,
+  guardianMembers: [] as GuardianMember[],
   hasGuardianTab: false,
+};
+
+const familyGroupIdOf = (familyGroup?: FamilyGroup | null): string | null => familyGroup?.id ?? null;
+
+const guardianMemberRoleOf = (
+  user: SessionUser | null,
+  guardianMembers: GuardianMember[],
+): GuardianMemberRole | null => {
+  if (!user || user.role !== "guardian") return null;
+  return guardianMembers.find((m) => m.guardianId === user.id && m.status === "ACTIVE")?.memberRole ?? null;
 };
 
 const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
   const links = opts?.links ?? [];
+  const guardianMembers = opts?.guardianMembers ?? [];
+  const familyGroup = opts?.familyGroup ?? null;
   return {
     user,
     isLoggedIn: true,
@@ -120,14 +194,20 @@ const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
     refreshToken: opts?.refreshToken ?? null,
     consentDone: opts?.consentDone ?? false,
     links,
-    hasGuardianTab: computeHasGuardianTab(user.role, links),
+    familyGroup,
+    familyGroupId: familyGroupIdOf(familyGroup),
+    guardianMemberRole: guardianMemberRoleOf(user, guardianMembers),
+    guardianMembers,
+    hasGuardianTab: computeHasGuardianTab(user.role, links, guardianMembers),
   };
 };
 
 const initialState = DEV_MOCK_SESSION
   ? sessionState(DEV_MOCK_SESSION, {
       consentDone: true,
+      familyGroup: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_FAMILY_GROUP : null,
       links: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_LINKS : [],
+      guardianMembers: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_GUARDIAN_MEMBERS : [],
     })
   : loggedOutState;
 
@@ -141,7 +221,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set((state) => (state.user ? { user: { ...state.user, linkedElderName: elderName } } : {})),
 
   setLinks: (links) =>
-    set({ links, hasGuardianTab: computeHasGuardianTab(get().role, links) }),
+    set((state) => ({
+      links,
+      hasGuardianTab: computeHasGuardianTab(state.role, links, state.guardianMembers),
+    })),
+
+  setFamilyGroup: (familyGroup) =>
+    set({ familyGroup, familyGroupId: familyGroupIdOf(familyGroup) }),
+
+  setGuardianMembers: (guardianMembers) =>
+    set((state) => ({
+      guardianMembers,
+      guardianMemberRole: guardianMemberRoleOf(state.user, guardianMembers),
+      hasGuardianTab: computeHasGuardianTab(state.role, state.links, guardianMembers),
+    })),
+
+  setFamilyState: ({ familyGroup, links, guardianMembers }) =>
+    set((state) => {
+      const nextLinks = links ?? state.links;
+      const nextGuardianMembers = guardianMembers ?? state.guardianMembers;
+      const nextFamilyGroup = familyGroup !== undefined ? familyGroup : state.familyGroup;
+      return {
+        familyGroup: nextFamilyGroup,
+        familyGroupId: familyGroupIdOf(nextFamilyGroup),
+        links: nextLinks,
+        guardianMembers: nextGuardianMembers,
+        guardianMemberRole: guardianMemberRoleOf(state.user, nextGuardianMembers),
+        hasGuardianTab: computeHasGuardianTab(state.role, nextLinks, nextGuardianMembers),
+      };
+    }),
 
   setConsentDone: (done) => set({ consentDone: done }),
 
@@ -152,17 +260,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         ...sessionState(restored.user, {
           refreshToken: restored.refreshToken,
           consentDone: restored.consentDone,
+          familyGroup: restored.familyGroup,
+          links: restored.links,
+          guardianMembers: restored.guardianMembers,
         }),
         hydrated: true,
       });
     } else {
-      // 복원 실패: 개발용 토글이 켜져 있으면 그 세션 유지, 아니면 비로그인.
       set({ hydrated: true });
     }
   },
 
-  logout: () => {
-    void apiLogout();
+  logout: async () => {
+    await apiLogout();
     set(loggedOutState);
   },
 }));

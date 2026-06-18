@@ -13,7 +13,7 @@ export default function OnboardingPage() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const links = useAuthStore((s) => s.links);
-  const setLinks = useAuthStore((s) => s.setLinks);
+  const setFamilyState = useAuthStore((s) => s.setFamilyState);
   const setLinkedElder = useAuthStore((s) => s.setLinkedElder);
 
   const [step, setStep] = useState<Step>("provision");
@@ -35,9 +35,9 @@ export default function OnboardingPage() {
         relation: relation.trim() || undefined,
       });
 
-      const { elder, link, pairing_code } = response.data;
+      const { familyGroup, elder, link, guardianMembers, pairing_code } = response.data;
       setLinkedElder(elder.name);
-      setLinks([...links, link]);
+      setFamilyState({ familyGroup, links: [...links, link], guardianMembers });
       setPairingCode(pairing_code);
       setError("");
       setStep("pairing");
