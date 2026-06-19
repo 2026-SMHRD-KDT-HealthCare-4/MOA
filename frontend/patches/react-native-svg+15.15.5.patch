@@ -1,0 +1,47 @@
+diff --git a/node_modules/react-native-svg/lib/commonjs/web/utils/prepare.js b/node_modules/react-native-svg/lib/commonjs/web/utils/prepare.js
+index d57e7c8..08f18ec 100644
+--- a/node_modules/react-native-svg/lib/commonjs/web/utils/prepare.js
++++ b/node_modules/react-native-svg/lib/commonjs/web/utils/prepare.js
+@@ -32,8 +32,10 @@ const prepare = (self, props = self.props) => {
+     gradientTransform,
+     patternTransform,
+     onPress,
++    accessibilityHint,
+     ...rest
+   } = props;
++  void accessibilityHint; // RN 전용 prop — 웹 SVG DOM 누수(React 경고) 차단 [patched]
+   const clean = {
+     ...((0, _hasProperty.hasTouchableProperty)(props) ? {
+       onStartShouldSetResponder: self.touchableHandleStartShouldSetResponder,
+diff --git a/node_modules/react-native-svg/lib/module/web/utils/prepare.js b/node_modules/react-native-svg/lib/module/web/utils/prepare.js
+index 113eb2b..04475b0 100644
+--- a/node_modules/react-native-svg/lib/module/web/utils/prepare.js
++++ b/node_modules/react-native-svg/lib/module/web/utils/prepare.js
+@@ -26,8 +26,10 @@ export const prepare = (self, props = self.props) => {
+     gradientTransform,
+     patternTransform,
+     onPress,
++    accessibilityHint,
+     ...rest
+   } = props;
++  void accessibilityHint; // RN 전용 prop — 웹 SVG DOM 누수(React 경고) 차단 [patched]
+   const clean = {
+     ...(hasTouchableProperty(props) ? {
+       onStartShouldSetResponder: self.touchableHandleStartShouldSetResponder,
+diff --git a/node_modules/react-native-svg/src/web/utils/prepare.ts b/node_modules/react-native-svg/src/web/utils/prepare.ts
+index 4106784..46cbbdb 100644
+--- a/node_modules/react-native-svg/src/web/utils/prepare.ts
++++ b/node_modules/react-native-svg/src/web/utils/prepare.ts
+@@ -36,8 +36,12 @@ export const prepare = <T extends BaseProps>(
+     gradientTransform,
+     patternTransform,
+     onPress,
++    // RN 전용 prop — 웹에서 SVG DOM 으로 새어 React "does not recognize" 경고 유발
++    // (victory-native 차트 등이 전달). spread 전에 제거해 누수 차단. [patched]
++    accessibilityHint,
+     ...rest
+   } = props;
++  void accessibilityHint;
+ 
+   const clean: {
+     onStartShouldSetResponder?: (e: GestureResponderEvent) => boolean;
