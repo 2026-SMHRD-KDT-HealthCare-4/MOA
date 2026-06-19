@@ -165,6 +165,88 @@ function saveMockDb(): void {
   storageSet(MOCK_STORAGE_KEY, JSON.stringify(mockDb));
 }
 
+// MOA-DEV 초대는 localStorage 영속화와 무관하게 매 로드 시 항상 미사용으로 리시드한다.
+// (한 번 클레임해 isUsed=true 가 저장돼도 새로고침하면 다시 초대 가능 → 반복 클레임 테스트.)
+// 보호자/그룹 의존성이 없으면 함께 보강한다.
+const DEV_INVITE_TOKEN = "MOA-DEV";
+const DEV_GUARDIAN_ID = "guardian-1";
+const DEV_FAMILY_GROUP_ID = "family-dev";
+function ensureDevInvite(db: MockDb): void {
+  const zero = new Date(0).toISOString();
+  if (!db.accounts.some((a) => a.id === DEV_GUARDIAN_ID)) {
+    db.accounts.push({
+      id: DEV_GUARDIAN_ID,
+      name: "김보호",
+      email: "guardian@moa.app",
+      password: "moa00000",
+      role: "guardian",
+    });
+  }
+  if (!db.familyGroups.some((g) => g.id === DEV_FAMILY_GROUP_ID)) {
+    db.familyGroups.push({
+      id: DEV_FAMILY_GROUP_ID,
+      name: "김보호 가족",
+      createdByGuardianId: DEV_GUARDIAN_ID,
+      status: "ACTIVE",
+      createdAt: zero,
+      updatedAt: zero,
+    });
+  }
+  if (
+    !db.guardianMembers.some(
+      (m) => m.familyGroupId === DEV_FAMILY_GROUP_ID && m.guardianId === DEV_GUARDIAN_ID,
+    )
+  ) {
+    db.guardianMembers.push({
+      id: "guardian-member-owner-dev",
+      familyGroupId: DEV_FAMILY_GROUP_ID,
+      guardianId: DEV_GUARDIAN_ID,
+      guardianName: "김보호",
+      memberRole: "OWNER",
+      status: "ACTIVE",
+      joinedAt: zero,
+      createdAt: zero,
+    });
+  }
+  const existing = db.invites.find((i) => i.token === DEV_INVITE_TOKEN);
+  if (existing) {
+    existing.isUsed = false;
+    existing.expiredAt = "2999-12-31T00:00:00.000Z";
+    existing.guardianId = DEV_GUARDIAN_ID;
+    existing.familyGroupId = DEV_FAMILY_GROUP_ID;
+    existing.seniorName = existing.seniorName ?? "김순자";
+  } else {
+    db.invites.push({
+      token: DEV_INVITE_TOKEN,
+      guardianId: DEV_GUARDIAN_ID,
+      familyGroupId: DEV_FAMILY_GROUP_ID,
+      seniorName: "김순자",
+      expiredAt: "2999-12-31T00:00:00.000Z",
+      isUsed: false,
+    });
+  }
+}
+
+// dev 전용: mock 가족 DB 를 초기 시드 상태로 되돌린다.
+// 브라우저 콘솔에서 resetMockDb() 로 호출하거나, dev 버튼에서 import 해 쓴다.
+export function resetMockDb(): void {
+  const seed = buildSeedDb();
+  mockDb.accounts = seed.accounts;
+  mockDb.familyGroups = seed.familyGroups;
+  mockDb.familyLinks = seed.familyLinks;
+  mockDb.guardianMembers = seed.guardianMembers;
+  mockDb.invites = seed.invites;
+  ensureDevInvite(mockDb);
+  saveMockDb();
+}
+if (AUTH_API_MODE === "mock") {
+  (globalThis as unknown as { resetMockDb?: () => void }).resetMockDb = resetMockDb;
+}
+
+// 매 모듈 로드 시 MOA-DEV 리시드 후 저장.
+ensureDevInvite(mockDb);
+saveMockDb();
+
 function toUserRole(role: BackendRole): UserRole {
   return role === "guardian" ? "guardian" : "elder";
 }
@@ -430,6 +512,7 @@ async function registerReal(payload: RegisterPayload): Promise<SessionUser> {
       email: payload.email.trim().toLowerCase(),
       password: payload.password,
       name: payload.name.trim(),
+      // TODO(BE 연동): 보호자 등록 화면에서 실제 생년월일/전화번호 수집 (현재 placeholder)
       birth_date: "1970-01-01",
       phone: "010-0000-0000",
       biometric_consent_yn: true,
@@ -603,6 +686,7 @@ async function registerSeniorReal({
       email: email.trim().toLowerCase(),
       password,
       name: name.trim(),
+      // TODO(BE 연동): 직접사용자 생년월일/전화번호 실제 입력값 수집 (현재 placeholder)
       birth_date: "1940-01-01",
       phone: "010-0000-0000",
       biometric_consent_yn: Boolean(consent),
@@ -703,6 +787,7 @@ export async function getGuardianSeniors(
         linkId: row.link_id,
         familyGroupId,
         counterpartId: row.senior_id,
+        // TODO(BE 연동): /auth/guardian/seniors 가 직접사용자 이름 반환 시 교체 (현재 placeholder)
         counterpartName: `어르신 ${row.senior_id.slice(0, 4)}`,
         relation: "elder",
         status: row.link_status,
@@ -737,6 +822,7 @@ export async function updateLinkStatus({
         linkId: row.link_id,
         familyGroupId: `family-${row.guardian_id}`,
         counterpartId: row.senior_id,
+        // TODO(BE 연동): BE 응답에 직접사용자 이름 포함 시 교체 (현재 placeholder)
         counterpartName: `어르신 ${row.senior_id.slice(0, 4)}`,
         relation: "elder",
         status: row.link_status,
