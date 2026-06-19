@@ -12,6 +12,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
+  const setFamilyState = useAuthStore((s) => s.setFamilyState);
 
   const [step, setStep] = useState<Step>("provision");
   const [name, setName] = useState("");
@@ -30,6 +31,14 @@ export default function OnboardingPage() {
     try {
       const res = await authApi.createInvite({ guardianId: user.id, seniorName: name.trim() });
       setInviteCode(res.data.token);
+      const restored = await authApi.restoreSession();
+      if (restored) {
+        setFamilyState({
+          familyGroup: restored.familyGroup,
+          links: restored.links,
+          guardianMembers: restored.guardianMembers,
+        });
+      }
       setError("");
       setStep("pairing");
     } catch (e) {
