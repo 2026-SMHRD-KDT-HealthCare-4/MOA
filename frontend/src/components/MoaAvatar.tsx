@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, StyleSheet, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Animated, Platform, StyleSheet, View } from "react-native";
 import { useEventListener } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
@@ -9,8 +9,12 @@ import {
   type AvatarVideoLayer,
   type BotEmotion,
 } from "../constants/emotionMap";
+import { installWebVideoPlayGuard, safePlay } from "../utils/videoPlayback";
 
-const CROSSFADE_MS = 300;
+const CROSSFADE_MS = 160;
+const USE_NATIVE_DRIVER = Platform.OS !== "web";
+
+installWebVideoPlayGuard();
 
 interface MoaAvatarProps {
   emotion?: BotEmotion;
@@ -42,34 +46,25 @@ function VideoLayer({
     p.muted = true;
   });
 
-  // 첫 프레임 준비 여부 추적 — 준비된 뒤에만 페이드 인 (빈 화면 깜빡임 방지).
-  const [ready, setReady] = useState(player.status === "readyToPlay");
-  useEventListener(player, "statusChange", ({ status }) => {
-    setReady(status === "readyToPlay");
-  });
-
   useEffect(() => {
     if (visible) {
-      player.play();
-      if (ready) {
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: CROSSFADE_MS,
-          useNativeDriver: true,
-        }).start();
-      }
-      // 아직 준비 전이면 ready가 true로 바뀔 때 effect가 재실행되어 페이드 인.
+      void safePlay(player);
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: CROSSFADE_MS,
+        useNativeDriver: USE_NATIVE_DRIVER,
+      }).start();
     } else {
       Animated.timing(opacity, {
         toValue: 0,
         duration: CROSSFADE_MS,
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }).start(({ finished }) => {
         // 페이드 아웃 완료 후 정지 → 동시 재생 디코더를 최소화(끊김의 주원인 제거).
         if (finished) player.pause();
       });
     }
-  }, [visible, ready, opacity, player]);
+  }, [visible, opacity, player]);
 
   // 자연스러운 전환 보조 신호 — 보이는(재생 중) 레이어에서만 발생.
   useEventListener(player, "playToEnd", () => {

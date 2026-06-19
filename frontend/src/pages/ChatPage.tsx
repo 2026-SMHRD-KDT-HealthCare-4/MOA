@@ -41,11 +41,20 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function BotBubble({ text }: { text: string }) {
+function BotBubble({ text, emotion = "default" }: { text: string; emotion?: BotEmotion }) {
+  const isWorried = emotion === "worried";
+  const isHappy = emotion === "happy" || emotion === "clapping";
+
   return (
     <View style={styles.botRow}>
-      <View style={styles.botBubble}>
-        <Text style={styles.botText}>{text}</Text>
+      <View
+        style={[
+          styles.botBubble,
+          isWorried && styles.botBubbleWorried,
+          isHappy && styles.botBubbleHappy,
+        ]}
+      >
+        <Text style={[styles.botText, isWorried && styles.botTextWorried]}>{text}</Text>
       </View>
     </View>
   );
@@ -59,6 +68,10 @@ function TypingDots() {
       </View>
     </View>
   );
+}
+
+function estimateTalkingMs(text: string) {
+  return Math.min(9000, Math.max(3200, text.length * 95));
 }
 
 export default function ChatPage() {
@@ -128,23 +141,35 @@ export default function ChatPage() {
     if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) return;
 
     lastBotMessageIdRef.current = lastBotMessage.id;
+    setShowThinking(false);
+    setThinkingMinElapsed(false);
     setIsBotTalking(true);
     setTalkingMinElapsed(false);
 
+    if (thinkingTimerRef.current) {
+      clearTimeout(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
+    if (thinkingFallbackTimerRef.current) {
+      clearTimeout(thinkingFallbackTimerRef.current);
+      thinkingFallbackTimerRef.current = null;
+    }
     if (botTalkingTimerRef.current) {
       clearTimeout(botTalkingTimerRef.current);
     }
     if (botTalkingFallbackTimerRef.current) {
       clearTimeout(botTalkingFallbackTimerRef.current);
     }
+    const talkingMs = estimateTalkingMs(lastBotMessage.text);
+
     botTalkingTimerRef.current = setTimeout(() => {
       setTalkingMinElapsed(true);
       botTalkingTimerRef.current = null;
-    }, BOT_TALKING_MIN_MS);
+    }, Math.min(BOT_TALKING_MIN_MS, talkingMs));
     botTalkingFallbackTimerRef.current = setTimeout(() => {
       setIsBotTalking(false);
       botTalkingFallbackTimerRef.current = null;
-    }, BOT_TALKING_MAX_MS);
+    }, Math.max(BOT_TALKING_MAX_MS, talkingMs));
   }, [messages]);
 
   useEffect(() => {
@@ -173,7 +198,7 @@ export default function ChatPage() {
     if (state.emotion === "thinking" && !state.isTalking && thinkingMinElapsed) {
       setShowThinking(false);
     }
-    if (state.emotion === "happy" && state.isTalking && talkingMinElapsed) {
+    if (state.isTalking && talkingMinElapsed) {
       setIsBotTalking(false);
     }
   }
@@ -182,11 +207,11 @@ export default function ChatPage() {
     if (recorderState === "recording") {
       return { emotion: "listening", isTalking: false };
     }
+    if (isBotTalking) {
+      return { emotion: botEmotion, isTalking: true };
+    }
     if (showThinking) {
       return { emotion: "thinking", isTalking: false };
-    }
-    if (isBotTalking) {
-      return { emotion: "happy", isTalking: true };
     }
     if (showIntroGreeting && messages.length === 0) {
       return { emotion: "default", isTalking: false };
@@ -198,7 +223,11 @@ export default function ChatPage() {
   }
 
   const renderItem = ({ item }: { item: ChatMessage }) =>
-    item.role === "user" ? <UserBubble text={item.text} /> : <BotBubble text={item.text} />;
+    item.role === "user" ? (
+      <UserBubble text={item.text} />
+    ) : (
+      <BotBubble text={item.text} emotion={item.emotion} />
+    );
   const avatarState = resolveAvatarState();
 
   return (
@@ -386,12 +415,25 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 2,
   },
+  botBubbleHappy: {
+    backgroundColor: "#FFF6DE",
+    borderWidth: 1,
+    borderColor: "#F5D38B",
+  },
+  botBubbleWorried: {
+    backgroundColor: "#FFF3F0",
+    borderWidth: 1,
+    borderColor: "#F2B8AA",
+  },
   botText: {
     fontSize: 18,
     color: "#342C28",
     lineHeight: 25,
     fontWeight: "700",
     textAlign: "center",
+  },
+  botTextWorried: {
+    color: "#6F342C",
   },
   typingBubble: { opacity: 0.75 },
   typingText: {
