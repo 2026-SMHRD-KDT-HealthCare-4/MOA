@@ -12,46 +12,37 @@ export default function OnboardingPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
-  const links = useAuthStore((s) => s.links);
-  const setFamilyState = useAuthStore((s) => s.setFamilyState);
-  const setLinkedElder = useAuthStore((s) => s.setLinkedElder);
 
   const [step, setStep] = useState<Step>("provision");
   const [name, setName] = useState("");
   const [relation, setRelation] = useState("");
-  const [pairingCode, setPairingCode] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleProvisionElder() {
+  // 보호자가 직접사용자 초대 토큰을 발급한다(POST /auth/invite). 직접사용자 계정은
+  // 클레임 시점에 본인 기기에서 생성되므로, 여기서는 미리 만들지 않는다.
+  async function handleCreateInvite() {
     if (!user) return setError("로그인 정보가 없어요. 다시 시도해 주세요.");
     if (!name.trim()) return setError("부모님 성함을 입력해 주세요.");
 
     setSubmitting(true);
     try {
-      const response = await authApi.provisionGuardianElder({
-        guardianId: user.id,
-        name: name.trim(),
-        relation: relation.trim() || undefined,
-      });
-
-      const { familyGroup, elder, link, guardianMembers, pairing_code } = response.data;
-      setLinkedElder(elder.name);
-      setFamilyState({ familyGroup, links: [...links, link], guardianMembers });
-      setPairingCode(pairing_code);
+      const res = await authApi.createInvite({ guardianId: user.id, seniorName: name.trim() });
+      setInviteCode(res.data.token);
       setError("");
       setStep("pairing");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "부모님 등록에 실패했어요.");
+      setError(e instanceof Error ? e.message : "초대 코드 발급에 실패했어요.");
     } finally {
       setSubmitting(false);
     }
   }
 
   async function handleShareCode() {
-    if (!pairingCode) return;
+    if (!inviteCode) return;
     await Share.share({
-      message: `MOA 페어링 코드: ${pairingCode}\n어르신 기기에서 이 코드를 입력해 연결해 주세요.`,
+      message: `MOA 초대 코드: ${inviteCode}\n어르신 기기에서 이 코드를 입력해 연결해 주세요.`,
     });
   }
 
@@ -80,7 +71,7 @@ export default function OnboardingPage() {
             </View>
             <Text style={styles.title}>부모님 정보를 등록해 주세요</Text>
             <Text style={styles.subtitle}>
-              등록이 끝나면 어르신 기기에서 입력할 페어링 코드를 발급해 드려요.
+              등록이 끝나면 어르신 기기에서 입력할 초대 코드를 발급해 드려요.
             </Text>
 
             <View style={styles.form}>
@@ -110,11 +101,11 @@ export default function OnboardingPage() {
 
             <TouchableOpacity
               style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
-              onPress={handleProvisionElder}
+              onPress={handleCreateInvite}
               activeOpacity={0.85}
               disabled={submitting}
             >
-              <Text style={styles.primaryBtnText}>{submitting ? "등록 중..." : "페어링 코드 발급"}</Text>
+              <Text style={styles.primaryBtnText}>{submitting ? "등록 중..." : "초대 코드 발급"}</Text>
             </TouchableOpacity>
           </>
         )}
@@ -130,9 +121,9 @@ export default function OnboardingPage() {
             </Text>
 
             <View style={styles.codePanel}>
-              <Text style={styles.codeLabel}>페어링 코드</Text>
+              <Text style={styles.codeLabel}>초대 코드</Text>
               <Text selectable style={styles.codeText}>
-                {pairingCode}
+                {inviteCode}
               </Text>
               <Text style={styles.codeHint}>어르신 기기에서 동의와 코드 입력을 진행해 주세요.</Text>
             </View>

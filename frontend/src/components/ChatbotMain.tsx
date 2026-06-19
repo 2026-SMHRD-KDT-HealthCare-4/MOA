@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, useWindowDimensions, Share } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -5,8 +6,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { UserPlus, Clock, Share2 } from "lucide-react-native";
 import { CharacterPlayer } from "./CharacterPlayer";
 import { MicIcon } from "./icons/MicIcon";
-import { useAuthStore, type FamilyLink } from "../stores/authStore";
+import { useAuthStore } from "../stores/authStore";
 import { useInteractionStore } from "../stores/interactionStore";
+import * as authApi from "../api/auth";
 
 // 음성 챗봇 메인 — 직접사용자/보호자 공통(스펙 §2: 메인 챗봇 화면 공통 컴포넌트).
 // 보호자도 같은 화면에서 자기 음성 체크인을 한다.
@@ -16,6 +18,7 @@ export default function ChatbotMain() {
   const { fromIntro } = useLocalSearchParams<{ fromIntro?: string }>();
   const insets = useSafeAreaInsets();
   const role = useAuthStore((s) => s.role);
+  const user = useAuthStore((s) => s.user);
   const links = useAuthStore((s) => s.links);
   const hasStoredUserInteracted = useInteractionStore((s) => s.hasUserInteracted);
   const hasUserInteracted = fromIntro === "true" || hasStoredUserInteracted;
@@ -25,14 +28,26 @@ export default function ChatbotMain() {
 
   // 보호자 안내 영역: ACTIVE 부모가 없으면(연결 0명 또는 대기 중) 홈에서 안내한다.
   // (ACTIVE가 있으면 가족 탭으로 랜딩되므로 홈엔 안내를 띄우지 않음)
-  const pendingLinks = links.filter((l) => l.status === "PENDING");
   const hasActive = links.some((l) => l.status === "ACTIVE");
   const showGuardianNotice = role === "guardian" && !hasActive;
 
-  async function resharePairingCode(link: FamilyLink) {
-    if (!link.pairingCode) return;
+  // 연결 대기 = 미사용 초대 토큰(getPendingInvites). BE 확정 시 그 함수 내부만 교체된다.
+  const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
+  useEffect(() => {
+    if (role !== "guardian" || !user) return;
+    let alive = true;
+    authApi.getPendingInvites(user.id).then((res) => {
+      if (alive) setPendingInvites(res.data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [role, user]);
+
+  async function reshareInvite(invite: authApi.PendingInvite) {
+    const who = invite.seniorName ? `${invite.seniorName}님 ` : "";
     await Share.share({
-      message: `MOA 페어링 코드: ${link.pairingCode}\n${link.counterpartName}님 기기에서 이 코드를 입력해 연결을 완료해 주세요.`,
+      message: `MOA 초대 코드: ${invite.token}\n${who}기기에서 이 코드를 입력해 연결을 완료해 주세요.`,
     });
   }
 
@@ -70,36 +85,38 @@ export default function ChatbotMain() {
 
       {showGuardianNotice ? (
         <View style={[styles.noticeWrap, { top: bubbleTop }]}>
-          {pendingLinks.length === 0 ? (
+          {pendingInvites.length === 0 ? (
             // empty-state: 연동 0명
             <View style={styles.noticeCard}>
               <Text style={styles.noticeTitle}>부모님을 연결해 주세요</Text>
-              <Text style={styles.noticeBody}>등록 후 페어링 코드를 전달하면 가족 탭에서 함께 살펴볼 수 있어요.</Text>
+              <Text style={styles.noticeBody}>등록 후 초대 코드를 전달하면 가족 탭에서 함께 살펴볼 수 있어요.</Text>
               <Pressable style={styles.noticePrimaryBtn} onPress={() => router.push("/onboarding")} accessibilityRole="button">
                 <UserPlus size={20} color="#FFFFFF" />
                 <Text style={styles.noticePrimaryText}>부모님 연결하기</Text>
               </Pressable>
             </View>
           ) : (
-            // PENDING: 연결 대기 중 + 코드 재공유 (provision 직후 사라지지 않게 store 기반으로 노출)
-            pendingLinks.map((link) => (
-              <View key={link.linkId} style={styles.noticeCard}>
-                <View style={styles.noticeHead}>
-                  <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-                  <Text style={styles.noticePendTitle}>{link.counterpartName}님 연결 대기 중</Text>
+            // 연결 대기: 미사용 초대 토큰 + 코드 재공유
+            pendingInvites.map((invite) => {
+              const who = invite.seniorName ?? "부모님";
+              return (
+                <View key={invite.token} style={styles.noticeCard}>
+                  <View style={styles.noticeHead}>
+                    <Clock size={20} color="#E8943A" strokeWidth={2.4} />
+                    <Text style={styles.noticePendTitle}>{who} 연결 대기 중</Text>
+                  </View>
+                  <Text style={styles.noticeCode}>{invite.token}</Text>
+                  <Pressable
+                    style={styles.noticeReshareBtn}
+                    onPress={() => reshareInvite(invite)}
+                    accessibilityRole="button"
+                  >
+                    <Share2 size={18} color="#FF7955" />
+                    <Text style={styles.noticeReshareText}>초대 코드 재공유</Text>
+                  </Pressable>
                 </View>
-                {link.pairingCode ? <Text style={styles.noticeCode}>{link.pairingCode}</Text> : null}
-                <Pressable
-                  style={styles.noticeReshareBtn}
-                  onPress={() => resharePairingCode(link)}
-                  accessibilityRole="button"
-                  disabled={!link.pairingCode}
-                >
-                  <Share2 size={18} color="#FF7955" />
-                  <Text style={styles.noticeReshareText}>페어링 코드 재공유</Text>
-                </Pressable>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
       ) : (

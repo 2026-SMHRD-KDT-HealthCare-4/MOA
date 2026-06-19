@@ -27,15 +27,10 @@ export default function ElderClaimPage() {
 
     setSubmitting(true);
     try {
-      const res = await authApi.claim({ code });
-      const { user, refreshToken, consent_required, familyGroup, links, guardianMembers } = res.data;
-
-      // 커밋 순서: 클레임 성공 후, 보관해 둔 동의를 제출.
-      let consentDone = !consent_required;
-      if (consented && consent_required) {
-        await authApi.submitElderConsent(user.id);
-        consentDone = true;
-      }
+      // 2-step + 자동 credential: 토큰+동의 → FE가 throwaway email/pw 생성 →
+      // registerSenior → login → 세션 저장. 사람은 credential 을 입력하지 않는다.
+      const res = await authApi.claimSenior({ token: code, consent: consented });
+      const { user, refreshToken, consentDone, familyGroup, links, guardianMembers } = res.data;
 
       setSession(user, { refreshToken, consentDone, familyGroup, links, guardianMembers });
       setError("");

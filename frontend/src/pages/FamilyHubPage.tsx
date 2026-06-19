@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -11,11 +11,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react-native";
-import {
-  useAuthStore,
-  type FamilyLink,
-  type GuardianMember,
-} from "../stores/authStore";
+import { useAuthStore, type GuardianMember } from "../stores/authStore";
 import { getParentMeta, PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
 import * as authApi from "../api/auth";
 
@@ -25,7 +21,6 @@ export default function FamilyHubPage() {
   const user = useAuthStore((s) => s.user);
   const links = useAuthStore((s) => s.links);
   const familyGroupId = useAuthStore((s) => s.familyGroupId);
-  const guardianMemberRole = useAuthStore((s) => s.guardianMemberRole);
   const guardianMembers = useAuthStore((s) => s.guardianMembers);
   const setGuardianMembers = useAuthStore((s) => s.setGuardianMembers);
 
@@ -33,15 +28,26 @@ export default function FamilyHubPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [inviteError, setInviteError] = useState("");
   const [inviting, setInviting] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
 
   const active = links.filter((l) => l.status === "ACTIVE");
-  const pending = links.filter((l) => l.status === "PENDING");
-  const isOwner = guardianMemberRole === "OWNER";
 
-  async function resharePairingCode(link: FamilyLink) {
-    if (!link.pairingCode) return;
+  // 연결 대기 = 미사용 초대 토큰(getPendingInvites). BE 확정 시 그 함수 내부만 교체된다.
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    authApi.getPendingInvites(user.id).then((res) => {
+      if (alive) setPendingInvites(res.data);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [user, guardianMembers]);
+
+  async function reshareInvite(invite: authApi.PendingInvite) {
+    const who = invite.seniorName ? `${invite.seniorName}님 ` : "";
     await Share.share({
-      message: `MOA 페어링 코드: ${link.pairingCode}\n${link.counterpartName}님 기기에서 이 코드를 입력해 연결해 주세요.`,
+      message: `MOA 초대 코드: ${invite.token}\n${who}기기에서 이 코드를 입력해 연결해 주세요.`,
     });
   }
 
@@ -84,7 +90,7 @@ export default function FamilyHubPage() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
       >
-        {active.length === 0 && pending.length === 0 ? (
+        {active.length === 0 && pendingInvites.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>아직 연결된 부모님이 없어요</Text>
             <Text style={styles.emptyBody}>부모님을 등록하고 페어링 코드를 전달하면 연결돼요.</Text>
@@ -126,36 +132,38 @@ export default function FamilyHubPage() {
           );
         })}
 
-        {pending.map((link) => (
-          <View key={link.linkId} style={styles.pendingCard}>
-            <View style={styles.pendingHead}>
-              <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-              <Text style={styles.pendingTitle}>{link.counterpartName}님 연결 대기 중</Text>
+        {pendingInvites.map((invite) => {
+          const who = invite.seniorName ?? "부모님";
+          return (
+            <View key={invite.token} style={styles.pendingCard}>
+              <View style={styles.pendingHead}>
+                <Clock size={20} color="#E8943A" strokeWidth={2.4} />
+                <Text style={styles.pendingTitle}>{who} 연결 대기 중</Text>
+              </View>
+              <Text style={styles.pendingBody}>
+                {who} 기기에서 아래 초대 코드를 입력하면 연결이 완료돼요.
+              </Text>
+              <Text style={styles.pendingCode}>{invite.token}</Text>
+              <TouchableOpacity
+                style={styles.reshareBtn}
+                onPress={() => reshareInvite(invite)}
+                activeOpacity={0.85}
+              >
+                <Share2 size={18} color="#FF7955" />
+                <Text style={styles.reshareText}>초대 코드 공유</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.pendingBody}>
-              {link.counterpartName}님 기기에서 아래 코드를 입력하면 연결이 완료돼요.
-            </Text>
-            {link.pairingCode ? <Text style={styles.pendingCode}>{link.pairingCode}</Text> : null}
-            <TouchableOpacity
-              style={styles.reshareBtn}
-              onPress={() => resharePairingCode(link)}
-              activeOpacity={0.85}
-              disabled={!link.pairingCode}
-            >
-              <Share2 size={18} color="#FF7955" />
-              <Text style={styles.reshareText}>페어링 코드 공유</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+          );
+        })}
 
-        {(active.length > 0 || pending.length > 0) && (
+        {(active.length > 0 || pendingInvites.length > 0) && (
           <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => router.push("/onboarding")}>
             <UserPlus size={22} color="#FF7955" />
             <Text style={styles.addBtnText}>부모님 연결 추가</Text>
           </TouchableOpacity>
         )}
 
-        {(active.length > 0 || pending.length > 0 || guardianMembers.length > 0) && (
+        {(active.length > 0 || pendingInvites.length > 0 || guardianMembers.length > 0) && (
           <View style={styles.guardianCard}>
             <View style={styles.guardianHeader}>
               <Users size={20} color="#765E52" />
@@ -166,37 +174,36 @@ export default function FamilyHubPage() {
               <GuardianMemberRow key={member.id} member={member} />
             ))}
 
-            {isOwner ? (
-              <View style={styles.inviteBox}>
-                <Text style={styles.inviteTitle}>부보호자 초대</Text>
-                <TextInput
-                  style={styles.inviteInput}
-                  value={inviteName}
-                  onChangeText={setInviteName}
-                  placeholder="예: 김지훈"
-                  placeholderTextColor="#c4b5ae"
-                />
-                {inviteError ? <Text style={styles.inviteError}>{inviteError}</Text> : null}
+            {/* 평탄 모델: 모든 보호자가 동등하게 다른 보호자를 초대할 수 있다. */}
+            <View style={styles.inviteBox}>
+              <Text style={styles.inviteTitle}>보호자 초대</Text>
+              <TextInput
+                style={styles.inviteInput}
+                value={inviteName}
+                onChangeText={setInviteName}
+                placeholder="예: 김지훈"
+                placeholderTextColor="#c4b5ae"
+              />
+              {inviteError ? <Text style={styles.inviteError}>{inviteError}</Text> : null}
+              <TouchableOpacity
+                style={[styles.inviteBtn, inviting && styles.disabled]}
+                onPress={handleInviteGuardian}
+                activeOpacity={0.85}
+                disabled={inviting}
+              >
+                <Text style={styles.inviteBtnText}>{inviting ? "초대 중..." : "초대 코드 발급"}</Text>
+              </TouchableOpacity>
+              {inviteCode ? (
                 <TouchableOpacity
-                  style={[styles.inviteBtn, inviting && styles.disabled]}
-                  onPress={handleInviteGuardian}
+                  style={styles.inviteCodeBtn}
+                  onPress={() => shareGuardianInvite(inviteCode)}
                   activeOpacity={0.85}
-                  disabled={inviting}
                 >
-                  <Text style={styles.inviteBtnText}>{inviting ? "초대 중..." : "초대 코드 발급"}</Text>
+                  <Share2 size={17} color="#FF7955" />
+                  <Text style={styles.inviteCodeText}>{inviteCode}</Text>
                 </TouchableOpacity>
-                {inviteCode ? (
-                  <TouchableOpacity
-                    style={styles.inviteCodeBtn}
-                    onPress={() => shareGuardianInvite(inviteCode)}
-                    activeOpacity={0.85}
-                  >
-                    <Share2 size={17} color="#FF7955" />
-                    <Text style={styles.inviteCodeText}>{inviteCode}</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
+              ) : null}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -212,7 +219,7 @@ function GuardianMemberRow({ member }: { member: GuardianMember }) {
       <View style={styles.guardianCopy}>
         <Text style={styles.guardianName}>{member.guardianName}</Text>
         <Text style={styles.guardianRole}>
-          {member.memberRole === "OWNER" ? "대표보호자" : "부보호자"} · {active ? "참여 중" : "초대 대기"}
+          {member.memberRole === "OWNER" ? "대표보호자" : "보호자"} · {active ? "참여 중" : "초대 대기"}
         </Text>
       </View>
       {member.inviteCode && member.status === "PENDING" ? (

@@ -4,6 +4,8 @@ import { restoreSession, logout as apiLogout } from "../api/auth";
 export type UserRole = "elder" | "guardian";
 export type Role = UserRole;
 export type LinkStatus = "PENDING" | "ACTIVE" | "REVOKED";
+// 평탄(flat) 모델: OWNER 는 '그룹 생성자·초대 발급자' 라벨일 뿐 권한 우위가 없다.
+// 모든 보호자는 조회·관리 권한이 동등하다.
 export type GuardianMemberRole = "OWNER" | "SUB_GUARDIAN";
 
 export interface FamilyGroup {
@@ -15,15 +17,15 @@ export interface FamilyGroup {
   updatedAt: string;
 }
 
-// Existing elder-link compatibility model. In the FamilyGroup model this maps to FamilyElderMember.
+// guardian_senior 연동(보호자↔직접사용자). id 는 모두 UUID 문자열(Supabase auth.users.id 계열).
 export interface FamilyLink {
-  linkId: number;
+  linkId: string; // UUID — guardian_senior.link_id
   familyGroupId?: string;
-  counterpartId: number;
+  counterpartId: string; // UUID — 상대(직접사용자) senior_id
   counterpartName: string;
   relation: UserRole;
   status: LinkStatus;
-  pairingCode?: string;
+  linkedAt?: string; // ACTIVE 전환 시각
 }
 
 export interface GuardianMember {
@@ -60,11 +62,20 @@ const MOCK_GUARDIAN_SESSION: SessionUser = {
   role: "guardian",
   token: "mock-token-guardian-1",
 };
-void MOCK_ELDER_SESSION;
-void MOCK_GUARDIAN_SESSION;
-
-// Switch to MOCK_ELDER_SESSION or MOCK_GUARDIAN_SESSION during demos.
-const DEV_MOCK_SESSION = null as SessionUser | null;
+// ⚠️ DEV 전용 자동 로그인 — 추적 코드의 기본값은 항상 OFF(null).
+//   켜기: 각자 로컬 `.env.local`(gitignore됨)에 한 줄 추가 후 expo 서버 재시작.
+//     EXPO_PUBLIC_DEV_AUTOLOGIN=elder      → 직접사용자(챗봇 메인)로 바로 부팅
+//     EXPO_PUBLIC_DEV_AUTOLOGIN=guardian   → 보호자로 바로 부팅
+//   끄기: 그 줄을 지우거나 비우고 재시작 → 정상 인증 흐름(로그인/클레임).
+//   env 는 번들 타임에 주입되므로, 값을 바꾸면 dev 서버를 재시작해야 반영된다.
+//   (.env.local 은 추적되지 않으니 다른 프론트엔드 작업자에겐 영향이 없다.)
+const DEV_AUTOLOGIN = process.env.EXPO_PUBLIC_DEV_AUTOLOGIN;
+const DEV_MOCK_SESSION: SessionUser | null =
+  DEV_AUTOLOGIN === "elder"
+    ? MOCK_ELDER_SESSION
+    : DEV_AUTOLOGIN === "guardian"
+      ? MOCK_GUARDIAN_SESSION
+      : null;
 const DEV_MOCK_FAMILY_GROUP: FamilyGroup = {
   id: "family-dev",
   name: "김순자 가족",
@@ -73,9 +84,17 @@ const DEV_MOCK_FAMILY_GROUP: FamilyGroup = {
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString(),
 };
+// 연동(링크)은 클레임 완료 시 즉시 ACTIVE 로 생성된다(미사용 초대는 링크가 아니라 getPendingInvites 소스).
 const DEV_MOCK_LINKS: FamilyLink[] = [
-  { linkId: 1, familyGroupId: "family-dev", counterpartId: 101, counterpartName: "김순자", relation: "elder", status: "ACTIVE" },
-  { linkId: 2, familyGroupId: "family-dev", counterpartId: 102, counterpartName: "박무남", relation: "elder", status: "PENDING", pairingCode: "MOA-PND" },
+  {
+    linkId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01",
+    familyGroupId: "family-dev",
+    counterpartId: "cccccccc-cccc-4ccc-8ccc-cccccccccc01",
+    counterpartName: "김순자",
+    relation: "elder",
+    status: "ACTIVE",
+    linkedAt: new Date(0).toISOString(),
+  },
 ];
 const DEV_MOCK_GUARDIAN_MEMBERS: GuardianMember[] = [
   {
@@ -100,12 +119,7 @@ const DEV_MOCK_GUARDIAN_MEMBERS: GuardianMember[] = [
   },
 ];
 
-const userIdOf = (user: SessionUser | null): number | null => {
-  if (!user) return null;
-  const digits = user.id.replace(/\D/g, "");
-  const n = Number(digits);
-  return Number.isFinite(n) && digits !== "" ? n : null;
-};
+const userIdOf = (user: SessionUser | null): string | null => user?.id ?? null;
 
 const computeHasGuardianTab = (
   role: UserRole | null,
@@ -129,7 +143,7 @@ interface AuthState {
   role: UserRole | null;
   name: string;
 
-  userId: number | null;
+  userId: string | null;
   refreshToken: string | null;
   consentDone: boolean;
   links: FamilyLink[];
@@ -160,7 +174,7 @@ const loggedOutState = {
   isLoggedIn: false,
   role: null as UserRole | null,
   name: "",
-  userId: null as number | null,
+  userId: null as string | null,
   refreshToken: null as string | null,
   consentDone: false,
   links: [] as FamilyLink[],
