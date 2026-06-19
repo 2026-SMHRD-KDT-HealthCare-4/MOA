@@ -32,7 +32,7 @@ export default function FamilyHubPage() {
 
   const active = links.filter((l) => l.status === "ACTIVE");
 
-  // 연결 대기 = 미사용 초대 토큰(getPendingInvites). BE 확정 시 그 함수 내부만 교체된다.
+  // 초대 대기 = 아직 사용되지 않은 직접사용자 초대 토큰. 실제 API 전환 시 getPendingInvites 내부만 교체한다.
   useEffect(() => {
     if (!user) return;
     let alive = true;
@@ -55,6 +55,10 @@ export default function FamilyHubPage() {
     await Share.share({
       message: `MOA 가족 초대 코드: ${code}\n보호자로 가입한 뒤 이 코드를 입력하면 함께 돌볼 수 있어요.`,
     });
+  }
+
+  function startElderClaimTest(invite: authApi.PendingInvite) {
+    router.push({ pathname: "/(auth)/elder-consent", params: { inviteToken: invite.token } });
   }
 
   async function handleInviteGuardian() {
@@ -138,10 +142,10 @@ export default function FamilyHubPage() {
             <View key={invite.token} style={styles.pendingCard}>
               <View style={styles.pendingHead}>
                 <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-                <Text style={styles.pendingTitle}>{who} 연결 대기 중</Text>
+                <Text style={styles.pendingTitle}>{who} 초대 대기</Text>
               </View>
               <Text style={styles.pendingBody}>
-                {who} 기기에서 아래 초대 코드를 입력하면 연결이 완료돼요.
+                {who} 기기에서 아래 초대 코드를 입력하면 가족 연결이 완료돼요.
               </Text>
               <Text style={styles.pendingCode}>{invite.token}</Text>
               <TouchableOpacity
@@ -151,6 +155,13 @@ export default function FamilyHubPage() {
               >
                 <Share2 size={18} color="#FF7955" />
                 <Text style={styles.reshareText}>초대 코드 공유</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.claimTestBtn}
+                onPress={() => startElderClaimTest(invite)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.claimTestText}>이 기기에서 입력 테스트</Text>
               </TouchableOpacity>
             </View>
           );
@@ -219,7 +230,7 @@ function GuardianMemberRow({ member }: { member: GuardianMember }) {
       <View style={styles.guardianCopy}>
         <Text style={styles.guardianName}>{member.guardianName}</Text>
         <Text style={styles.guardianRole}>
-          {member.memberRole === "OWNER" ? "대표보호자" : "보호자"} · {active ? "참여 중" : "초대 대기"}
+          가족 보호자 · {active ? "참여 중" : "초대 대기"}
         </Text>
       </View>
       {member.inviteCode && member.status === "PENDING" ? (
@@ -320,6 +331,14 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
   reshareText: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
+  claimTestBtn: {
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: "#FF7955",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  claimTestText: { fontSize: 15, fontWeight: "800", color: "white" },
   emptyCard: {
     backgroundColor: "white",
     borderRadius: 20,

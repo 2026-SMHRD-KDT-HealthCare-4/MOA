@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Switch, ScrollView, StyleSheet, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Switch, ScrollView, StyleSheet, Alert, Platform } from "react-native";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
@@ -28,15 +28,25 @@ export default function SettingsPage() {
     setNotifEnabled(next);
   }
 
+  async function performLogout() {
+    await logout();
+    router.replace("/(auth)/role-select");
+  }
+
   function handleLogout() {
+    if (Platform.OS === "web") {
+      const confirmed = globalThis.confirm?.("정말 로그아웃 하시겠어요?") ?? true;
+      if (confirmed) void performLogout();
+      return;
+    }
+
     Alert.alert("로그아웃", "정말 로그아웃 하시겠어요?", [
       { text: "취소", style: "cancel" },
       {
         text: "로그아웃",
         style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/");
+        onPress: () => {
+          void performLogout();
         },
       },
     ]);

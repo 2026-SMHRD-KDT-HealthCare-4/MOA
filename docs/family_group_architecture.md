@@ -86,18 +86,17 @@ interface GuardianMember {
 }
 ```
 
-권한 기준:
+MVP 권한 기준:
 
-- `OWNER`: 대표보호자. 직접사용자 등록, 부보호자 초대, 부보호자 제거, 그룹 설정 변경 가능.
-- `SUB_GUARDIAN`: 부보호자. 가족 탭 조회, 건강 리포트 조회, 이상징후 알림 확인 가능. 직접사용자 추가/보호자 제거 같은 관리 권한은 제한한다.
+- `OWNER`: 가족 그룹을 처음 만든 보호자를 나타내는 메타데이터다.
+- `SUB_GUARDIAN`: 초대로 합류한 보호자를 나타내는 메타데이터다.
+- 현재 MVP에서는 `OWNER`/`SUB_GUARDIAN`에 따른 기능 차등을 두지 않는다.
+- 모든 `ACTIVE` 보호자는 가족 목록 조회, 초대코드 공유, 연결 상태 확인, 직접사용자 추가를 동일하게 수행한다.
 
-초기 MVP에서는 권한을 다음처럼 단순화해도 된다.
+현재 MVP 권한은 다음처럼 평탄하게 본다.
 
 ```ts
-const permissions = {
-  OWNER: ["READ_FAMILY", "READ_REPORT", "INVITE_GUARDIAN", "REMOVE_GUARDIAN", "ADD_ELDER"],
-  SUB_GUARDIAN: ["READ_FAMILY", "READ_REPORT"],
-};
+const guardianPermissions = ["READ_FAMILY", "READ_REPORT", "INVITE_GUARDIAN", "ADD_ELDER", "SHARE_INVITE"];
 ```
 
 ## 4. 상태 전이
@@ -123,24 +122,24 @@ REVOKED
 
 ```text
 PENDING
-  OWNER가 부보호자 초대
+  보호자가 가족 보호자 초대
   invite code 또는 invite link 발급
 
 ACTIVE
-  부보호자가 회원가입 또는 로그인
+  초대받은 보호자가 회원가입 또는 로그인
   초대 수락
   FamilyGroup 참여 완료
 
 REVOKED
-  OWNER가 부보호자 제거
-  또는 부보호자가 가족 그룹 나가기
+  보호자가 가족 그룹에서 제거됨
+  또는 보호자가 가족 그룹 나가기
 ```
 
 주의할 점:
 
 - 직접사용자 pairing code와 보호자 invite code는 목적이 다르므로 API와 타입에서 분리한다.
 - `PENDING` 직접사용자는 가족 탭에 "연결 대기 중"으로 표시할 수 있다.
-- `PENDING` 부보호자는 가족 탭의 보호자 목록에 "초대 대기 중"으로 표시할 수 있다.
+- `PENDING` 가족 보호자는 가족 탭의 보호자 목록에 "초대 대기 중"으로 표시할 수 있다.
 
 ## 5. API 설계 초안
 
@@ -244,7 +243,7 @@ Response:
 
 ### inviteGuardian
 
-대표보호자가 부보호자를 초대한다.
+ACTIVE 상태의 보호자가 가족 보호자를 초대한다. MVP에서는 `OWNER` 여부와 무관하게 동일하게 동작한다.
 
 ```http
 POST /family-groups/{familyGroupId}/guardians/invite
@@ -281,7 +280,7 @@ Response:
 
 ### acceptGuardianInvite
 
-부보호자가 회원가입 또는 로그인 후 초대를 수락한다.
+초대받은 보호자가 회원가입 또는 로그인 후 초대를 수락한다.
 
 ```http
 POST /guardian-invites/accept
@@ -315,7 +314,7 @@ Response:
 
 ### removeGuardian
 
-대표보호자가 부보호자를 제거한다.
+ACTIVE 상태의 보호자가 가족 보호자를 제거한다. MVP mock에서는 `OWNER` 여부로 제거 가능 대상을 제한하지 않는다.
 
 ```http
 DELETE /family-groups/{familyGroupId}/guardians/{guardianMemberId}

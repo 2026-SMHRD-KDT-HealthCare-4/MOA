@@ -1,11 +1,12 @@
 ﻿import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, ShieldCheck, Info } from "lucide-react-native";
 
 export default function ElderConsentPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ inviteToken?: string }>();
 
   function handleBack() {
     if (router.canGoBack()) {
@@ -16,7 +17,10 @@ export default function ElderConsentPage() {
   }
 
   function handleAgree() {
-    router.push({ pathname: "/(auth)/elder-claim", params: { consented: "1" } });
+    router.push({
+      pathname: "/(auth)/elder-claim",
+      params: { consented: "1", inviteToken: params.inviteToken },
+    });
   }
 
   return (

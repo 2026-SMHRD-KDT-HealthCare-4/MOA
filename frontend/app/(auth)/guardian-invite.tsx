@@ -73,7 +73,7 @@ export default function GuardianInvitePage() {
           <Users size={30} color="#FF7955" />
         </View>
         <Text style={styles.title}>초대받은 가족에 참여해요</Text>
-        <Text style={styles.subtitle}>계정을 만든 뒤 받은 초대 코드를 입력하면 부보호자로 함께 돌볼 수 있어요.</Text>
+        <Text style={styles.subtitle}>계정을 만든 뒤 받은 초대 코드를 입력하면 가족 보호자로 함께 돌볼 수 있어요.</Text>
 
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="이름" placeholderTextColor="#c4b5ae" />
         <TextInput
