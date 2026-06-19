@@ -30,6 +30,7 @@ Thumbs.db
 __pycache__/
 *.pyc
 *.pyo
+.venv/
 venv/
 *.egg-info/
 
@@ -38,3 +39,8 @@ backend/uvicorn*.log
 backend/uvicorn.pid
 frontend/expo-web*.log
 frontend/expo-web.pid
+
+# local runtime logs / temporary dev helpers
+*.log
+backend/dev-chat-proxy.mjs
+backend/run-dev-chat-proxy.cmd

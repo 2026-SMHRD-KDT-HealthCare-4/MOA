@@ -14,6 +14,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -25,7 +26,7 @@ from app.schemas.chat import (
     ChatSessionEndRequest,
     ChatSessionResponse,
 )
-from app.services.chatbot import chat_with_gpt
+from app.services.chatbot import chat_for_frontend, chat_with_gpt
 from app.services.deidentify import deidentify
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -35,6 +36,29 @@ BOT_SPEAKER = 1
 
 # 한 세션에 누적할 대화 내역 중 GPT에 전달할 최근 메시지 수
 HISTORY_WINDOW = 10
+
+
+class DevChatRequest(BaseModel):
+    message: str
+    conversation_turn: int | None = None
+    valid_speech_duration_ms: int | None = None
+    acoustic_meta: dict | None = None
+
+
+class DevChatResponse(BaseModel):
+    status: str
+    data: dict
+
+
+@router.post("/dev", response_model=DevChatResponse)
+def send_dev_message(req: DevChatRequest):
+    """개발 테스트용 챗봇 라우트. 인증/DB 저장 없이 LLM 응답만 확인한다."""
+    try:
+        result = chat_for_frontend(req.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
+
+    return {"status": "success", "data": result}
 
 
 @router.post("", response_model=ChatMessageResponseData)
