@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { type ComponentProps } from "react";
-import { useRouter, type Tabs } from "expo-router";
-import { CalendarDays, FileText, Home, MessageCircle, Settings, Users } from "lucide-react-native";
+import { type Tabs } from "expo-router";
+import { CalendarDays, FileText, Home, Settings, Users } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LucideIcon } from "lucide-react-native";
@@ -81,9 +81,7 @@ function BottomNavBase({
   theme,
 }: BottomTabBarProps & { tabs: TabConfig[]; theme: NavTheme }) {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const activeRouteName = state.routes[state.index]?.name;
-  const isElderTabs = tabs === ELDER_TABS;
 
   return (
     <LinearGradient
@@ -142,19 +140,6 @@ function BottomNavBase({
           );
         })}
       </View>
-
-      {isElderTabs && (
-        <TouchableOpacity
-          style={styles.floatingChat}
-          onPress={() => router.push("/chat")}
-          accessibilityLabel="모아와 대화하기"
-          accessibilityRole="button"
-          activeOpacity={0.78}
-        >
-          <View style={styles.floatingChatHighlight} />
-          <MessageCircle size={31} color="#FFFFFF" strokeWidth={2.5} />
-        </TouchableOpacity>
-      )}
     </LinearGradient>
   );
 }
@@ -196,31 +181,5 @@ const styles = StyleSheet.create({
   },
   label: {
     fontWeight: "800",
-  },
-  floatingChat: {
-    position: "absolute",
-    right: 15,
-    top: -28,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "#6FA163",
-    borderWidth: 6,
-    borderColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    zIndex: 20,
-    boxShadow: "0 10px 20px rgba(72, 106, 63, 0.22)",
-    elevation: 12,
-  },
-  floatingChatHighlight: {
-    position: "absolute",
-    top: 6,
-    left: 10,
-    right: 10,
-    height: 12,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.18)",
   },
 });

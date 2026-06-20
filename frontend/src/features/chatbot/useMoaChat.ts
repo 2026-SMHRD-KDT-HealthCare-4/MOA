@@ -203,7 +203,10 @@ async function callOpenAIChatbotApi(params: ChatbotApiParams): Promise<ChatbotRe
     body: JSON.stringify({
       model: OPENAI_CHAT_MODEL,
       instructions: MOA_CHATBOT_INSTRUCTIONS,
-      input: params.message,
+      input: [
+        ...(params.history ?? []),
+        { role: "user", content: params.message },
+      ],
       text: {
         format: MOA_CHATBOT_RESPONSE_FORMAT,
       },
@@ -278,6 +281,10 @@ export function useMoaChat() {
         message: text,
         conversation_turn: conversationTurnRef.current,
         valid_speech_duration_ms: validSpeechDurationRef.current,
+        history: messages.slice(-8).map((message) => ({
+          role: message.role === "user" ? "user" : "assistant",
+          content: message.text,
+        })),
         acoustic_meta: { duration_ms: 0, pause_events: 0, ...acousticMeta },
       };
 

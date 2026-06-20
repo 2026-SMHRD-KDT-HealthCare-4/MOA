@@ -264,16 +264,17 @@ function makeInviteCode(): string {
 }
 
 function makeSeniorPairingCode(): string {
-  return `MOA-${Math.floor(100000 + Math.random() * 900000)}`;
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const part = () => Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `${part()}-${part()}`;
 }
 
 function normalizeSeniorPairingCode(token: string): string {
-  const compact = token.trim().replace(/\s+/g, "");
-  if (/^\d{6}$/.test(compact)) return `MOA-${compact}`;
-  if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(compact)) {
-    return compact.toLowerCase();
+  const compact = token.trim().replace(/[\s-]+/g, "").toUpperCase();
+  if (/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(compact)) {
+    return `${compact.slice(0, 3)}-${compact.slice(3)}`;
   }
-  return compact.toUpperCase();
+  return token.trim().toUpperCase();
 }
 
 function seniorPairingCodeMatches(a: string, b: string): boolean {
@@ -437,6 +438,13 @@ interface BackendLoginResponse {
 interface BackendInviteResponse {
   token: string;
   expired_at: string;
+}
+
+interface BackendInviteListItemResponse {
+  token: string;
+  created_at: string;
+  expired_at: string;
+  is_used: boolean;
 }
 
 interface BackendInviteVerifyResponse {
@@ -876,11 +884,19 @@ export interface PendingInvite {
 export async function getPendingInvites(guardianId: string): Promise<ApiEnvelope<PendingInvite[]>> {
   const now = Date.now();
   if (AUTH_API_MODE === "real") {
-    // TODO(BE 연동): 서버 기준 미사용 invite 목록으로 교체 필요.
-    // guardian_senior는 senior 가입 시 ACTIVE로 생성되므로, 여기의 PENDING은 link 상태가 아니라 invite 상태다.
+    const serverInvites = await apiFetch<BackendInviteListItemResponse[]>("/auth/guardian/invites", {
+      auth: true,
+    });
+    const localNames = new Map(loadRealPendingInvites().map((invite) => [invite.token, invite.seniorName]));
     return {
       success: true,
-      data: loadRealPendingInvites().filter((i) => new Date(i.expiresAt).getTime() >= now),
+      data: serverInvites
+        .filter((invite) => !invite.is_used && new Date(invite.expired_at).getTime() >= now)
+        .map((invite) => ({
+          token: invite.token,
+          seniorName: localNames.get(invite.token),
+          expiresAt: invite.expired_at,
+        })),
     };
   }
 
