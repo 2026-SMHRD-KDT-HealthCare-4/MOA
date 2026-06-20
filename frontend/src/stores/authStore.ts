@@ -7,6 +7,8 @@ export type LinkStatus = "PENDING" | "ACTIVE" | "REVOKED";
 // 평탄(flat) 모델: OWNER 는 '그룹 생성자·초대 발급자' 라벨일 뿐 권한 우위가 없다.
 // 모든 보호자는 조회·관리 권한이 동등하다.
 export type GuardianMemberRole = "OWNER" | "SUB_GUARDIAN";
+// 직접사용자 온보딩에서 수집하는 프로필.
+export type SeniorGender = "male" | "female";
 
 export interface FamilyGroup {
   id: string;
@@ -135,6 +137,7 @@ interface SetSessionOptions {
   links?: FamilyLink[];
   familyGroup?: FamilyGroup | null;
   guardianMembers?: GuardianMember[];
+  onboardingDone?: boolean;
 }
 
 interface AuthState {
@@ -154,6 +157,12 @@ interface AuthState {
   hasGuardianTab: boolean;
   hydrated: boolean;
 
+  // 직접사용자 온보딩 프로필 (생년월일/성별/가족력).
+  birthDate: string | null;
+  gender: SeniorGender | null;
+  familyHistory: string[];
+  onboardingDone: boolean; // 온보딩 3단계 완료 여부 (가드 게이트)
+
   setSession: (user: SessionUser, opts?: SetSessionOptions) => void;
   setLinkedElder: (elderName: string) => void;
   setLinks: (links: FamilyLink[]) => void;
@@ -165,6 +174,10 @@ interface AuthState {
     guardianMembers?: GuardianMember[];
   }) => void;
   setConsentDone: (done: boolean) => void;
+  setOnboardingBirthDate: (birthDate: string) => void;
+  setOnboardingGender: (gender: SeniorGender) => void;
+  setOnboardingFamilyHistory: (familyHistory: string[]) => void;
+  setOnboardingDone: (done: boolean) => void;
   hydrate: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -183,6 +196,10 @@ const loggedOutState = {
   guardianMemberRole: null as GuardianMemberRole | null,
   guardianMembers: [] as GuardianMember[],
   hasGuardianTab: false,
+  birthDate: null as string | null,
+  gender: null as SeniorGender | null,
+  familyHistory: [] as string[],
+  onboardingDone: false,
 };
 
 const familyGroupIdOf = (familyGroup?: FamilyGroup | null): string | null => familyGroup?.id ?? null;
@@ -213,12 +230,19 @@ const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
     guardianMemberRole: guardianMemberRoleOf(user, guardianMembers),
     guardianMembers,
     hasGuardianTab: computeHasGuardianTab(user.role, links, guardianMembers),
+    // 새 세션은 온보딩 미수집 상태로 시작(온보딩 화면에서 채운다).
+    birthDate: null as string | null,
+    gender: null as SeniorGender | null,
+    familyHistory: [] as string[],
+    // 클레임/로그인 등 새 세션은 기본 미완료. (elder-claim → setSession 으로 false 초기화)
+    onboardingDone: opts?.onboardingDone ?? false,
   };
 };
 
 const initialState = DEV_MOCK_SESSION
   ? sessionState(DEV_MOCK_SESSION, {
       consentDone: true,
+      onboardingDone: true, // DEV 자동로그인은 온보딩 게이트를 건너뛴다.
       familyGroup: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_FAMILY_GROUP : null,
       links: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_LINKS : [],
       guardianMembers: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_GUARDIAN_MEMBERS : [],
@@ -266,6 +290,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }),
 
   setConsentDone: (done) => set({ consentDone: done }),
+
+  setOnboardingBirthDate: (birthDate) => set({ birthDate }),
+  setOnboardingGender: (gender) => set({ gender }),
+  setOnboardingFamilyHistory: (familyHistory) => set({ familyHistory }),
+  setOnboardingDone: (done) => set({ onboardingDone: done }),
 
   hydrate: async () => {
     const restored = await restoreSession();
