@@ -85,6 +85,7 @@ export default function ChatbotMain() {
   const turnCountRef = useRef(0);
   const conversationRunningRef = useRef(false);
   const conversationActiveRef = useRef(false);
+  const submittingTranscriptRef = useRef(false);
   const lastBotMessageIdRef = useRef<string | null>(null);
   const activeBotTurnIdRef = useRef<string | null>(null);
   const streamedReplyRef = useRef("");
@@ -121,6 +122,7 @@ export default function ChatbotMain() {
     useCallback(() => {
       conversationRunningRef.current = false;
       conversationActiveRef.current = false;
+      submittingTranscriptRef.current = false;
       turnCountRef.current = 0;
       setIsConversationActive(false);
       setChatState("idle");
@@ -131,10 +133,18 @@ export default function ChatbotMain() {
   );
 
   useEffect(() => {
-    if (!isConversationActive || !transcript?.trim()) return;
+    const text = transcript?.trim();
+    if (!isConversationActive || !text) {
+      // 녹음기를 초기화한 뒤 다음 발화를 전송할 수 있게 잠금을 푼다.
+      if (!text) submittingTranscriptRef.current = false;
+      return;
+    }
+    // sendMessage/resetRecorder의 참조가 렌더마다 바뀌어도 동일 전사는 한 번만 보낸다.
+    if (submittingTranscriptRef.current) return;
+    submittingTranscriptRef.current = true;
 
     setChatState("thinking");
-    void sendMessage(transcript, { duration_ms: durationMs });
+    void sendMessage(text, { duration_ms: durationMs });
     resetRecorder();
   }, [durationMs, isConversationActive, resetRecorder, sendMessage, transcript]);
 
@@ -204,7 +214,6 @@ export default function ChatbotMain() {
   }, []);
 
   function handleStartConversation() {
-    if (role === "guardian") return;
     conversationActiveRef.current = true;
     setIsConversationActive(true);
     void startFirstGreeting();
@@ -239,7 +248,9 @@ export default function ChatbotMain() {
 
   // ACTIVE 연결이 없을 때는 아직 사용되지 않은 직접사용자 초대 코드를 안내한다.
   const hasActive = links.some((l) => l.status === "ACTIVE");
-  const showGuardianNotice = role === "guardian" && !hasActive;
+  // 챗봇 메인은 보호자·직접사용자 모두 동일한 대화 화면을 사용한다.
+  // 초대/연결 관리는 가족 및 설정 화면에서 처리한다.
+  const showGuardianNotice = false;
 
   const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
 
@@ -430,7 +441,7 @@ export default function ChatbotMain() {
         </View>
       </Pressable>
 
-      {!isConversationActive && role !== "guardian" && (
+      {!isConversationActive && (
         <Pressable
           style={({ pressed }) => [
             styles.conversationButton,
@@ -473,12 +484,14 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   dateText: {
+    fontFamily: "Pretendard-ExtraBold",
     color: "#3B2318",
     fontSize: 31,
     lineHeight: 38,
     fontWeight: "900",
   },
   greetingText: {
+    fontFamily: "Pretendard-Bold",
     color: "#668D5F",
     fontSize: 22,
     lineHeight: 27,
@@ -504,6 +517,7 @@ const styles = StyleSheet.create({
     boxShadow: "0 18px 38px rgba(95, 55, 30, 0.09)",
   },
   speechText: {
+    fontFamily: "Jua",
     color: "#3B2318",
     fontSize: 24,
     lineHeight: 34,
@@ -652,12 +666,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.16)",
   },
   conversationTitle: {
+    fontFamily: "Pretendard-ExtraBold",
     color: "#FFFFFF",
     fontSize: 21,
     lineHeight: 26,
     fontWeight: "900",
   },
   conversationSub: {
+    fontFamily: "Pretendard-Bold",
     color: "#FFFFFF",
     fontSize: 13,
     lineHeight: 17,
@@ -685,12 +701,14 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   recordTitle: {
+    fontFamily: "Pretendard-ExtraBold",
     color: "#FFFFFF",
     fontSize: 23,
     lineHeight: 28,
     fontWeight: "900",
   },
   recordSub: {
+    fontFamily: "Pretendard-Bold",
     color: "#FFFFFF",
     fontSize: 14,
     lineHeight: 17,

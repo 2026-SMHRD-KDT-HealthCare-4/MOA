@@ -31,6 +31,7 @@ interface NavTheme {
   areaColors: [string, string, string];
   areaTopPadding: number;
   shadow: string;
+  safeBackground?: string;
 }
 
 const ELDER_THEME: NavTheme = {
@@ -55,10 +56,11 @@ const GUARDIAN_THEME: NavTheme = {
   inactiveColor: "#8A8A86",
   activeBg: "rgba(232,148,58,0.14)",
   containerBorder: "rgba(74,74,72,0.08)",
-  containerBg: "rgba(252,248,243,0.98)",
-  areaColors: ["rgba(252,248,243,0)", "#FCF8F3", "#F4EEE7"],
+  containerBg: "#FFF9F4",
+  areaColors: ["#F7EFE8", "#F7EFE8", "#F7EFE8"],
   areaTopPadding: 12,
   shadow: "0 -12px 30px rgba(74, 74, 72, 0.08)",
+  safeBackground: "#F7EFE8",
 };
 
 const ELDER_TABS: TabConfig[] = [
@@ -98,6 +100,7 @@ function BottomNavBase({
         },
       ]}
     >
+      {theme.safeBackground && <View style={[styles.bottomSafeBg, { backgroundColor: theme.safeBackground }]} />}
       <View
         style={[
           styles.container,
@@ -161,8 +164,19 @@ const styles = StyleSheet.create({
   area: {
     position: "relative",
     overflow: "visible",
+    zIndex: 20,
+    elevation: 20,
+  },
+  bottomSafeBg: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 0,
   },
   container: {
+    position: "relative",
     flexDirection: "row",
     minHeight: 100,
     marginHorizontal: 19,
@@ -172,6 +186,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 17,
     elevation: 8,
+    zIndex: 1,
   },
   tab: {
     flex: 1,
@@ -183,6 +198,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   label: {
+    fontFamily: "Pretendard-Bold",
     fontWeight: "800",
   },
 });

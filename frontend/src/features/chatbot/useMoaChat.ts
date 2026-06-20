@@ -19,9 +19,9 @@ export interface ChatMessage {
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 const OPENAI_CHAT_MODEL = process.env.EXPO_PUBLIC_OPENAI_CHAT_MODEL ?? "gpt-4o-mini";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
-const TTS_VOICE = "nova";
 
 const MOA_CHATBOT_INSTRUCTIONS = `
+Never invent, guess, or use a person's name. The caller does not provide an approved display name, so address the user without a name.
 당신은 '모아'라는 이름의 AI 돌봄 친구입니다.
 노년층 사용자가 편하게 말한 한국어 문장을 이해하고, 따뜻하고 짧게 응답하세요.
 
@@ -92,6 +92,7 @@ async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
 async function playTTS(
   text: string,
   soundRef: React.RefObject<Audio.Sound | null>,
+  webAudioRef: React.MutableRefObject<HTMLAudioElement | null>,
   onReady?: (durationMs: number | null) => void,
 ): Promise<void> {
   let didNotifyReady = false;
@@ -104,48 +105,71 @@ async function playTTS(
   try {
     const token = await getToken();
     const hasRealSession = Boolean(token && !token.startsWith("mock-token-"));
-    const backendResponse = hasRealSession
-      ? await fetch(`${API_BASE_URL}/speech/tts`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ voice: TTS_VOICE, text }),
-        })
-      : null;
-
-    const response = backendResponse?.ok
-      ? backendResponse
-      : OPENAI_API_KEY
-        ? await fetch("https://api.openai.com/v1/audio/speech", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ model: "tts-1", voice: TTS_VOICE, input: text }),
-          })
-        : backendResponse;
+    const response = await fetch(
+      `${API_BASE_URL}${hasRealSession ? "/speech/tts" : "/speech/dev/tts"}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(hasRealSession ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ text }),
+      },
+    );
 
     if (!response?.ok) {
+      console.warn("[MOA_TTS_REQUEST_FAILED]", response?.status);
       notifyReady(null);
       return;
     }
 
-    let uri: string;
-    let blobUrl: string | null = null;
-
     if (Platform.OS === "web") {
       const blob = await response.blob();
-      blobUrl = URL.createObjectURL(blob);
-      uri = blobUrl;
-    } else {
-      const buffer = await response.arrayBuffer();
-      const base64 = await arrayBufferToBase64(buffer);
-      uri = `data:audio/mpeg;base64,${base64}`;
+      const blobUrl = URL.createObjectURL(blob);
+      // expo-av의 웹 Blob 재생 대신 브라우저 audio 엘리먼트를 사용한다.
+      // Chrome/Expo Web에서 이 경로가 더 안정적으로 소리를 출력한다.
+      const webAudio = new window.Audio(blobUrl);
+      const previousWebAudio = webAudioRef.current;
+      previousWebAudio?.pause();
+      previousWebAudio?.onended?.(new Event("ended"));
+      webAudioRef.current = webAudio;
+      webAudio.preload = "auto";
+
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          webAudio.onloadedmetadata = null;
+          webAudio.onerror = null;
+          resolve();
+        };
+        webAudio.onloadedmetadata = () => {
+          notifyReady(Number.isFinite(webAudio.duration) ? Math.round(webAudio.duration * 1000) : null);
+          finish();
+        };
+        webAudio.onerror = finish;
+      });
+
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          webAudio.onended = null;
+          webAudio.onerror = null;
+          if (webAudioRef.current === webAudio) webAudioRef.current = null;
+          URL.revokeObjectURL(blobUrl);
+          resolve();
+        };
+        webAudio.onended = finish;
+        webAudio.onerror = finish;
+        void webAudio.play().catch((error) => {
+          console.warn("[MOA_TTS_PLAY_FAILED]", error);
+          finish();
+        });
+      });
+      return;
     }
 
+    const buffer = await response.arrayBuffer();
+    const base64 = await arrayBufferToBase64(buffer);
+    const uri = `data:audio/mpeg;base64,${base64}`;
+    if (soundRef.current) await soundRef.current.unloadAsync().catch(() => undefined);
     const { sound, status } = await Audio.Sound.createAsync({ uri });
     (soundRef as React.MutableRefObject<Audio.Sound | null>).current = sound;
     notifyReady(status.isLoaded ? status.durationMillis ?? null : null);
@@ -153,7 +177,6 @@ async function playTTS(
       const finish = () => {
         void sound.unloadAsync();
         (soundRef as React.MutableRefObject<Audio.Sound | null>).current = null;
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
         resolve();
       };
 
@@ -162,7 +185,8 @@ async function playTTS(
       });
       void sound.playAsync().catch(finish);
     });
-  } catch {
+  } catch (error) {
+    console.warn("[MOA_TTS_ERROR]", error);
     notifyReady(null);
     // Text response remains available even when TTS fails.
   }
@@ -288,12 +312,15 @@ export function useMoaChat() {
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const soundRef = useRef<Audio.Sound | null>(null);
+  const webAudioRef = useRef<HTMLAudioElement | null>(null);
+  const sendingMessageRef = useRef(false);
   const conversationTurnRef = useRef(0);
   const validSpeechDurationRef = useRef(0);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
   async function sendMessage(text: string, acousticMeta?: Partial<ChatbotApiParams["acoustic_meta"]>) {
-    if (!text.trim()) return;
+    if (!text.trim() || sendingMessageRef.current) return;
+    sendingMessageRef.current = true;
 
     disableWakeWord();
 
@@ -331,7 +358,7 @@ export function useMoaChat() {
         resolveAudioReady = resolve;
       });
       // 화면 타이핑과 별개로 음성 다운로드를 바로 시작해 첫 재생 지연을 줄인다.
-      const ttsPromise = playTTS(res.data.reply, soundRef, resolveAudioReady);
+      const ttsPromise = playTTS(res.data.reply, soundRef, webAudioRef, resolveAudioReady);
       const audioDurationMs = await Promise.race([
         audioReady,
         wait(700).then(() => null),
@@ -369,6 +396,7 @@ export function useMoaChat() {
       setIsBotTyping(false);
       setIsBotSpeaking(false);
     } finally {
+      sendingMessageRef.current = false;
       setIsBotTyping(false);
       enableWakeWord();
     }
