@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, record, analyze, chat, medication, notification, report
+from app.routes import auth, record, analyze, chat, medication, notification, report, speech
 
 # DB 스키마는 Alembic 마이그레이션으로 관리한다.
 # 테이블 생성/변경은 `alembic upgrade head` 로 적용하며, 여기서 create_all 을 호출하지 않는다.
@@ -25,6 +25,7 @@ app.include_router(chat.router)
 app.include_router(medication.router)
 app.include_router(notification.router)
 app.include_router(report.router)
+app.include_router(speech.router)
 
 @app.get("/")
 def root():

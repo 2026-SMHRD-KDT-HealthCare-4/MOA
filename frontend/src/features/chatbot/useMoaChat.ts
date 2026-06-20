@@ -5,6 +5,7 @@ import { Audio } from "expo-av";
 import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse } from "../../mocks/chatbotResponses";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
+import { getToken } from "../../api/session";
 
 export interface ChatMessage {
   id: string;
@@ -87,17 +88,29 @@ async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
 }
 
 async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | null>): Promise<void> {
-  if (!OPENAI_API_KEY) return;
-
   try {
-    const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    const token = await getToken();
+    const backendResponse = await fetch(`${API_BASE_URL}/speech/tts`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ model: "tts-1", voice: TTS_VOICE, input: text }),
+      body: JSON.stringify({ voice: TTS_VOICE, text }),
     });
+
+    const response = backendResponse.ok
+      ? backendResponse
+      : OPENAI_API_KEY
+        ? await fetch("https://api.openai.com/v1/audio/speech", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ model: "tts-1", voice: TTS_VOICE, input: text }),
+          })
+        : backendResponse;
 
     if (!response.ok) return;
 

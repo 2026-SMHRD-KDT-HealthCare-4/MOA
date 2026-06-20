@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_guardian
+from app.core.security import get_current_guardian, get_current_user_id
 from app.core.supabase_client import supabase
 from app.models.models import Guardian, GuardianSenior, Invite, LinkStatus, Senior
 from app.schemas.auth import (
@@ -140,6 +140,66 @@ def logout():
         return {"status": "success", "message": "로그아웃 완료"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/me")
+def get_me(
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Return the authenticated profile and that user's family links."""
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+
+    if guardian is not None:
+        links = (
+            db.query(GuardianSenior)
+            .filter(GuardianSenior.guardian_id == user_id)
+            .all()
+        )
+        return {
+            "status": "success",
+            "data": {
+                "id": str(user_id),
+                "name": guardian.name,
+                "role": "guardian",
+                "consent_done": guardian.biometric_consent_yn,
+                "links": [
+                    {
+                        "link_id": str(link.link_id),
+                        "counterpart_id": str(link.senior_id),
+                        "counterpart_name": (db.query(Senior.name).filter(Senior.senior_id == link.senior_id).scalar() or "직접사용자"),
+                        "link_status": link.link_status,
+                        "linked_at": link.linked_at.isoformat() if link.linked_at else None,
+                    }
+                    for link in links
+                ],
+            },
+        }
+
+    if senior is not None:
+        links = db.query(GuardianSenior).filter(GuardianSenior.senior_id == user_id).all()
+        return {
+            "status": "success",
+            "data": {
+                "id": str(user_id),
+                "name": senior.name,
+                "role": "senior",
+                "consent_done": senior.biometric_consent_yn,
+                "links": [
+                    {
+                        "link_id": str(link.link_id),
+                        "counterpart_id": str(link.guardian_id),
+                        "counterpart_name": (db.query(Guardian.name).filter(Guardian.guardian_id == link.guardian_id).scalar() or "보호자"),
+                        "link_status": link.link_status,
+                        "linked_at": link.linked_at.isoformat() if link.linked_at else None,
+                    }
+                    for link in links
+                ],
+            },
+        }
+
+    raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")
 
 
 # ---------------------------------------------------------------------------
