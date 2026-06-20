@@ -5,6 +5,7 @@ import { Audio } from "expo-av";
 import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse } from "../../mocks/chatbotResponses";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
+import { getToken } from "../../api/session";
 
 export interface ChatMessage {
   id: string;
@@ -87,17 +88,29 @@ async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
 }
 
 async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | null>): Promise<void> {
-  if (!OPENAI_API_KEY) return;
-
   try {
-    const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    const token = await getToken();
+    const backendResponse = await fetch(`${API_BASE_URL}/speech/tts`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ model: "tts-1", voice: TTS_VOICE, input: text }),
+      body: JSON.stringify({ voice: TTS_VOICE, text }),
     });
+
+    const response = backendResponse.ok
+      ? backendResponse
+      : OPENAI_API_KEY
+        ? await fetch("https://api.openai.com/v1/audio/speech", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ model: "tts-1", voice: TTS_VOICE, input: text }),
+          })
+        : backendResponse;
 
     if (!response.ok) return;
 
@@ -190,7 +203,10 @@ async function callOpenAIChatbotApi(params: ChatbotApiParams): Promise<ChatbotRe
     body: JSON.stringify({
       model: OPENAI_CHAT_MODEL,
       instructions: MOA_CHATBOT_INSTRUCTIONS,
-      input: params.message,
+      input: [
+        ...(params.history ?? []),
+        { role: "user", content: params.message },
+      ],
       text: {
         format: MOA_CHATBOT_RESPONSE_FORMAT,
       },
@@ -265,6 +281,10 @@ export function useMoaChat() {
         message: text,
         conversation_turn: conversationTurnRef.current,
         valid_speech_duration_ms: validSpeechDurationRef.current,
+        history: messages.slice(-8).map((message) => ({
+          role: message.role === "user" ? "user" : "assistant",
+          content: message.text,
+        })),
         acoustic_meta: { duration_ms: 0, pause_events: 0, ...acousticMeta },
       };
 

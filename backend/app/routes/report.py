@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id, verify_senior_access
-from app.models.models import MonthlyReport
+from app.models.models import MonthlyReport, RiskPrediction
 from app.schemas.report import (
     MonthlyReportCreateRequest,
     MonthlyReportDetailResponse,
@@ -23,6 +23,21 @@ from app.schemas.report import (
 from app.services.monthly_stats import aggregate_monthly_stats
 
 router = APIRouter(prefix="/report", tags=["report"])
+
+
+def _status_from_prediction(prediction: RiskPrediction) -> str:
+    """Map internal risk levels to the app's non-diagnostic weather metaphor."""
+    levels = {
+        prediction.parkinson_level,
+        prediction.dementia_level,
+        prediction.depression_level,
+        prediction.diabetes_level,
+    }
+    if "AMBER" in levels:
+        return "rainy"
+    if "YELLOW" in levels:
+        return "cloudy"
+    return "sunny"
 
 
 @router.post("", response_model=MonthlyReportResponse)
@@ -110,3 +125,34 @@ def list_reports(
         .order_by(MonthlyReport.report_month.desc())
         .all()
     )
+
+
+@router.get("/trend/{senior_id}")
+def get_trend_data(
+    senior_id: UUID,
+    limit: int = 7,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """Return a guardian-safe recent trend without exposing medical scores or diagnoses."""
+    verify_senior_access(user_id, senior_id, db)
+    limit = max(1, min(limit, 31))
+    predictions = (
+        db.query(RiskPrediction)
+        .filter(RiskPrediction.senior_id == senior_id)
+        .order_by(RiskPrediction.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    predictions.reverse()
+    return {
+        "status": "success",
+        "data": [
+            {
+                "date": prediction.created_at.date().isoformat(),
+                "status": _status_from_prediction(prediction),
+                "recorded_at": prediction.created_at.isoformat(),
+            }
+            for prediction in predictions
+        ],
+    }

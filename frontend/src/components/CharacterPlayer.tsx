@@ -21,7 +21,7 @@ import { installWebVideoPlayGuard, safePlay } from "../utils/videoPlayback";
 
 const MEDIA_FIT = "cover";
 const CROSSFADE_MS = 0;
-const PREPARE_DELAY_MS = 700;
+const PREPARE_DELAY_MS = 350;
 const USE_NATIVE_DRIVER = Platform.OS !== "web";
 
 installWebVideoPlayGuard();
@@ -75,18 +75,23 @@ function AvatarVideoLayer({
   preparing,
   autoplayAllowed,
   hasUserInteracted,
+  isIntro,
 }: {
   source: VideoAsset;
   visible: boolean;
   preparing: boolean;
   autoplayAllowed?: boolean;
   hasUserInteracted?: boolean;
+  isIntro?: boolean;
 }) {
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
+
+    // 영상 움직임이 너무 빠르면 0.65~0.8 사이로 조절
+    p.playbackRate = 0.75;
   });
 
   useEffect(() => {
@@ -105,14 +110,14 @@ function AvatarVideoLayer({
   }, [preparing, player]);
 
   useEffect(() => {
-  opacity.setValue(visible ? 1 : 0);
-}, [visible, opacity]);
+    opacity.setValue(visible ? 1 : 0);
+  }, [visible, opacity]);
 
   return (
     <Animated.View style={[styles.videoLayer, { opacity }]}>
       <VideoView
         player={player}
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, isIntro && styles.introVideoAdjust]}
         contentFit={MEDIA_FIT}
         nativeControls={false}
         surfaceType="textureView"
@@ -149,15 +154,15 @@ function AbsoluteCharacterVideo({
   const [preparingKey, setPreparingKey] = useState<string | null>(null);
 
   const currentKeyRef = useRef(visibleKey);
-  const transitionPendingRef = useRef(false);
+  const latestKeyRef = useRef(visibleKey);
 
   useEffect(() => {
     const nextKey = getMoodVideoKey(mood);
 
-    if (nextKey === currentKeyRef.current) return;
-    if (transitionPendingRef.current) return;
+    latestKeyRef.current = nextKey;
 
-    transitionPendingRef.current = true;
+    if (nextKey === currentKeyRef.current) return;
+
     setPreparingKey(nextKey);
 
     let cancelled = false;
@@ -166,6 +171,7 @@ function AbsoluteCharacterVideo({
       await delay(PREPARE_DELAY_MS);
 
       if (cancelled) return;
+      if (latestKeyRef.current !== nextKey) return;
 
       currentKeyRef.current = nextKey;
       setVisibleKey(nextKey);
@@ -174,13 +180,11 @@ function AbsoluteCharacterVideo({
 
       if (!cancelled) {
         setPreparingKey(null);
-        transitionPendingRef.current = false;
       }
     })();
 
     return () => {
       cancelled = true;
-      transitionPendingRef.current = false;
     };
   }, [mood]);
 
@@ -194,6 +198,7 @@ function AbsoluteCharacterVideo({
           preparing={layer.key === preparingKey}
           autoplayAllowed={autoplayAllowed}
           hasUserInteracted={hasUserInteracted}
+          isIntro={mood === "intro"}
         />
       ))}
     </View>
@@ -244,5 +249,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     pointerEvents: "none",
+  },
+  introVideoAdjust: {
+    top: -70,
+    bottom: 70,
   },
 });
