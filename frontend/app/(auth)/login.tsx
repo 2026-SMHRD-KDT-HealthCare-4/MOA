@@ -27,6 +27,7 @@ export default function LoginPage() {
         familyGroup: restored.familyGroup,
         links: restored.links,
         guardianMembers: restored.guardianMembers,
+        onboardingDone: restored.onboardingDone,
       } : undefined);
       // 보호자는 가족 탭(부모 상태부터), 연결 전이면 홈으로 안내된다.
       const hasGuardianTab = useAuthStore.getState().hasGuardianTab;

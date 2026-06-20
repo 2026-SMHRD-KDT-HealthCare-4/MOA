@@ -15,7 +15,7 @@ export default function ElderLayout() {
   // 직접사용자가 온보딩을 끝내지 않았으면 온보딩 첫 화면으로 보낸다.
   useEffect(() => {
     if (role === "elder" && !onboardingDone && !inOnboarding) {
-      router.replace("/(elder)/onboarding/birthdate");
+      router.replace("/(elder)/onboarding/basic-info");
     }
   }, [role, onboardingDone, inOnboarding, router]);
 

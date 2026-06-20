@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { restoreSession, logout as apiLogout } from "../api/auth";
+import { saveOnboardingDone } from "../api/session";
 
 export type UserRole = "elder" | "guardian";
 export type Role = UserRole;
@@ -9,6 +10,25 @@ export type LinkStatus = "PENDING" | "ACTIVE" | "REVOKED";
 export type GuardianMemberRole = "OWNER" | "SUB_GUARDIAN";
 // 직접사용자 온보딩에서 수집하는 프로필.
 export type SeniorGender = "male" | "female";
+export type FamilyHistoryLevel =
+  | "parent_one"
+  | "parents_both"
+  | "grandparent_or_more"
+  | "unknown"
+  | "none";
+export interface FamilyHistoryDetails {
+  dementia: FamilyHistoryLevel;
+  parkinson: FamilyHistoryLevel;
+  diabetes: FamilyHistoryLevel;
+  stroke: FamilyHistoryLevel;
+}
+
+const EMPTY_FAMILY_HISTORY_DETAILS: FamilyHistoryDetails = {
+  dementia: "none",
+  parkinson: "none",
+  diabetes: "none",
+  stroke: "none",
+};
 
 export interface FamilyGroup {
   id: string;
@@ -161,7 +181,8 @@ interface AuthState {
   birthDate: string | null;
   gender: SeniorGender | null;
   familyHistory: string[];
-  onboardingDone: boolean; // 온보딩 3단계 완료 여부 (가드 게이트)
+  familyHistoryDetails: FamilyHistoryDetails;
+  onboardingDone: boolean; // 온보딩 완료 여부 (가드 게이트)
 
   setSession: (user: SessionUser, opts?: SetSessionOptions) => void;
   setLinkedElder: (elderName: string) => void;
@@ -177,6 +198,7 @@ interface AuthState {
   setOnboardingBirthDate: (birthDate: string) => void;
   setOnboardingGender: (gender: SeniorGender) => void;
   setOnboardingFamilyHistory: (familyHistory: string[]) => void;
+  setFamilyHistoryDetails: (details: FamilyHistoryDetails) => void;
   setOnboardingDone: (done: boolean) => void;
   hydrate: () => Promise<void>;
   logout: () => Promise<void>;
@@ -199,6 +221,7 @@ const loggedOutState = {
   birthDate: null as string | null,
   gender: null as SeniorGender | null,
   familyHistory: [] as string[],
+  familyHistoryDetails: { ...EMPTY_FAMILY_HISTORY_DETAILS },
   onboardingDone: false,
 };
 
@@ -234,6 +257,7 @@ const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
     birthDate: null as string | null,
     gender: null as SeniorGender | null,
     familyHistory: [] as string[],
+    familyHistoryDetails: { ...EMPTY_FAMILY_HISTORY_DETAILS },
     // 클레임/로그인 등 새 세션은 기본 미완료. (elder-claim → setSession 으로 false 초기화)
     onboardingDone: opts?.onboardingDone ?? false,
   };
@@ -294,7 +318,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setOnboardingBirthDate: (birthDate) => set({ birthDate }),
   setOnboardingGender: (gender) => set({ gender }),
   setOnboardingFamilyHistory: (familyHistory) => set({ familyHistory }),
-  setOnboardingDone: (done) => set({ onboardingDone: done }),
+  setFamilyHistoryDetails: (familyHistoryDetails) => set({ familyHistoryDetails }),
+  setOnboardingDone: (done) => {
+    const userId = get().user?.id;
+    if (userId) void saveOnboardingDone(userId, done);
+    set({ onboardingDone: done });
+  },
 
   hydrate: async () => {
     const restored = await restoreSession();
@@ -306,6 +335,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           familyGroup: restored.familyGroup,
           links: restored.links,
           guardianMembers: restored.guardianMembers,
+          onboardingDone: restored.onboardingDone,
         }),
         hydrated: true,
       });

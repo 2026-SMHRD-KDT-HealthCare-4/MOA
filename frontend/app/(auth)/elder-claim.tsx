@@ -73,8 +73,8 @@ export default function ElderClaimPage() {
 
       setSession(user, { refreshToken, consentDone, familyGroup, links, guardianMembers });
       setError("");
-      // 클레임 직후 직접사용자 온보딩(생년월일→성별→가족력)으로 진입.
-      router.replace("/(elder)/onboarding/birthdate");
+      // 클레임 직후 직접사용자 온보딩(기본정보→가족력)으로 진입.
+      router.replace("/(elder)/onboarding/basic-info");
     } catch (e) {
       setError(e instanceof Error ? e.message : "연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
     } finally {

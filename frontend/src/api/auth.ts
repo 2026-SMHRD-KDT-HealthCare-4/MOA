@@ -11,6 +11,7 @@ import {
   clearToken,
   saveRefreshToken,
   getRefreshToken,
+  getOnboardingDone,
 } from "./session";
 
 export interface ApiEnvelope<T> {
@@ -1085,6 +1086,7 @@ export interface RestoredSession {
   familyGroup: FamilyGroup | null;
   links: FamilyLink[];
   guardianMembers: GuardianMember[];
+  onboardingDone: boolean;
 }
 
 export async function restoreSession(): Promise<RestoredSession | null> {
@@ -1102,6 +1104,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     realCurrentUser = user;
 
     const refreshToken = (await getRefreshToken()) ?? "";
+    const onboardingDone = await getOnboardingDone(user.id);
     if (user.role === "guardian") {
       const links = (await getGuardianSeniors(user.id)).data;
       return {
@@ -1111,6 +1114,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
         familyGroup: realFamilyGroupForGuardian(user),
         links,
         guardianMembers: [realGuardianMember(user)],
+        onboardingDone,
       };
     }
     return {
@@ -1120,6 +1124,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
       familyGroup: null,
       links: [],
       guardianMembers: [],
+      onboardingDone,
     };
   }
 
@@ -1129,7 +1134,8 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     if (acc) {
       await saveToken(makeToken(acc.id));
       const user = toSession(acc);
-      return { user, consentDone: !!acc.voiceConsentAt, refreshToken, ...familyStateForUser(user) };
+      const onboardingDone = await getOnboardingDone(user.id);
+      return { user, consentDone: !!acc.voiceConsentAt, refreshToken, onboardingDone, ...familyStateForUser(user) };
     }
   }
 
@@ -1138,5 +1144,12 @@ export async function restoreSession(): Promise<RestoredSession | null> {
   const acc = mockDb.accounts.find((a) => makeToken(a.id) === token);
   if (!acc) return null;
   const user = toSession(acc);
-  return { user, consentDone: !!acc.voiceConsentAt, refreshToken: refreshToken ?? "", ...familyStateForUser(user) };
+  const onboardingDone = await getOnboardingDone(user.id);
+  return {
+    user,
+    consentDone: !!acc.voiceConsentAt,
+    refreshToken: refreshToken ?? "",
+    onboardingDone,
+    ...familyStateForUser(user),
+  };
 }

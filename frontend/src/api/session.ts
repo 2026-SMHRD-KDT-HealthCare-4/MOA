@@ -7,6 +7,7 @@ import * as SecureStore from "expo-secure-store";
 
 const ACCESS_TOKEN_KEY = "moa.session.token";
 const REFRESH_TOKEN_KEY = "moa.session.refresh";
+const ONBOARDING_STATE_KEY = "moa.session.onboarding";
 
 const isWeb = Platform.OS === "web";
 
@@ -70,6 +71,29 @@ export async function getRefreshToken(): Promise<string | null> {
 
 export async function clearRefreshToken(): Promise<void> {
   await secureDelete(REFRESH_TOKEN_KEY);
+}
+
+async function getOnboardingState(): Promise<Record<string, boolean>> {
+  const raw = await secureGet(ONBOARDING_STATE_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, boolean>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function saveOnboardingDone(userId: string, done: boolean): Promise<void> {
+  const state = await getOnboardingState();
+  if (done) state[userId] = true;
+  else delete state[userId];
+  await secureSet(ONBOARDING_STATE_KEY, JSON.stringify(state));
+}
+
+export async function getOnboardingDone(userId: string): Promise<boolean> {
+  const state = await getOnboardingState();
+  return state[userId] === true;
 }
 
 // 로그아웃: access(메모리) + refresh(보관소) 모두 폐기.
