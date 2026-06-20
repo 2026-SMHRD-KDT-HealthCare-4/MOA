@@ -127,6 +127,7 @@ class Invite(Base):
 
     token = Column(String(7), primary_key=True)
     guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)
+    senior_name = Column(String(50), nullable=True)  # 보호자가 부르는 호칭 ("엄마") — Senior.name(실명)과 별개
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expired_at = Column(DateTime, nullable=False)  # 생성 + 72시간
     is_used = Column(Boolean, nullable=False, default=False)
