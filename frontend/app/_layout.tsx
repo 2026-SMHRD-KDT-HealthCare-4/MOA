@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+import { useFonts } from "expo-font";
 import { useAuthStore } from "../src/stores/authStore";
 
 // 인증/역할 라우트 가드.
@@ -52,6 +53,13 @@ function useAuthGuard() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Jua: require("../assets/fonts/BMJUA.ttf"),
+    "Pretendard-Light": require("../assets/fonts/Pretendard-Light.ttf"),
+    "Pretendard-Medium": require("../assets/fonts/Pretendard-Medium.ttf"),
+    "Pretendard-Bold": require("../assets/fonts/Pretendard-Bold.ttf"),
+    "Pretendard-ExtraBold": require("../assets/fonts/Pretendard-ExtraBold.ttf"),
+  });
   // 앱 시작 시 저장된 토큰으로 세션 복원 → 가드가 분기.
   const hydrate = useAuthStore((s) => s.hydrate);
   useEffect(() => {
@@ -59,6 +67,8 @@ export default function RootLayout() {
   }, [hydrate]);
 
   useAuthGuard();
+
+  if (!fontsLoaded) return null;
 
   return (
     <SafeAreaProvider>

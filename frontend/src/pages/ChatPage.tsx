@@ -392,6 +392,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   userText: {
+    fontFamily: "Jua",
     fontSize: 18,
     color: "#FFFFFF",
     lineHeight: 25,
@@ -426,6 +427,7 @@ const styles = StyleSheet.create({
     borderColor: "#F2B8AA",
   },
   botText: {
+    fontFamily: "Jua",
     fontSize: 18,
     color: "#342C28",
     lineHeight: 25,
@@ -452,6 +454,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   input: {
+    fontFamily: "Jua",
     flex: 1,
     minHeight: 56,
     maxHeight: 120,
