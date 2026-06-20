@@ -81,8 +81,13 @@ class SeniorResponse(BaseModel):
 
 # ---------- 초대링크 ----------
 
+class InviteCreateRequest(BaseModel):
+    senior_name: Optional[str] = None  # 보호자가 부르는 호칭 ("엄마") — 생략 가능
+
+
 class InviteCreateResponse(BaseModel):
     token: str
+    senior_name: Optional[str] = None
     expired_at: datetime
 
 
@@ -94,6 +99,7 @@ class InviteVerifyResponse(BaseModel):
 
 class InviteListItemResponse(BaseModel):
     token: str
+    senior_name: Optional[str] = None
     created_at: datetime
     expired_at: datetime
     is_used: bool

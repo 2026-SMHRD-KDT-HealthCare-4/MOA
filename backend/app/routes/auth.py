@@ -24,6 +24,7 @@ from app.schemas.auth import (
     GuardianRegisterRequest,
     GuardianResponse,
     GuardianSeniorResponse,
+    InviteCreateRequest,
     InviteCreateResponse,
     InviteListItemResponse,
     InviteVerifyResponse,
@@ -193,6 +194,7 @@ def get_me(
 
 @router.post("/invite", response_model=InviteCreateResponse)
 def create_invite(
+    req: InviteCreateRequest,
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
@@ -206,6 +208,7 @@ def create_invite(
     invite = Invite(
         token=code,
         guardian_id=guardian.guardian_id,
+        senior_name=req.senior_name,
         expired_at=datetime.utcnow() + timedelta(hours=INVITE_EXPIRE_HOURS),
     )
     db.add(invite)

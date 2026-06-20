@@ -71,7 +71,7 @@ export default function ChatbotMain() {
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
   const [isConversationActive, setIsConversationActive] = useState(false);
-  const { messages, isBotTyping, botEmotion: liveBotEmotion, sendMessage } = useMoaChat();
+  const { messages, isBotTyping, isBotSpeaking, botEmotion: liveBotEmotion, sendMessage } = useMoaChat();
   const {
     state: recorderState,
     transcript,
@@ -86,9 +86,34 @@ export default function ChatbotMain() {
   const conversationRunningRef = useRef(false);
   const conversationActiveRef = useRef(false);
   const lastBotMessageIdRef = useRef<string | null>(null);
+  const activeBotTurnIdRef = useRef<string | null>(null);
+  const streamedReplyRef = useRef("");
+  const displayedReplyRef = useRef("");
+  const typewriterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typewriterDelayRef = useRef(48);
 
   const mood = chatStateToMood(chatState, botEmotion);
   const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
+
+  function streamReplyCharacters() {
+    if (typewriterTimerRef.current) return;
+
+    const writeNextCharacter = () => {
+      if (displayedReplyRef.current.length >= streamedReplyRef.current.length) {
+        typewriterTimerRef.current = null;
+        return;
+      }
+      displayedReplyRef.current = streamedReplyRef.current.slice(0, displayedReplyRef.current.length + 1);
+      setBotReply(displayedReplyRef.current);
+      typewriterTimerRef.current = setTimeout(writeNextCharacter, typewriterDelayRef.current);
+    };
+
+    writeNextCharacter();
+  }
+
+  useEffect(() => () => {
+    if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
+  }, []);
 
   // 탭 화면은 기록 화면으로 이동해도 메모리에 남아 있을 수 있다.
   // 홈으로 다시 돌아올 때는 언제나 기본 홈 상태로 복원해 대화 시작 버튼을 다시 보여 준다.
@@ -109,7 +134,6 @@ export default function ChatbotMain() {
     if (!isConversationActive || !transcript?.trim()) return;
 
     setChatState("thinking");
-    setBotReply("말씀을 정리하고 있어요");
     void sendMessage(transcript, { duration_ms: durationMs });
     resetRecorder();
   }, [durationMs, isConversationActive, resetRecorder, sendMessage, transcript]);
@@ -118,7 +142,6 @@ export default function ChatbotMain() {
     if (!isConversationActive) return;
     if (isBotTyping) {
       setChatState("thinking");
-      setBotReply("모아가 생각하고 있어요");
     }
   }, [isBotTyping, isConversationActive]);
 
@@ -129,18 +152,29 @@ export default function ChatbotMain() {
     if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) return;
 
     lastBotMessageIdRef.current = lastBotMessage.id;
+    if (lastBotMessage.turnId !== activeBotTurnIdRef.current) {
+      activeBotTurnIdRef.current = lastBotMessage.turnId ?? lastBotMessage.id;
+      streamedReplyRef.current = "";
+      displayedReplyRef.current = "";
+      typewriterDelayRef.current = lastBotMessage.typingDelayMs ?? 48;
+      if (typewriterTimerRef.current) {
+        clearTimeout(typewriterTimerRef.current);
+        typewriterTimerRef.current = null;
+      }
+      setBotReply("");
+    }
+    streamedReplyRef.current = [streamedReplyRef.current, lastBotMessage.text].filter(Boolean).join(" ");
     setBotEmotion(lastBotMessage.emotion ?? liveBotEmotion);
-    setBotReply(lastBotMessage.text);
+    streamReplyCharacters();
     setChatState("botSpeaking");
 
-    const timer = setTimeout(() => {
-      setBotReply("듣고 있어요. 편하게 말씀해 주세요");
-      setChatState("listening");
-      beginConversationListening();
-    }, Math.min(7000, Math.max(2600, lastBotMessage.text.length * 95)));
-
-    return () => clearTimeout(timer);
   }, [isConversationActive, liveBotEmotion, messages]);
+
+  useEffect(() => {
+    if (!isConversationActive || chatState !== "botSpeaking" || isBotTyping || isBotSpeaking) return;
+    setChatState("listening");
+    beginConversationListening();
+  }, [chatState, isBotSpeaking, isBotTyping, isConversationActive]);
 
   const startFirstGreeting = useCallback(async () => {
     if (conversationRunningRef.current) return;
@@ -156,7 +190,6 @@ export default function ChatbotMain() {
 
       await wait(3500);
 
-      setBotReply("듣고 있어요. 편하게 말씀해 주세요");
       setChatState("listening");
       beginConversationListening();
     } catch {
@@ -183,7 +216,6 @@ export default function ChatbotMain() {
 
     resetRecorder();
     setBotEmotion("listening");
-    setBotReply("듣고 있어요. 편하게 말씀해 주세요");
     setChatState("listening");
     void startRecording();
   }
