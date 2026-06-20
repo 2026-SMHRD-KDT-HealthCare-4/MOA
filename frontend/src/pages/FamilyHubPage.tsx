@@ -273,7 +273,7 @@ export default function FamilyHubPage() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard} accessibilityRole="alert">
             <Text style={styles.modalTitle}>연결을 해제할까요?</Text>
-            <Text style={styles.modalBody}>해제 후에는 해당 어르신의 리포트를 확인할 수 없어요.</Text>
+            <Text style={styles.modalBody}>해제 후에는 해당 직접사용자의 리포트를 확인할 수 없어요.</Text>
             {unlinkError ? <Text style={styles.modalError}>{unlinkError}</Text> : null}
             <View style={styles.modalActions}>
               <TouchableOpacity
