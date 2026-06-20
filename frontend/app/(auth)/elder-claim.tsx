@@ -6,6 +6,32 @@ import { ArrowLeft, KeyRound, AlertCircle } from "lucide-react-native";
 import { useAuthStore } from "../../src/stores/authStore";
 import * as authApi from "../../src/api/auth";
 
+function formatBirthDate(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+}
+
+function isValidBirthDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return (
+    date.getFullYear() === Number(year) &&
+    date.getMonth() === Number(month) - 1 &&
+    date.getDate() === Number(day)
+  );
+}
+
+function formatPhone(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 // 직접사용자 초대코드 클레임 화면.
 // 화면 순서는 동의 → 코드지만, 커밋 순서는 claim → consent.
 // (코드로 계정을 클레임해야 그 계정에 동의를 기록할 수 있기 때문)
@@ -19,17 +45,30 @@ export default function ElderClaimPage() {
   const consented = params.consented === "1";
 
   const [code, setCode] = useState(params.inviteToken ?? "");
+  const [birthDate, setBirthDate] = useState("");
+  const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   async function handleClaim() {
     if (!code.trim()) return setError("보호자에게 받은 초대 코드를 입력해 주세요.");
+    if (!birthDate.trim()) return setError("생년월일을 입력해 주세요.");
+    if (!isValidBirthDate(birthDate)) return setError("생년월일을 YYYY-MM-DD 형식으로 입력해 주세요.");
+    if (!phone.trim()) return setError("전화번호를 입력해 주세요.");
+    if (!/^\d{3}-\d{3,4}-\d{4}$/.test(phone)) {
+      return setError("전화번호를 010-1234-5678 형식으로 입력해 주세요.");
+    }
 
     setSubmitting(true);
     try {
       // 2-step + 자동 credential: 토큰+동의 → FE가 throwaway email/pw 생성 →
       // registerSenior → login → 세션 저장. 사람은 credential 을 입력하지 않는다.
-      const res = await authApi.claimSenior({ token: code, consent: consented });
+      const res = await authApi.claimSenior({
+        token: code,
+        birth_date: birthDate,
+        phone,
+        consent: consented,
+      });
       const { user, refreshToken, consentDone, familyGroup, links, guardianMembers } = res.data;
 
       setSession(user, { refreshToken, consentDone, familyGroup, links, guardianMembers });
@@ -75,6 +114,34 @@ export default function ElderClaimPage() {
           maxLength={7}
           accessibilityLabel="초대 코드 입력"
         />
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>생년월일</Text>
+          <TextInput
+            style={styles.infoInput}
+            value={birthDate}
+            onChangeText={(value) => setBirthDate(formatBirthDate(value))}
+            placeholder="예: 1940-01-01"
+            placeholderTextColor="#c4b5ae"
+            keyboardType="number-pad"
+            maxLength={10}
+            accessibilityLabel="생년월일 입력"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>전화번호</Text>
+          <TextInput
+            style={styles.infoInput}
+            value={phone}
+            onChangeText={(value) => setPhone(formatPhone(value))}
+            placeholder="예: 010-1234-5678"
+            placeholderTextColor="#c4b5ae"
+            keyboardType="phone-pad"
+            maxLength={13}
+            accessibilityLabel="전화번호 입력"
+          />
+        </View>
 
         {error ? (
           <View style={styles.errorRow}>
@@ -130,6 +197,18 @@ const styles = StyleSheet.create({
     color: "#342C28",
     backgroundColor: "white",
     textAlign: "center",
+  },
+  inputGroup: { gap: 8 },
+  inputLabel: { fontSize: 18, lineHeight: 25, fontWeight: "800", color: "#4d403b" },
+  infoInput: {
+    minHeight: 60,
+    borderWidth: 1.5,
+    borderColor: "#e8ddd9",
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    fontSize: 20,
+    color: "#342C28",
+    backgroundColor: "white",
   },
   errorRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   errorText: { flex: 1, fontSize: 17, lineHeight: 24, fontWeight: "700", color: "#E8943A" },

@@ -1,6 +1,6 @@
 // 세션 토큰 영속화.
-// - access 토큰: 단명(短命) → 메모리에만 보관.
-// - refresh 토큰: 장명(長命, 자동 로그인) → expo-secure-store에 보관(앱 재진입 시 복원).
+// - access 토큰: /auth/me 세션 복원을 위해 expo-secure-store에 보관.
+// - refresh 토큰: 장명(長命, 자동 로그인) → expo-secure-store에 보관.
 // 웹에는 SecureStore가 없어 localStorage로 폴백한다(웹 프리뷰/개발용).
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -45,14 +45,17 @@ async function secureDelete(key: string): Promise<void> {
   await SecureStore.deleteItemAsync(key);
 }
 
-// ── access 토큰 (메모리) ───────────────────────────────────────────────
+// ── access 토큰 (메모리 + SecureStore / 웹 localStorage) ──────────────
 let memoryAccessToken: string | null = null;
 
 export async function saveToken(token: string): Promise<void> {
   memoryAccessToken = token;
+  await secureSet(ACCESS_TOKEN_KEY, token);
 }
 
 export async function getToken(): Promise<string | null> {
+  if (memoryAccessToken) return memoryAccessToken;
+  memoryAccessToken = await secureGet(ACCESS_TOKEN_KEY);
   return memoryAccessToken;
 }
 

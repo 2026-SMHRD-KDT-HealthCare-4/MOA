@@ -435,6 +435,12 @@ interface BackendLoginResponse {
   };
 }
 
+interface BackendMeResponse {
+  role: BackendRole;
+  name: string;
+  user_id: string;
+}
+
 interface BackendInviteResponse {
   token: string;
   expired_at: string;
@@ -463,6 +469,7 @@ interface BackendGuardianSeniorResponse {
   link_id: string;
   guardian_id: string;
   senior_id: string;
+  senior_name?: string | null;
   link_status: "PENDING" | "ACTIVE" | "REVOKED";
   linked_at?: string | null;
 }
@@ -639,11 +646,13 @@ async function verifyInviteMock(token: string): Promise<ApiEnvelope<VerifyInvite
 }
 
 async function verifyInviteReal(token: string): Promise<ApiEnvelope<VerifyInviteData>> {
-  const normalized = normalizeSeniorPairingCode(token);
+  const normalizedToken = token.trim().toUpperCase();
   const data = await apiFetch<BackendInviteVerifyResponse>(
-    `/auth/invite/${encodeURIComponent(normalized)}/verify`,
+    `/auth/invite/${encodeURIComponent(normalizedToken)}/verify`,
   );
-  const pending = loadRealPendingInvites().find((i) => seniorPairingCodeMatches(i.token, normalized));
+  const pending = loadRealPendingInvites().find(
+    (i) => i.token.trim().toUpperCase() === normalizedToken,
+  );
   return {
     success: true,
     data: { ...data, senior_name: pending?.seniorName },
@@ -659,6 +668,8 @@ export interface RegisterSeniorPayload {
   email: string;
   password: string;
   name: string;
+  birth_date: string;
+  phone: string;
   consent?: boolean;
 }
 
@@ -711,6 +722,8 @@ async function registerSeniorReal({
   email,
   password,
   name,
+  birth_date,
+  phone,
   consent,
 }: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
   const normalizedInviteToken = normalizeSeniorPairingCode(invite_token);
@@ -721,9 +734,8 @@ async function registerSeniorReal({
       email: email.trim().toLowerCase(),
       password,
       name: name.trim(),
-      // TODO(BE 연동): 직접사용자 생년월일/전화번호 실제 입력값 수집 (현재 placeholder)
-      birth_date: "1940-01-01",
-      phone: "010-0000-0000",
+      birth_date,
+      phone,
       biometric_consent_yn: Boolean(consent),
     }),
   });
@@ -755,6 +767,8 @@ export async function registerSenior(
 export interface ClaimSeniorPayload {
   token: string;
   name?: string;
+  birth_date: string;
+  phone: string;
   consent?: boolean;
 }
 
@@ -770,6 +784,8 @@ export interface ClaimSeniorData {
 export async function claimSenior({
   token,
   name,
+  birth_date,
+  phone,
   consent,
 }: ClaimSeniorPayload): Promise<ApiEnvelope<ClaimSeniorData>> {
   const normalizedToken = normalizeSeniorPairingCode(token);
@@ -788,6 +804,8 @@ export async function claimSenior({
     email: cred.email,
     password: cred.password,
     name: seniorName,
+    birth_date,
+    phone,
     consent,
   });
   const user = await login({ email: cred.email, password: cred.password });
@@ -823,8 +841,7 @@ export async function getGuardianSeniors(
         linkId: row.link_id,
         familyGroupId,
         counterpartId: row.senior_id,
-        // TODO(BE 연동): /auth/guardian/seniors 가 직접사용자 이름 반환 시 교체 (현재 placeholder)
-        counterpartName: `어르신 ${row.senior_id.slice(0, 4)}`,
+        counterpartName: row.senior_name?.trim() || "직접사용자",
         relation: "elder",
         status: row.link_status,
         linkedAt: row.linked_at ?? undefined,
@@ -858,8 +875,7 @@ export async function updateLinkStatus({
         linkId: row.link_id,
         familyGroupId: `family-${row.guardian_id}`,
         counterpartId: row.senior_id,
-        // TODO(BE 연동): BE 응답에 직접사용자 이름 포함 시 교체 (현재 placeholder)
-        counterpartName: `어르신 ${row.senior_id.slice(0, 4)}`,
+        counterpartName: row.senior_name?.trim() || "직접사용자",
         relation: "elder",
         status: row.link_status,
         linkedAt: row.linked_at ?? undefined,
@@ -1073,21 +1089,32 @@ export interface RestoredSession {
 
 export async function restoreSession(): Promise<RestoredSession | null> {
   if (AUTH_API_MODE === "real") {
-    if (!realCurrentUser) return null;
+    const token = await getToken();
+    if (!token) return null;
+
+    const me = await apiFetch<BackendMeResponse>("/auth/me", { auth: true });
+    const user: SessionUser = {
+      id: me.user_id,
+      name: me.name,
+      role: toUserRole(me.role),
+      token,
+    };
+    realCurrentUser = user;
+
     const refreshToken = (await getRefreshToken()) ?? "";
-    if (realCurrentUser.role === "guardian") {
-      const links = (await getGuardianSeniors(realCurrentUser.id)).data;
+    if (user.role === "guardian") {
+      const links = (await getGuardianSeniors(user.id)).data;
       return {
-        user: realCurrentUser,
+        user,
         consentDone: true,
         refreshToken,
-        familyGroup: realFamilyGroupForGuardian(realCurrentUser),
+        familyGroup: realFamilyGroupForGuardian(user),
         links,
-        guardianMembers: [realGuardianMember(realCurrentUser)],
+        guardianMembers: [realGuardianMember(user)],
       };
     }
     return {
-      user: realCurrentUser,
+      user,
       consentDone: true,
       refreshToken,
       familyGroup: null,

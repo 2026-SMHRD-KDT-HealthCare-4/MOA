@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, TextInput } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, TextInput, Modal, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -23,32 +23,53 @@ export default function FamilyHubPage() {
   const familyGroupId = useAuthStore((s) => s.familyGroupId);
   const guardianMembers = useAuthStore((s) => s.guardianMembers);
   const setGuardianMembers = useAuthStore((s) => s.setGuardianMembers);
+  const setLinks = useAuthStore((s) => s.setLinks);
 
   const [inviteName, setInviteName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteError, setInviteError] = useState("");
   const [inviting, setInviting] = useState(false);
-  const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
+  const [unlinkTarget, setUnlinkTarget] = useState<{ linkId: string; name: string } | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+  const [unlinkError, setUnlinkError] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [listError, setListError] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const active = links.filter((l) => l.status === "ACTIVE");
 
-  // 초대 대기 = 아직 사용되지 않은 직접사용자 초대 토큰. 실제 API 전환 시 getPendingInvites 내부만 교체한다.
   useEffect(() => {
-    if (!user) return;
-    let alive = true;
-    authApi.getPendingInvites(user.id).then((res) => {
-      if (alive) setPendingInvites(res.data);
-    });
     return () => {
-      alive = false;
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, [user, guardianMembers]);
+  }, []);
 
-  async function reshareInvite(invite: authApi.PendingInvite) {
-    const who = invite.seniorName ? `${invite.seniorName}님 ` : "";
-    await Share.share({
-      message: `MOA 초대 코드: ${invite.token}\n${who}기기에서 이 코드를 입력해 연결해 주세요.`,
-    });
+  const refreshLinks = useCallback(async () => {
+    if (!user || user.role !== "guardian") return;
+    const response = await authApi.getGuardianSeniors(user.id);
+    setLinks(response.data);
+    setListError("");
+  }, [setLinks, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshLinks().catch(() => {
+        setListError("목록을 불러오지 못했어요. 아래로 당겨 다시 시도해 주세요.");
+      });
+    }, [refreshLinks]),
+  );
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refreshLinks();
+    } catch {
+      setListError("목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function shareGuardianInvite(code: string) {
@@ -57,8 +78,40 @@ export default function FamilyHubPage() {
     });
   }
 
-  function startElderClaimTest(invite: authApi.PendingInvite) {
-    router.push({ pathname: "/(auth)/elder-consent", params: { inviteToken: invite.token } });
+  function showToast(message: string) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToastMessage(message);
+    toastTimer.current = setTimeout(() => setToastMessage(""), 1800);
+  }
+
+  function openUnlinkModal(linkId: string, name: string) {
+    setUnlinkError("");
+    setUnlinkTarget({ linkId, name });
+  }
+
+  function closeUnlinkModal() {
+    if (unlinking) return;
+    setUnlinkTarget(null);
+    setUnlinkError("");
+  }
+
+  async function confirmUnlink() {
+    if (!unlinkTarget || unlinking) return;
+    setUnlinking(true);
+    setUnlinkError("");
+    try {
+      await authApi.updateLinkStatus({
+        linkId: unlinkTarget.linkId,
+        link_status: "REVOKED",
+      });
+      setLinks(links.filter((link) => link.linkId !== unlinkTarget.linkId));
+      setUnlinkTarget(null);
+      showToast("연결을 해제했어요.");
+    } catch (error) {
+      setUnlinkError(error instanceof Error ? error.message : "연결 해제에 실패했어요.");
+    } finally {
+      setUnlinking(false);
+    }
   }
 
   async function handleInviteGuardian() {
@@ -93,8 +146,17 @@ export default function FamilyHubPage() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={["#FF7955"]}
+            tintColor="#FF7955"
+          />
+        }
       >
-        {active.length === 0 && pendingInvites.length === 0 ? (
+        {listError ? <Text style={styles.listError}>{listError}</Text> : null}
+        {active.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>아직 연결된 부모님이 없어요</Text>
             <Text style={styles.emptyBody}>부모님을 등록하고 페어링 코드를 전달하면 연결돼요.</Text>
@@ -108,73 +170,56 @@ export default function FamilyHubPage() {
         {active.map((link) => {
           const meta = getParentMeta(link.counterpartName);
           return (
-            <TouchableOpacity
-              key={link.linkId}
-              style={styles.memberCard}
-              activeOpacity={0.88}
-              onPress={() => router.push(`/(guardian)/family/${link.counterpartId}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`${link.counterpartName}님 상세 리포트 보기`}
-            >
-              <View style={styles.profileRow}>
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarInitial}>{link.counterpartName[0]}</Text>
-                  <View style={styles.onlineDot} />
-                </View>
-                <View style={styles.nameArea}>
-                  <Text style={styles.memberName}>{link.counterpartName} 님</Text>
-                  <View style={styles.lastRow}>
-                    <Clock size={13} color="#a99a92" />
-                    <Text style={styles.lastText}>마지막 인사 {meta.lastGreeting}</Text>
-                  </View>
-                </View>
-                <ChevronRight size={20} color="#c4b5ae" />
-              </View>
-
-              <StatusPill status={meta.status} />
-            </TouchableOpacity>
-          );
-        })}
-
-        {pendingInvites.map((invite) => {
-          const who = invite.seniorName ?? "부모님";
-          return (
-            <View key={invite.token} style={styles.pendingCard}>
-              <View style={styles.pendingHead}>
-                <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-                <Text style={styles.pendingTitle}>{who} 초대 대기</Text>
-              </View>
-              <Text style={styles.pendingBody}>
-                {who} 기기에서 아래 초대 코드를 입력하면 가족 연결이 완료돼요.
-              </Text>
-              <Text style={styles.pendingCode}>{invite.token}</Text>
+            <View key={link.linkId} style={styles.memberCard}>
               <TouchableOpacity
-                style={styles.reshareBtn}
-                onPress={() => reshareInvite(invite)}
-                activeOpacity={0.85}
+                style={styles.reportTapArea}
+                activeOpacity={0.88}
+                onPress={() => router.push(`/(guardian)/family/${link.counterpartId}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`${link.counterpartName}님 상세 리포트 보기`}
               >
-                <Share2 size={18} color="#FF7955" />
-                <Text style={styles.reshareText}>초대 코드 공유</Text>
+                <View style={styles.profileRow}>
+                  <View style={styles.avatarCircle}>
+                    <Text style={styles.avatarInitial}>{link.counterpartName[0]}</Text>
+                    <View style={styles.onlineDot} />
+                  </View>
+                  <View style={styles.nameArea}>
+                    <Text style={styles.memberName}>{link.counterpartName} 님</Text>
+                    <View style={styles.lastRow}>
+                      <Clock size={13} color="#a99a92" />
+                      <Text style={styles.lastText}>마지막 인사 {meta.lastGreeting}</Text>
+                    </View>
+                  </View>
+                  <ChevronRight size={20} color="#c4b5ae" />
+                </View>
+
+                <StatusPill status={meta.status} />
+                <View style={styles.reportLinkRow}>
+                  <Text style={styles.reportLinkText}>리포트 보기</Text>
+                  <ChevronRight size={18} color="#FF7955" strokeWidth={2.4} />
+                </View>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.claimTestBtn}
-                onPress={() => startElderClaimTest(invite)}
-                activeOpacity={0.85}
+                style={styles.unlinkButton}
+                activeOpacity={0.8}
+                onPress={() => openUnlinkModal(link.linkId, link.counterpartName)}
+                accessibilityRole="button"
+                accessibilityLabel={`${link.counterpartName}님 연결 해제`}
               >
-                <Text style={styles.claimTestText}>이 기기에서 입력 테스트</Text>
+                <Text style={styles.unlinkButtonText}>연결 해제</Text>
               </TouchableOpacity>
             </View>
           );
         })}
 
-        {(active.length > 0 || pendingInvites.length > 0) && (
+        {active.length > 0 && (
           <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => router.push("/onboarding")}>
             <UserPlus size={22} color="#FF7955" />
             <Text style={styles.addBtnText}>부모님 연결 추가</Text>
           </TouchableOpacity>
         )}
 
-        {(active.length > 0 || pendingInvites.length > 0 || guardianMembers.length > 0) && (
+        {(active.length > 0 || guardianMembers.length > 0) && (
           <View style={styles.guardianCard}>
             <View style={styles.guardianHeader}>
               <Users size={20} color="#765E52" />
@@ -218,6 +263,45 @@ export default function FamilyHubPage() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={unlinkTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeUnlinkModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} accessibilityRole="alert">
+            <Text style={styles.modalTitle}>연결을 해제할까요?</Text>
+            <Text style={styles.modalBody}>해제 후에는 해당 어르신의 리포트를 확인할 수 없어요.</Text>
+            {unlinkError ? <Text style={styles.modalError}>{unlinkError}</Text> : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={closeUnlinkModal}
+                disabled={unlinking}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelButtonText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmButton, unlinking && styles.disabled]}
+                onPress={confirmUnlink}
+                disabled={unlinking}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.confirmButtonText}>{unlinking ? "해제 중..." : "해제하기"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {toastMessage ? (
+        <View style={[styles.toast, { bottom: insets.bottom + 22 }]} accessibilityLiveRegion="polite">
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -259,10 +343,19 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
   headerSub: { fontSize: 16, color: "#765E52" },
   scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 12 },
+  listError: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#FBEFDD",
+    color: "#9A6B25",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "700",
+  },
   memberCard: {
     backgroundColor: "white",
     borderRadius: 20,
-    padding: 18,
     borderWidth: 1,
     borderColor: "#f0e8e2",
     shadowColor: "#c0a99f",
@@ -270,8 +363,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 14,
     elevation: 3,
-    gap: 14,
   },
+  reportTapArea: { padding: 18, gap: 14 },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatarCircle: {
     width: 56,
@@ -307,38 +400,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusPillText: { fontSize: 15, fontWeight: "800" },
-  pendingCard: {
-    backgroundColor: "#FFFDF9",
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#F3DFC2",
-    gap: 10,
-  },
-  pendingHead: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pendingTitle: { fontSize: 17, fontWeight: "800", color: "#9A6B25" },
-  pendingBody: { fontSize: 14, lineHeight: 20, color: "#765E52" },
-  pendingCode: { fontSize: 26, fontWeight: "900", letterSpacing: 3, color: "#342C28" },
-  reshareBtn: {
+  reportLinkRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#FFD3C6",
-    backgroundColor: "white",
+    justifyContent: "flex-end",
+    gap: 4,
+    paddingTop: 2,
   },
-  reshareText: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
-  claimTestBtn: {
-    height: 44,
-    borderRadius: 13,
-    backgroundColor: "#FF7955",
+  reportLinkText: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
+  unlinkButton: {
+    minHeight: 48,
+    borderTopWidth: 1,
+    borderTopColor: "#f0e8e2",
     alignItems: "center",
     justifyContent: "center",
   },
-  claimTestText: { fontSize: 15, fontWeight: "800", color: "white" },
+  unlinkButtonText: { fontSize: 16, fontWeight: "800", color: "#E8943A" },
   emptyCard: {
     backgroundColor: "white",
     borderRadius: 20,
@@ -427,4 +504,51 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   inviteCodeText: { fontSize: 17, fontWeight: "900", color: "#FF7955", letterSpacing: 1 },
+  modalBackdrop: {
+    flex: 1,
+    paddingHorizontal: 24,
+    backgroundColor: "rgba(0,0,0,0.42)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 22,
+    padding: 22,
+    backgroundColor: "white",
+    gap: 14,
+  },
+  modalTitle: { fontSize: 22, lineHeight: 29, fontWeight: "900", color: "#342C28" },
+  modalBody: { fontSize: 17, lineHeight: 25, fontWeight: "600", color: "#765E52" },
+  modalError: { fontSize: 14, lineHeight: 20, fontWeight: "700", color: "#E8943A" },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  cancelButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e8ddd9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButtonText: { fontSize: 17, fontWeight: "800", color: "#765E52" },
+  confirmButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: "#FF7955",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmButtonText: { fontSize: 17, fontWeight: "800", color: "white" },
+  toast: {
+    position: "absolute",
+    alignSelf: "center",
+    paddingHorizontal: 22,
+    paddingVertical: 13,
+    borderRadius: 16,
+    backgroundColor: "#342C28",
+  },
+  toastText: { fontSize: 16, lineHeight: 22, fontWeight: "800", color: "white" },
 });
