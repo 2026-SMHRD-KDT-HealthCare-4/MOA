@@ -5,8 +5,20 @@ SQLAlchemy ORM 모델
 """
 
 import enum
+import random
+import string
 import uuid
 from datetime import datetime
+
+
+_INVITE_CHARS = string.ascii_uppercase + string.digits
+
+
+def _generate_invite_code() -> str:
+    """XXX-XXX 형식의 초대 코드를 생성한다. (A-Z, 0-9 각 3자리씩)"""
+    part = lambda: "".join(random.choices(_INVITE_CHARS, k=3))
+    return f"{part()}-{part()}"
+
 
 from sqlalchemy import (
     JSON,
@@ -125,7 +137,7 @@ class Invite(Base):
     """초대링크 (INVITE) — 요구사항 3, 17번"""
     __tablename__ = "invite"
 
-    token = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token = Column(String(7), primary_key=True, default=_generate_invite_code)
     guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expired_at = Column(DateTime, nullable=False)  # 생성 + 72시간

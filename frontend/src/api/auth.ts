@@ -260,24 +260,9 @@ function makeRefreshToken(id: string): string {
 }
 
 function makeInviteCode(): string {
-  return `FAM-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-}
-
-function makeSeniorPairingCode(): string {
-  return `MOA-${Math.floor(100000 + Math.random() * 900000)}`;
-}
-
-function normalizeSeniorPairingCode(token: string): string {
-  const compact = token.trim().replace(/\s+/g, "");
-  if (/^\d{6}$/.test(compact)) return `MOA-${compact}`;
-  if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(compact)) {
-    return compact.toLowerCase();
-  }
-  return compact.toUpperCase();
-}
-
-function seniorPairingCodeMatches(a: string, b: string): boolean {
-  return normalizeSeniorPairingCode(a) === normalizeSeniorPairingCode(b);
+  const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const part = () => Array.from({ length: 3 }, () => CHARS[Math.floor(Math.random() * CHARS.length)]).join("");
+  return `${part()}-${part()}`;
 }
 
 function toSession(acc: MockAccount): SessionUser {
@@ -565,12 +550,8 @@ async function createInviteMock({
   if (!guardian) throw new Error("보호자 계정을 찾을 수 없어요.");
 
   const familyGroup = ensureFamilyGroupForOwner(guardian);
-  let token = makeSeniorPairingCode();
-  while (mockDb.invites.some((i) => seniorPairingCodeMatches(i.token, token))) {
-    token = makeSeniorPairingCode();
-  }
   const invite: SeniorInvite = {
-    token,
+    token: makeInviteCode(),
     guardianId,
     familyGroupId: familyGroup.id,
     seniorName: seniorName?.trim() || undefined,
@@ -589,9 +570,6 @@ async function createInviteReal({
     method: "POST",
     auth: true,
   });
-  // TODO(BE 연동): 현재 백엔드는 미사용 invite 목록 조회 API가 없다.
-  // real 모드의 초대 대기 카드는 임시로 localStorage 캐시에 의존하므로,
-  // 다른 기기/브라우저와 동기화되지 않는다. GET pending invites API가 생기면 제거한다.
   const pending = loadRealPendingInvites().filter((i) => i.token !== invite.token);
   pending.push({
     token: invite.token,
@@ -616,8 +594,8 @@ export interface VerifyInviteData {
 }
 
 async function verifyInviteMock(token: string): Promise<ApiEnvelope<VerifyInviteData>> {
-  const normalized = normalizeSeniorPairingCode(token);
-  const invite = mockDb.invites.find((i) => seniorPairingCodeMatches(i.token, normalized));
+  const normalized = token.trim();
+  const invite = mockDb.invites.find((i) => i.token === normalized);
   if (!invite) return { success: true, data: { valid: false, reason: "NOT_FOUND" } };
   if (invite.isUsed) return { success: true, data: { valid: false, reason: "USED" } };
   if (new Date(invite.expiredAt).getTime() < Date.now()) {
@@ -631,11 +609,10 @@ async function verifyInviteMock(token: string): Promise<ApiEnvelope<VerifyInvite
 }
 
 async function verifyInviteReal(token: string): Promise<ApiEnvelope<VerifyInviteData>> {
-  const normalized = normalizeSeniorPairingCode(token);
   const data = await apiFetch<BackendInviteVerifyResponse>(
-    `/auth/invite/${encodeURIComponent(normalized)}/verify`,
+    `/auth/invite/${encodeURIComponent(token.trim())}/verify`,
   );
-  const pending = loadRealPendingInvites().find((i) => seniorPairingCodeMatches(i.token, normalized));
+  const pending = loadRealPendingInvites().find((i) => i.token === token.trim());
   return {
     success: true,
     data: { ...data, senior_name: pending?.seniorName },
@@ -665,8 +642,7 @@ async function registerSeniorMock({
   password,
   name,
 }: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
-  const normalized = normalizeSeniorPairingCode(invite_token);
-  const invite = mockDb.invites.find((i) => seniorPairingCodeMatches(i.token, normalized));
+  const invite = mockDb.invites.find((i) => i.token === invite_token.trim());
   if (!invite) throw new Error("초대 코드를 확인해 주세요.");
   if (invite.isUsed) throw new Error("이미 사용된 초대 코드예요.");
   if (new Date(invite.expiredAt).getTime() < Date.now()) {
@@ -705,11 +681,10 @@ async function registerSeniorReal({
   name,
   consent,
 }: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
-  const normalizedInviteToken = normalizeSeniorPairingCode(invite_token);
   const senior = await apiFetch<BackendSeniorResponse>("/auth/senior/register", {
     method: "POST",
     body: JSON.stringify({
-      invite_token: normalizedInviteToken,
+      invite_token,
       email: email.trim().toLowerCase(),
       password,
       name: name.trim(),
@@ -720,7 +695,7 @@ async function registerSeniorReal({
     }),
   });
   const user = await loginReal({ email, password });
-  const pending = loadRealPendingInvites().filter((i) => !seniorPairingCodeMatches(i.token, normalizedInviteToken));
+  const pending = loadRealPendingInvites().filter((i) => i.token !== invite_token.trim());
   saveRealPendingInvites(pending);
   return {
     success: true,
@@ -764,8 +739,7 @@ export async function claimSenior({
   name,
   consent,
 }: ClaimSeniorPayload): Promise<ApiEnvelope<ClaimSeniorData>> {
-  const normalizedToken = normalizeSeniorPairingCode(token);
-  const verify = await verifyInvite(normalizedToken);
+  const verify = await verifyInvite(token);
   if (!verify.data.valid) {
     const reason = verify.data.reason;
     if (reason === "EXPIRED") throw new Error("만료된 초대 코드예요. 보호자에게 재발송을 요청해 주세요.");
@@ -776,7 +750,7 @@ export async function claimSenior({
   const cred = generateSeniorCredential();
   const seniorName = name?.trim() || verify.data.senior_name || "직접사용자";
   await registerSenior({
-    invite_token: normalizedToken,
+    invite_token: token,
     email: cred.email,
     password: cred.password,
     name: seniorName,
@@ -876,8 +850,6 @@ export interface PendingInvite {
 export async function getPendingInvites(guardianId: string): Promise<ApiEnvelope<PendingInvite[]>> {
   const now = Date.now();
   if (AUTH_API_MODE === "real") {
-    // TODO(BE 연동): 서버 기준 미사용 invite 목록으로 교체 필요.
-    // guardian_senior는 senior 가입 시 ACTIVE로 생성되므로, 여기의 PENDING은 link 상태가 아니라 invite 상태다.
     return {
       success: true,
       data: loadRealPendingInvites().filter((i) => new Date(i.expiresAt).getTime() >= now),
@@ -1021,7 +993,7 @@ export async function removeGuardian({
   const target = mockDb.guardianMembers.find(
     (m) => m.familyGroupId === familyGroupId && m.id === guardianMemberId,
   );
-  if (!target) throw new Error("제거할 보호자를 찾을 수 없어요.");
+  if (!target || target.memberRole === "OWNER") throw new Error("제거할 보호자를 찾을 수 없어요.");
   target.status = "REVOKED";
   saveMockDb();
   return { success: true, data: { guardianMemberId, status: "REVOKED" } };

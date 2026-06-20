@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, useWindowDimensions, Share } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,6 +9,8 @@ import { MicIcon } from "./icons/MicIcon";
 import { useAuthStore } from "../stores/authStore";
 import { useInteractionStore } from "../stores/interactionStore";
 import * as authApi from "../api/auth";
+import { useRecorder } from "../features/record/useRecorder";
+import { useMoaChat } from "../features/chatbot/useMoaChat";
 
 // ── 챗봇 대화 상태 (설계서 §11 ChatState) ────────────────────────────
 // idle: 대기, botSpeaking: 모아가 응답 중, listening: 사용자 발화 듣는 중,
@@ -41,10 +43,6 @@ function chatStateToMood(state: ChatState, botEmotion: BotEmotion): CharacterMoo
   }
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 // 음성 챗봇 메인 — 직접사용자/보호자 공통(스펙 §2: 메인 챗봇 화면 공통 컴포넌트).
 // 보호자도 같은 화면에서 자기 음성 체크인을 한다.
 // 역할별로 녹음 화면 경로만 분기(나머지 동작은 동일, 회귀 없음).
@@ -64,7 +62,11 @@ export default function ChatbotMain() {
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
   const turnCountRef = useRef(0);
-  const conversationRunningRef = useRef(false);
+  const lastBotMsgIdRef = useRef<string | null>(null);
+
+  // ── 음성 녹음(STT) + 챗봇 LLM/TTS ────────────────────────────────
+  const recorder = useRecorder();
+  const { messages, isBotTyping, botEmotion: llmEmotion, sendMessage } = useMoaChat();
 
   // ── (임시) 디버그용 mood 강제 전환 — 영상 전환이 자연스러운지 빠르게 확인용.
   // 실제 대화 로직 완성되면 이 블록 전체를 지우면 됨.
@@ -89,67 +91,68 @@ export default function ChatbotMain() {
 
   const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
 
-  // 대화 한 턴 실행: listening → thinking → botSpeaking → (idle | completed)
-  // TODO: 아래 3곳을 실제 기능으로 교체
-  //   1) 실제 마이크 녹음 + 침묵 감지로 종료 (지금은 setTimeout으로 흉내만 냄)
-  //   2) STT → LLM 호출 (지금은 mockCallLLM으로 더미 응답)
-  //   3) TTS 재생 + 재생 끝나는 시점 감지 (지금은 setTimeout으로 흉내만 냄)
-  const runConversationTurn = useCallback(async () => {
-    if (conversationRunningRef.current) return;
-    conversationRunningRef.current = true;
-
-    try {
-      // 1) 사용자 발화 듣기
-      setChatState("listening");
-      // TODO: 실제 녹음 시작. 녹음이 끝나는 시점(침묵 감지/버튼)에 다음 단계로 진행.
-      await wait(2500);
-
-      // 2) LLM 응답 생성
+  // recorder 가 done 상태가 되면(STT 완료) LLM 호출
+  useEffect(() => {
+    if (recorder.state === "done" && recorder.transcript) {
       setChatState("thinking");
-      // TODO: STT(음성→텍스트) 후 LLM 호출로 교체.
-      const llmResult = await mockCallLLM();
-      setBotEmotion(llmResult.bot_emotion);
-      setBotReply(llmResult.reply);
-
-      // 3) 모아가 응답 (TTS)
-      setChatState("botSpeaking");
-      // TODO: TTS 재생, 재생 완료 이벤트로 교체.
-      await wait(2500);
-
-      turnCountRef.current += 1;
-
-      // 설계서 §13 종료 조건: 3턴 이상 / 30초 이상 / 사용자가 종료 의사 표현
-      if (llmResult.user_intent === "goodbye" || turnCountRef.current >= 3) {
-        setChatState("completed");
-        await wait(1800);
-        setChatState("idle");
-        setBotReply("오늘도 목소리 들려주세요");
-        turnCountRef.current = 0;
-      } else {
-        // 다음 턴 계속 (사용자가 또 말하도록 listening으로 복귀)
-        await runConversationTurn();
-        return;
-      }
-    } catch {
-      setChatState("error");
-      await wait(1500);
-      setChatState("idle");
-    } finally {
-      conversationRunningRef.current = false;
+      sendMessage(recorder.transcript);
+      recorder.reset();
     }
-  }, []);
+  }, [recorder.state, recorder.transcript]);
 
+  // LLM 응답 대기 중 → thinking 유지
+  useEffect(() => {
+    if (isBotTyping) {
+      setChatState("thinking");
+    }
+  }, [isBotTyping]);
+
+  // 새 bot 메시지 도착 → botSpeaking + 응답 표시
+  useEffect(() => {
+    const botMessages = messages.filter((m) => m.role === "bot");
+    if (botMessages.length === 0) return;
+    const lastBot = botMessages[botMessages.length - 1];
+    if (lastBot.id === lastBotMsgIdRef.current) return;
+    lastBotMsgIdRef.current = lastBot.id;
+
+    setBotEmotion(llmEmotion);
+    setBotReply(lastBot.text);
+    setChatState("botSpeaking");
+
+    turnCountRef.current += 1;
+
+    // TTS 재생 시간 추정(글자당 80ms, 최소 2.5초) 후 idle/completed 전환
+    const talkMs = Math.max(2500, lastBot.text.length * 80);
+    const t = setTimeout(() => {
+      if (turnCountRef.current >= 3) {
+        setChatState("completed");
+        setTimeout(() => {
+          setChatState("idle");
+          setBotReply("오늘도 목소리 들려주세요");
+          turnCountRef.current = 0;
+        }, 1800);
+      } else {
+        setChatState("idle");
+      }
+    }, talkMs);
+    return () => clearTimeout(t);
+  }, [messages, llmEmotion]);
+
+  // 마이크 버튼: idle → 녹음 시작, listening → 녹음 중지
   function handleMicPress() {
-    if (chatState !== "idle") return; // 대화 진행 중엔 중복 시작 방지
-    void runConversationTurn();
+    if (chatState === "idle") {
+      setChatState("listening");
+      void recorder.start();
+    } else if (chatState === "listening") {
+      setChatState("thinking");
+      void recorder.stop();
+    }
   }
 
-  // 보호자 안내 영역: ACTIVE 부모가 없으면(연결 0명 또는 초대 대기) 홈에서 안내한다.
-  // (ACTIVE가 있으면 가족 탭으로 랜딩되므로 홈엔 안내를 띄우지 않음)
+  // 보호자 안내 영역: ACTIVE 부모가 없으면(연결 0명 또는 대기 중) 홈에서 안내한다.
   const hasActive = links.some((l) => l.status === "ACTIVE");
   const showGuardianNotice = role === "guardian" && !hasActive;
 
-  // 초대 대기 = 아직 사용되지 않은 직접사용자 초대 토큰. 실제 API 전환 시 getPendingInvites 내부만 교체한다.
   const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
   useEffect(() => {
     if (role !== "guardian" || !user) return;
@@ -215,14 +218,13 @@ export default function ChatbotMain() {
               </Pressable>
             </View>
           ) : (
-            // 초대 대기: 미사용 초대 토큰 + 코드 재공유
             pendingInvites.map((invite) => {
               const who = invite.seniorName ?? "부모님";
               return (
                 <View key={invite.token} style={styles.noticeCard}>
                   <View style={styles.noticeHead}>
                     <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-                    <Text style={styles.noticePendTitle}>{who} 초대 대기</Text>
+                    <Text style={styles.noticePendTitle}>{who} 연결 대기 중</Text>
                   </View>
                   <Text style={styles.noticeCode}>{invite.token}</Text>
                   <Pressable
@@ -304,7 +306,7 @@ export default function ChatbotMain() {
         </View>
         <View style={styles.recordTextWrap}>
           <Text style={styles.recordTitle}>
-            {chatState === "idle" ? "녹음하러가기" : "대화 중..."}
+            {chatState === "idle" ? "녹음하러가기" : chatState === "listening" ? "듣는 중 (탭해서 완료)" : "대화 중..."}
           </Text>
           <Text style={styles.recordSub}>오늘의 목소리를 남겨요</Text>
         </View>
@@ -313,21 +315,6 @@ export default function ChatbotMain() {
   );
 }
 
-// ── 더미 LLM 응답 (TODO: 실제 STT + LLM 호출로 교체) ──────────────────
-// 설계서 §8 LLM 응답 형식과 동일한 구조로 반환.
-async function mockCallLLM(): Promise<{
-  reply: string;
-  user_intent: string;
-  bot_emotion: BotEmotion;
-}> {
-  await wait(400);
-  const samples: Array<{ reply: string; user_intent: string; bot_emotion: BotEmotion }> = [
-    { reply: "오늘 점심은 맛있게 드셨어요?", user_intent: "meal_talk", bot_emotion: "happy" },
-    { reply: "그러셨군요, 무리하지 마세요.", user_intent: "health_discomfort", bot_emotion: "worried" },
-    { reply: "잘 들었어요. 오늘도 고생 많으셨어요.", user_intent: "daily_talk", bot_emotion: "default" },
-  ];
-  return samples[Math.floor(Math.random() * samples.length)];
-}
 
 const styles = StyleSheet.create({
   fill: {
