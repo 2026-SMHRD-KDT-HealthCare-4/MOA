@@ -20,7 +20,8 @@
 ### 현재 추가된 API 기반
 
 - `GET /auth/me`: 인증된 사용자의 프로필과 본인 가족 연결 목록을 반환한다.
-- `POST /speech/tts`: 인증된 사용자의 짧은 텍스트를 서버의 OpenAI 키로 MP3 음성으로 합성한다. 프론트에 API 키를 노출하지 않는다.
+- `GET /auth/guardian/invites`: 보호자가 발급한 초대 코드 목록을 반환한다. 보호자 화면의 초대 대기 표시는 사용되지 않았고 만료되지 않은 코드만 사용한다.
+- `POST /speech/tts`, `POST /speech/transcribe`: 인증된 사용자의 짧은 텍스트를 서버의 OpenAI 키로 MP3 음성으로 합성하거나, 짧은 음성 파일을 텍스트로 변환한다. 프론트에 API 키를 노출하지 않는다.
 - `GET /report/trend/{senior_id}`: 보호자 또는 본인이 최근 변화 기록을 `sunny`/`cloudy`/`rainy` 메타포로 조회한다. 질환명·위험 점수는 응답에 포함하지 않는다.
 
 ## 3. 권장 API 그룹

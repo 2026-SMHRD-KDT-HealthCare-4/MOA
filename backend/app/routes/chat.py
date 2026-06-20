@@ -14,7 +14,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -43,6 +43,7 @@ class DevChatRequest(BaseModel):
     conversation_turn: int | None = None
     valid_speech_duration_ms: int | None = None
     acoustic_meta: dict | None = None
+    history: list[dict[str, str]] = Field(default_factory=list)
 
 
 class DevChatResponse(BaseModel):
@@ -54,7 +55,12 @@ class DevChatResponse(BaseModel):
 def send_dev_message(req: DevChatRequest):
     """개발 테스트용 챗봇 라우트. 인증/DB 저장 없이 LLM 응답만 확인한다."""
     try:
-        result = chat_for_frontend(req.message)
+        history = [
+            {"role": item["role"], "content": item["content"]}
+            for item in req.history[-8:]
+            if item.get("role") in ("user", "assistant") and item.get("content")
+        ]
+        result = chat_for_frontend(req.message, history)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
 

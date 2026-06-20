@@ -52,7 +52,7 @@ class GuardianResponse(BaseModel):
 # ---------- 고령층 (초대링크 기반 가입) ----------
 
 class SeniorRegisterRequest(BaseModel):
-    invite_token: UUID
+    invite_token: str = Field(min_length=7, max_length=7)
     email: EmailStr
     password: str = Field(min_length=8)
     name: str
@@ -82,7 +82,7 @@ class SeniorResponse(BaseModel):
 # ---------- 초대링크 ----------
 
 class InviteCreateResponse(BaseModel):
-    token: UUID
+    token: str
     expired_at: datetime
 
 
@@ -92,12 +92,23 @@ class InviteVerifyResponse(BaseModel):
     guardian_name: Optional[str] = None
 
 
+class InviteListItemResponse(BaseModel):
+    token: str
+    created_at: datetime
+    expired_at: datetime
+    is_used: bool
+
+    class Config:
+        from_attributes = True
+
+
 # ---------- 보호자-고령층 연동 ----------
 
 class GuardianSeniorResponse(BaseModel):
     link_id: UUID
     guardian_id: UUID
     senior_id: UUID
+    senior_name: Optional[str] = None
     link_status: Literal["PENDING", "ACTIVE", "REVOKED"]
     linked_at: Optional[datetime]
 

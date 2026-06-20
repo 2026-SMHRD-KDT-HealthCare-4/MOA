@@ -8,6 +8,7 @@
 - 초대링크(INVITE) 검증과 만료 처리는 애플리케이션 레이어(여기)에서 수행한다. (요구사항 17번)
 """
 
+import random
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from app.schemas.auth import (
     GuardianResponse,
     GuardianSeniorResponse,
     InviteCreateResponse,
+    InviteListItemResponse,
     InviteVerifyResponse,
     LinkStatusUpdateRequest,
     LoginRequest,
@@ -33,6 +35,7 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 INVITE_EXPIRE_HOURS = 72
+INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +67,16 @@ def _supabase_delete_user(user_id: str) -> None:
     except Exception:
         # 롤백 실패는 로깅만 하고 원래 에러를 그대로 전달한다.
         pass
+
+
+def generate_unique_invite_code(db: Session) -> str:
+    """Generate a human-readable, collision-free XXX-XXX invite code."""
+    while True:
+        code = "".join(random.choices(INVITE_CODE_CHARS, k=3)) + "-" + "".join(
+            random.choices(INVITE_CODE_CHARS, k=3)
+        )
+        if db.query(Invite).filter(Invite.token == code).first() is None:
+            return code
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +224,9 @@ def create_invite(
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
-    """초대링크 생성. 토큰의 보호자 본인 명의로 발급한다."""
+    """Create a readable XXX-XXX invite code for the authenticated guardian."""
     invite = Invite(
+        token=generate_unique_invite_code(db),
         guardian_id=guardian.guardian_id,
         expired_at=datetime.utcnow() + timedelta(hours=INVITE_EXPIRE_HOURS),
     )
@@ -223,8 +237,8 @@ def create_invite(
 
 
 @router.get("/invite/{token}/verify", response_model=InviteVerifyResponse)
-def verify_invite(token: UUID, db: Session = Depends(get_db)):
-    invite = db.query(Invite).filter(Invite.token == token).first()
+def verify_invite(token: str, db: Session = Depends(get_db)):
+    invite = db.query(Invite).filter(Invite.token == token.strip().upper()).first()
 
     if invite is None:
         return InviteVerifyResponse(valid=False, reason="NOT_FOUND")
@@ -237,13 +251,27 @@ def verify_invite(token: UUID, db: Session = Depends(get_db)):
     return InviteVerifyResponse(valid=True, guardian_name=guardian.name if guardian else None)
 
 
+@router.get("/guardian/invites", response_model=list[InviteListItemResponse])
+def list_invites_for_guardian(
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """List issued codes; pending UI uses unused, unexpired items."""
+    return (
+        db.query(Invite)
+        .filter(Invite.guardian_id == guardian.guardian_id)
+        .order_by(Invite.created_at.desc())
+        .all()
+    )
+
+
 # ---------------------------------------------------------------------------
 # 고령층 회원가입 (초대링크 기반) — 요구사항 3, 4번
 # ---------------------------------------------------------------------------
 
 @router.post("/senior/register", response_model=SeniorResponse)
 def register_senior(req: SeniorRegisterRequest, db: Session = Depends(get_db)):
-    invite = db.query(Invite).filter(Invite.token == req.invite_token).first()
+    invite = db.query(Invite).filter(Invite.token == req.invite_token.strip().upper()).first()
 
     if invite is None:
         raise HTTPException(status_code=404, detail="초대링크를 찾을 수 없습니다.")
@@ -309,7 +337,20 @@ def list_seniors_for_guardian(
         .filter(GuardianSenior.guardian_id == guardian.guardian_id)
         .all()
     )
-    return links
+    senior_ids = [link.senior_id for link in links]
+    seniors = db.query(Senior).filter(Senior.senior_id.in_(senior_ids)).all() if senior_ids else []
+    senior_name_by_id = {senior.senior_id: senior.name for senior in seniors}
+    return [
+        GuardianSeniorResponse(
+            link_id=link.link_id,
+            guardian_id=link.guardian_id,
+            senior_id=link.senior_id,
+            senior_name=senior_name_by_id.get(link.senior_id),
+            link_status=link.link_status,
+            linked_at=link.linked_at,
+        )
+        for link in links
+    ]
 
 
 @router.patch("/link/{link_id}", response_model=GuardianSeniorResponse)

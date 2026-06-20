@@ -122,10 +122,10 @@ class GuardianSenior(Base):
 
 
 class Invite(Base):
-    """초대링크 (INVITE) — 요구사항 3, 17번"""
+    """초대코드 (INVITE) — 요구사항 3, 17번. 형식은 혼동 문자 없는 XXX-XXX."""
     __tablename__ = "invite"
 
-    token = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    token = Column(String(7), primary_key=True)
     guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expired_at = Column(DateTime, nullable=False)  # 생성 + 72시간
