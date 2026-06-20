@@ -73,10 +73,11 @@ export default function ElderClaimPage() {
           style={styles.codeInput}
           value={code}
           onChangeText={(t) => setCode(t.toUpperCase())}
-          placeholder="예: MOA-ABC"
+          placeholder="예: ABC-123"
           placeholderTextColor="#c4b5ae"
           autoCapitalize="characters"
           autoCorrect={false}
+          maxLength={7}
           accessibilityLabel="초대 코드 입력"
         />
 

@@ -97,10 +97,11 @@ export default function GuardianInvitePage() {
           style={styles.codeInput}
           value={inviteCode}
           onChangeText={(t) => setInviteCode(t.toUpperCase())}
-          placeholder="FAM-1234"
+          placeholder="예: ABC-123"
           placeholderTextColor="#c4b5ae"
           autoCapitalize="characters"
           autoCorrect={false}
+          maxLength={7}
         />
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}

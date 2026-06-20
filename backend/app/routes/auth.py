@@ -8,6 +8,8 @@
 - 초대링크(INVITE) 검증과 만료 처리는 애플리케이션 레이어(여기)에서 수행한다. (요구사항 17번)
 """
 
+import random
+import string
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -15,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_guardian
+from app.core.security import get_current_guardian, get_current_user_id
 from app.core.supabase_client import supabase
 from app.models.models import Guardian, GuardianSenior, Invite, LinkStatus, Senior
 from app.schemas.auth import (
@@ -23,9 +25,11 @@ from app.schemas.auth import (
     GuardianResponse,
     GuardianSeniorResponse,
     InviteCreateResponse,
+    InviteListItemResponse,
     InviteVerifyResponse,
     LinkStatusUpdateRequest,
     LoginRequest,
+    MeResponse,
     SeniorRegisterRequest,
     SeniorResponse,
 )
@@ -33,6 +37,10 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 INVITE_EXPIRE_HOURS = 72
+
+# 초대 코드 생성용 문자 집합: 혼동되기 쉬운 0/O, 1/I 는 제외
+INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+INVITE_CODE_PART_LEN = 3  # 'XXX-XXX' 형태 -> 한 파트당 3자리
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +72,22 @@ def _supabase_delete_user(user_id: str) -> None:
     except Exception:
         # 롤백 실패는 로깅만 하고 원래 에러를 그대로 전달한다.
         pass
+
+
+def _generate_invite_code_part() -> str:
+    return "".join(random.choices(INVITE_CODE_CHARS, k=INVITE_CODE_PART_LEN))
+
+
+def generate_unique_invite_code(db: Session) -> str:
+    """
+    'MOA-DEV' 같은 'XXX-XXX' 형태(영문/숫자 6자리 + 하이픈)의
+    초대 코드를 DB 중복 없이 생성한다.
+    """
+    while True:
+        code = f"{_generate_invite_code_part()}-{_generate_invite_code_part()}"
+        exists = db.query(Invite).filter(Invite.token == code).first()
+        if not exists:
+            return code
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +166,27 @@ def logout():
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/me", response_model=MeResponse)
+def get_me(
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """access_token만으로 현재 로그인한 사용자의 role / name / user_id를 반환한다.
+
+    FE가 앱 재시작·새로고침 후 세션을 복원할 때 사용한다.
+    guardian/senior 어느 역할이든 하나의 토큰으로 호출 가능하다.
+    """
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        return MeResponse(role="guardian", name=guardian.name, user_id=user_id)
+
+    senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+    if senior is not None:
+        return MeResponse(role="senior", name=senior.name, user_id=user_id)
+
+    raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")
+
+
 # ---------------------------------------------------------------------------
 # 초대링크 (요구사항 3, 17번)
 # ---------------------------------------------------------------------------
@@ -151,8 +196,15 @@ def create_invite(
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
-    """초대링크 생성. 토큰의 보호자 본인 명의로 발급한다."""
+    """초대 코드 생성. 토큰의 보호자 본인 명의로 발급한다.
+
+    코드 형식: 'XXX-XXX' (영문 대문자 + 숫자, 혼동 문자 제외, 6자리 + 하이픈)
+    예) MOA-DEV
+    """
+    code = generate_unique_invite_code(db)
+
     invite = Invite(
+        token=code,
         guardian_id=guardian.guardian_id,
         expired_at=datetime.utcnow() + timedelta(hours=INVITE_EXPIRE_HOURS),
     )
@@ -163,8 +215,11 @@ def create_invite(
 
 
 @router.get("/invite/{token}/verify", response_model=InviteVerifyResponse)
-def verify_invite(token: UUID, db: Session = Depends(get_db)):
-    invite = db.query(Invite).filter(Invite.token == token).first()
+def verify_invite(token: str, db: Session = Depends(get_db)):
+    # 사용자가 'moa-dev'처럼 소문자로 입력하거나 공백을 넣어도 인식되도록 정규화
+    normalized_token = token.strip().upper()
+
+    invite = db.query(Invite).filter(Invite.token == normalized_token).first()
 
     if invite is None:
         return InviteVerifyResponse(valid=False, reason="NOT_FOUND")
@@ -177,20 +232,43 @@ def verify_invite(token: UUID, db: Session = Depends(get_db)):
     return InviteVerifyResponse(valid=True, guardian_name=guardian.name if guardian else None)
 
 
+@router.get("/guardian/invites", response_model=list[InviteListItemResponse])
+def list_invites_for_guardian(
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """로그인한 보호자가 발급한 초대 토큰 전체 목록(미사용/사용됨 포함).
+
+    B-3 대응: BE에는 PENDING 링크가 존재하지 않는다. GuardianSenior 연동은
+    senior가 가입하는 순간 바로 ACTIVE로 생성되므로, FE의 '연결 대기 카드'는
+    이 목록에서 is_used=False 이고 expired_at이 아직 지나지 않은 항목을
+    기준으로 표시해야 한다. (PENDING 링크가 아니라 '미사용 초대 토큰' 기준)
+    """
+    invites = (
+        db.query(Invite)
+        .filter(Invite.guardian_id == guardian.guardian_id)
+        .order_by(Invite.created_at.desc())
+        .all()
+    )
+    return invites
+
+
 # ---------------------------------------------------------------------------
 # 고령층 회원가입 (초대링크 기반) — 요구사항 3, 4번
 # ---------------------------------------------------------------------------
 
 @router.post("/senior/register", response_model=SeniorResponse)
 def register_senior(req: SeniorRegisterRequest, db: Session = Depends(get_db)):
-    invite = db.query(Invite).filter(Invite.token == req.invite_token).first()
+    normalized_token = req.invite_token.strip().upper()
+
+    invite = db.query(Invite).filter(Invite.token == normalized_token).first()
 
     if invite is None:
-        raise HTTPException(status_code=404, detail="초대링크를 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="초대코드를 찾을 수 없습니다.")
     if invite.is_used:
-        raise HTTPException(status_code=400, detail="이미 사용된 초대링크입니다.")
+        raise HTTPException(status_code=400, detail="이미 사용된 초대코드입니다.")
     if invite.expired_at < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="만료된 초대링크입니다. 재발송을 요청해주세요.")
+        raise HTTPException(status_code=400, detail="만료된 초대코드입니다. 재발송을 요청해주세요.")
 
     user = _supabase_sign_up(req.email, req.password, role="senior", name=req.name)
 
@@ -249,7 +327,22 @@ def list_seniors_for_guardian(
         .filter(GuardianSenior.guardian_id == guardian.guardian_id)
         .all()
     )
-    return links
+
+    senior_ids = [link.senior_id for link in links]
+    seniors = db.query(Senior).filter(Senior.senior_id.in_(senior_ids)).all()
+    senior_name_map = {s.senior_id: s.name for s in seniors}
+
+    return [
+        GuardianSeniorResponse(
+            link_id=link.link_id,
+            guardian_id=link.guardian_id,
+            senior_id=link.senior_id,
+            senior_name=senior_name_map.get(link.senior_id),
+            link_status=link.link_status,
+            linked_at=link.linked_at,
+        )
+        for link in links
+    ]
 
 
 @router.patch("/link/{link_id}", response_model=GuardianSeniorResponse)

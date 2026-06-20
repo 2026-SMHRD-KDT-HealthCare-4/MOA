@@ -32,3 +32,7 @@ __pycache__/
 *.pyo
 venv/
 *.egg-info/
+
+echo "uvicorn_test.log" >> .gitignore
+echo "__pycache__/" >> .gitignore
+echo "*.pyc" >> .gitignore
