@@ -12,13 +12,13 @@ import * as authApi from "../../src/api/auth";
 export default function ElderClaimPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ consented?: string }>();
+  const params = useLocalSearchParams<{ consented?: string; inviteToken?: string }>();
   const setSession = useAuthStore((s) => s.setSession);
 
   // 이전 화면(동의)에서 넘어온 동의 의사. 클레임 성공 직후 함께 제출한다.
   const consented = params.consented === "1";
 
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(params.inviteToken ?? "");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -68,7 +68,7 @@ export default function ElderClaimPage() {
           style={styles.codeInput}
           value={code}
           onChangeText={(t) => setCode(t.toUpperCase())}
-          placeholder="예: MOA-ABC"
+          placeholder="예: MOA-123456"
           placeholderTextColor="#c4b5ae"
           autoCapitalize="characters"
           autoCorrect={false}

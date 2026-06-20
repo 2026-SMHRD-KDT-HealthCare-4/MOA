@@ -144,10 +144,12 @@ export default function ChatbotMain() {
     void runConversationTurn();
   }
 
-  // 보호자 안내 영역: ACTIVE 부모가 없으면(연결 0명 또는 대기 중) 홈에서 안내한다.
+  // 보호자 안내 영역: ACTIVE 부모가 없으면(연결 0명 또는 초대 대기) 홈에서 안내한다.
+  // (ACTIVE가 있으면 가족 탭으로 랜딩되므로 홈엔 안내를 띄우지 않음)
   const hasActive = links.some((l) => l.status === "ACTIVE");
   const showGuardianNotice = role === "guardian" && !hasActive;
 
+  // 초대 대기 = 아직 사용되지 않은 직접사용자 초대 토큰. 실제 API 전환 시 getPendingInvites 내부만 교체한다.
   const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
   useEffect(() => {
     if (role !== "guardian" || !user) return;
@@ -213,13 +215,14 @@ export default function ChatbotMain() {
               </Pressable>
             </View>
           ) : (
+            // 초대 대기: 미사용 초대 토큰 + 코드 재공유
             pendingInvites.map((invite) => {
               const who = invite.seniorName ?? "부모님";
               return (
                 <View key={invite.token} style={styles.noticeCard}>
                   <View style={styles.noticeHead}>
                     <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-                    <Text style={styles.noticePendTitle}>{who} 연결 대기 중</Text>
+                    <Text style={styles.noticePendTitle}>{who} 초대 대기</Text>
                   </View>
                   <Text style={styles.noticeCode}>{invite.token}</Text>
                   <Pressable
