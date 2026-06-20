@@ -12,6 +12,8 @@ export interface ChatMessage {
   role: "user" | "bot";
   text: string;
   emotion?: BotEmotion;
+  turnId?: string;
+  typingDelayMs?: number;
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
@@ -87,19 +89,33 @@ async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
   return btoa(binary);
 }
 
-async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | null>): Promise<void> {
+async function playTTS(
+  text: string,
+  soundRef: React.RefObject<Audio.Sound | null>,
+  onReady?: (durationMs: number | null) => void,
+): Promise<void> {
+  let didNotifyReady = false;
+  const notifyReady = (durationMs: number | null) => {
+    if (didNotifyReady) return;
+    didNotifyReady = true;
+    onReady?.(durationMs);
+  };
+
   try {
     const token = await getToken();
-    const backendResponse = await fetch(`${API_BASE_URL}/speech/tts`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ voice: TTS_VOICE, text }),
-    });
+    const hasRealSession = Boolean(token && !token.startsWith("mock-token-"));
+    const backendResponse = hasRealSession
+      ? await fetch(`${API_BASE_URL}/speech/tts`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ voice: TTS_VOICE, text }),
+        })
+      : null;
 
-    const response = backendResponse.ok
+    const response = backendResponse?.ok
       ? backendResponse
       : OPENAI_API_KEY
         ? await fetch("https://api.openai.com/v1/audio/speech", {
@@ -112,7 +128,10 @@ async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | nul
           })
         : backendResponse;
 
-    if (!response.ok) return;
+    if (!response?.ok) {
+      notifyReady(null);
+      return;
+    }
 
     let uri: string;
     let blobUrl: string | null = null;
@@ -127,18 +146,24 @@ async function playTTS(text: string, soundRef: React.RefObject<Audio.Sound | nul
       uri = `data:audio/mpeg;base64,${base64}`;
     }
 
-    const { sound } = await Audio.Sound.createAsync({ uri });
+    const { sound, status } = await Audio.Sound.createAsync({ uri });
     (soundRef as React.MutableRefObject<Audio.Sound | null>).current = sound;
-    await sound.playAsync();
-
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync();
+    notifyReady(status.isLoaded ? status.durationMillis ?? null : null);
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        void sound.unloadAsync();
         (soundRef as React.MutableRefObject<Audio.Sound | null>).current = null;
         if (blobUrl) URL.revokeObjectURL(blobUrl);
-      }
+        resolve();
+      };
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) finish();
+      });
+      void sound.playAsync().catch(finish);
     });
   } catch {
+    notifyReady(null);
     // Text response remains available even when TTS fails.
   }
 }
@@ -260,6 +285,7 @@ async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse
 export function useMoaChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isBotTyping, setIsBotTyping] = useState(false);
+  const [isBotSpeaking, setIsBotSpeaking] = useState(false);
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const soundRef = useRef<Audio.Sound | null>(null);
   const conversationTurnRef = useRef(0);
@@ -295,16 +321,42 @@ export function useMoaChat() {
       const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);
 
-      const botMsg: ChatMessage = {
-        id: `b_${Date.now()}`,
-        role: "bot",
-        text: res.data.reply,
-        emotion,
-      };
-      setMessages((prev) => [...prev, botMsg]);
+      setIsBotSpeaking(true);
       setIsBotTyping(false);
 
-      await playTTS(res.data.reply, soundRef);
+      const turnId = `turn_${Date.now()}`;
+      const chunks = splitIntoSentenceChunks(res.data.reply);
+      let resolveAudioReady: (durationMs: number | null) => void = () => {};
+      const audioReady = new Promise<number | null>((resolve) => {
+        resolveAudioReady = resolve;
+      });
+      // 화면 타이핑과 별개로 음성 다운로드를 바로 시작해 첫 재생 지연을 줄인다.
+      const ttsPromise = playTTS(res.data.reply, soundRef, resolveAudioReady);
+      const audioDurationMs = await Promise.race([
+        audioReady,
+        wait(700).then(() => null),
+      ]);
+      // 한국어 TTS 길이에 맞춘 글자 단위 출력 속도. 오디오 정보를 못 받으면 부드러운 기본값을 쓴다.
+      const typingDelayMs = audioDurationMs
+        ? Math.max(42, Math.min(115, Math.round(audioDurationMs / Math.max(res.data.reply.length, 1))))
+        : 48;
+      for (let index = 0; index < chunks.length; index += 1) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `b_${turnId}_${index}`,
+            turnId,
+            role: "bot",
+            text: chunks[index],
+            emotion,
+            typingDelayMs,
+          },
+        ]);
+        if (index < chunks.length - 1) await wait(120);
+      }
+
+      await ttsPromise;
+      setIsBotSpeaking(false);
     } catch {
       setBotEmotion("worried");
       const fallbackMsg: ChatMessage = {
@@ -315,11 +367,25 @@ export function useMoaChat() {
       };
       setMessages((prev) => [...prev, fallbackMsg]);
       setIsBotTyping(false);
+      setIsBotSpeaking(false);
     } finally {
       setIsBotTyping(false);
       enableWakeWord();
     }
   }
 
-  return { messages, isBotTyping, botEmotion, sendMessage };
+  return { messages, isBotTyping, isBotSpeaking, botEmotion, sendMessage };
+}
+
+function splitIntoSentenceChunks(text: string): string[] {
+  const sentences = text.match(/[^.!?。]+[.!?。]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [text];
+  const chunks: string[] = [];
+  for (let index = 0; index < sentences.length; index += 2) {
+    chunks.push(sentences.slice(index, index + 2).join(" "));
+  }
+  return chunks.filter(Boolean);
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
