@@ -83,6 +83,9 @@ function BottomNavBase({
   const insets = useSafeAreaInsets();
   const activeRouteName = state.routes[state.index]?.name;
 
+  // 온보딩 등 풀스크린 흐름에서는 탭바를 숨긴다.
+  if (activeRouteName === "onboarding") return null;
+
   return (
     <LinearGradient
       colors={theme.areaColors}
