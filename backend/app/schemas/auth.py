@@ -49,10 +49,10 @@ class GuardianResponse(BaseModel):
         from_attributes = True
 
 
-# ---------- 고령층 (초대코드 기반 가입) ----------
+# ---------- 고령층 (초대링크 기반 가입) ----------
 
 class SeniorRegisterRequest(BaseModel):
-    invite_token: str  # 'XXX-XXX' 형태의 6자리(+하이픈) 초대 코드. 예: MOA-DEV
+    invite_token: str = Field(min_length=7, max_length=7)
     email: EmailStr
     password: str = Field(min_length=8)
     name: str
@@ -79,10 +79,10 @@ class SeniorResponse(BaseModel):
         from_attributes = True
 
 
-# ---------- 초대코드 ----------
+# ---------- 초대링크 ----------
 
 class InviteCreateResponse(BaseModel):
-    token: str  # 'XXX-XXX' 형태의 6자리(+하이픈) 초대 코드. 예: MOA-DEV
+    token: str
     expired_at: datetime
 
 
@@ -93,8 +93,6 @@ class InviteVerifyResponse(BaseModel):
 
 
 class InviteListItemResponse(BaseModel):
-    """보호자가 발급한 초대 토큰 1건. (B-3: '연결 대기 카드'는 is_used=False 이면서
-    아직 만료되지 않은 항목을 기준으로 FE에서 표시한다.)"""
     token: str
     created_at: datetime
     expired_at: datetime
@@ -120,11 +118,3 @@ class GuardianSeniorResponse(BaseModel):
 
 class LinkStatusUpdateRequest(BaseModel):
     link_status: Literal["ACTIVE", "REVOKED"]
-
-
-# ---------- /auth/me ----------
-
-class MeResponse(BaseModel):
-    role: Literal["guardian", "senior"]
-    name: str
-    user_id: UUID

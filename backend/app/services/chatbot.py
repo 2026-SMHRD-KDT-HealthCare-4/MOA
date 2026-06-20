@@ -38,6 +38,9 @@ FRONTEND_CHAT_PROMPT = """
 - 행복한 가족 이야기 안에 약한 아쉬움이 섞이면 negative_mood로 보지 마세요.
 - 가족 방문, 손주, 자녀 이야기는 family_talk를 우선 고려하세요.
 - 행복한 이야기 안에 아쉬움이 섞이면, 좋은 감정을 먼저 함께 기뻐하고 아쉬움도 공감하세요.
+- 현재 사용자의 발화에 산책, 식사, 가족, 날씨처럼 구체적인 내용이 있으면 반드시 그 내용을 한 번 이상 짚어 응답하세요.
+- "무슨 일이 있으신가요?", "조금 더 말씀해 주세요" 같은 범용 문장만 단독으로 반복하지 마세요.
+- 대화 이력에 있는 직전 어시스턴트 답변과 같은 문장이나 질문을 반복하지 마세요. 직전 대답을 자연스럽게 이어받아 다음 질문을 하세요.
 - 예: "손주가 와서 행복했는데 용돈을 못 줘 아쉬웠어"
   -> user_intent는 "family_talk", bot_emotion은 "happy"
   -> 답변은 "손주분과 행복한 시간을 보내셨다니 정말 좋으셨겠어요. 용돈을 못 줘 아쉬우셨겠지만, 함께한 시간이 손주분께도 큰 선물이었을 거예요."처럼 말하세요.
@@ -79,7 +82,7 @@ def chat_for_frontend(message: str, history: list = []) -> dict:
         model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
         messages=messages,
         response_format={"type": "json_object"},
-        temperature=0.2,
+        temperature=0.65,
     )
 
     import json
