@@ -1,6 +1,13 @@
-// 낭독 기록(SCRIPT_RECORD) 저장 API. 녹음 화면(RecordPage) 전용 — 챗봇 영역과 무관.
+// 낭독 기록(SCRIPT_RECORD) 저장 + 음성 분석(/analyze) API. 녹음 화면(RecordPage) 전용.
 // 오늘의 지정문구 조회는 auth.ts의 getTodayScript 사용.
+import { Platform } from "react-native";
 import { apiFetch } from "./auth";
+import { getToken } from "./session";
+
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+  /\/$/,
+  "",
+);
 
 export interface ScriptRecord {
   recordId: string;
@@ -24,4 +31,30 @@ export async function saveScriptRecord(scriptId: string, seniorId: string): Prom
     body: JSON.stringify({ senior_id: seniorId, script_id: scriptId }),
   });
   return { recordId: res.record_id, measuredAt: res.measured_at };
+}
+
+// POST /analyze — 녹음 음성을 멀티파트로 전송해 음성 특징/위험도를 서버에 저장한다.
+// multipart라 apiFetch(JSON 전용) 대신 직접 fetch. 업로드 후 사용 측에서 오디오를 즉시 해제해야 함(ZDR).
+export async function analyzeVoice(
+  audioUri: string,
+  collectType: "SCRIPT" | "CHATBOT",
+): Promise<void> {
+  const form = new FormData();
+  form.append("collect_type", collectType);
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(audioUri)).blob();
+    form.append("file", blob, "recording.webm");
+  } else {
+    // RN FormData는 { uri, type, name } 객체를 파일처럼 처리한다.
+    form.append("file", { uri: audioUri, type: "audio/m4a", name: "recording.m4a" } as unknown as Blob);
+  }
+
+  const token = await getToken();
+  const res = await fetch(`${API_BASE_URL}/analyze`, {
+    method: "POST",
+    // Content-Type은 지정하지 않는다 — 브라우저가 multipart boundary를 자동 설정.
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) throw new Error("ANALYZE_FAILED");
 }

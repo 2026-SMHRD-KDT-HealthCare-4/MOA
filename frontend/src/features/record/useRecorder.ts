@@ -12,6 +12,12 @@ interface RecorderOptions {
   autoStopOnSilence?: boolean;
   /** False for the global wake listener, which must not disable itself. */
   manageWakeWord?: boolean;
+  /**
+   * STT 후 녹음 오디오를 폐기하지 않고 보관해 `audioUri`로 노출한다(기본 false).
+   * /analyze 전송용. 사용 측은 업로드 직후 반드시 clearAudio()로 해제해야 한다(ZDR).
+   * 옵션을 켜지 않으면 기존과 동일하게 STT 직후 즉시 폐기된다.
+   */
+  keepAudio?: boolean;
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
@@ -77,12 +83,19 @@ async function whisperSTT(uri: string): Promise<string> {
   return data.text ?? "";
 }
 
-export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }: RecorderOptions = {}) {
+export function useRecorder({
+  autoStopOnSilence = false,
+  manageWakeWord = true,
+  keepAudio = false,
+}: RecorderOptions = {}) {
   const [state, setState] = useState<RecordState>("idle");
   const [transcript, setTranscript] = useState<string | null>(null);
   const [durationMs, setDurationMs] = useState(0);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // keepAudio=true일 때만 채워진다. 그 외에는 항상 null (기존 동작 유지).
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const keptAudioRef = useRef<{ uri: string; isWeb: boolean } | null>(null);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const webRecorderRef = useRef<MediaRecorder | null>(null);
@@ -155,10 +168,30 @@ export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }
     }
   }
 
+  // keepAudio로 보관된 오디오를 해제한다(ZDR). 사용 측이 업로드 후 호출.
+  async function clearAudio() {
+    const kept = keptAudioRef.current;
+    keptAudioRef.current = null;
+    setAudioUri(null);
+    if (!kept) return;
+    try {
+      if (kept.isWeb) URL.revokeObjectURL(kept.uri);
+      else await FileSystem.deleteAsync(kept.uri, { idempotent: true });
+    } catch {
+      // 해제 실패는 무시
+    }
+  }
+
   async function completeTranscription(uri: string, isWeb = false) {
     try {
       const text = await whisperSTT(uri);
-      if (!isWeb) await FileSystem.deleteAsync(uri);
+      if (keepAudio) {
+        // 폐기하지 않고 보관 → audioUri로 노출 (해제는 clearAudio가 담당)
+        keptAudioRef.current = { uri, isWeb };
+        setAudioUri(uri);
+      } else if (!isWeb) {
+        await FileSystem.deleteAsync(uri);
+      }
       setTranscript(text);
       setState("done");
       if (manageWakeWord) enableWakeWord();
@@ -221,7 +254,10 @@ export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }
           const uri = URL.createObjectURL(blob);
           stream.getTracks().forEach((track) => track.stop());
           webRecorderRef.current = null;
-          void completeTranscription(uri, true).finally(() => URL.revokeObjectURL(uri));
+          void completeTranscription(uri, true).finally(() => {
+            // keepAudio면 보관해야 하므로 여기서 revoke하지 않는다(clearAudio가 해제).
+            if (!keepAudio) URL.revokeObjectURL(uri);
+          });
         };
 
         recorder.start(250);
@@ -337,6 +373,7 @@ export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }
       webRecorderRef.current.stop();
       webRecorderRef.current = null;
     }
+    void clearAudio();
     setTranscript(null);
     setDurationMs(0);
     setPermissionDenied(false);
@@ -346,5 +383,5 @@ export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }
     if (manageWakeWord) enableWakeWord();
   }
 
-  return { state, transcript, durationMs, permissionDenied, error, start, stop, reset };
+  return { state, transcript, durationMs, permissionDenied, error, start, stop, reset, audioUri, clearAudio };
 }

@@ -18,7 +18,7 @@ import { Waveform } from "../components/Waveform";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { useRecorder } from "../features/record/useRecorder";
 import * as authApi from "../api/auth";
-import { saveScriptRecord } from "../api/record";
+import { analyzeVoice, saveScriptRecord } from "../api/record";
 import { useAuthStore } from "../stores/authStore";
 
 const RECORD_SECONDS = 30;
@@ -42,7 +42,9 @@ export default function RecordPage() {
   const { width: windowWidth } = useWindowDimensions();
   const W = Math.min(windowWidth, 430);
 
-  const { state, transcript, durationMs, permissionDenied, start, stop, reset } = useRecorder();
+  // real 모드에서만 오디오를 보관(/analyze 전송용). mock에선 기존처럼 즉시 폐기.
+  const { state, transcript, durationMs, permissionDenied, start, stop, reset, audioUri, clearAudio } =
+    useRecorder({ keepAudio: REAL_API });
   const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
 
   useEffect(() => {
@@ -82,12 +84,17 @@ export default function RecordPage() {
     if (REAL_API && role === "elder" && dailyScript?.script_id && user) {
       setSaving(true);
       try {
+        // 1) 음성 특징 분석·저장 (서버가 특징/위험도 적재). 2) 낭독 이력 저장.
+        if (audioUri) await analyzeVoice(audioUri, "SCRIPT");
         await saveScriptRecord(dailyScript.script_id, user.id);
       } catch {
         // 저장 실패 — 다음 동기화에서 보완 (흐름 유지)
       } finally {
+        await clearAudio(); // ZDR: 업로드 후 오디오 즉시 해제
         setSaving(false);
       }
+    } else if (REAL_API) {
+      await clearAudio(); // 저장 대상이 아니어도 보관된 오디오는 해제
     }
     router.replace("/done");
   }
