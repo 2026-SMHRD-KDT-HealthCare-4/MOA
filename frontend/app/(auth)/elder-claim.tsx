@@ -3,7 +3,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, KeyRound, AlertCircle } from "lucide-react-native";
-import { useAuthStore } from "../../src/stores/authStore";
+import { useAuthStore, type SeniorGender } from "../../src/stores/authStore";
 import * as authApi from "../../src/api/auth";
 
 function formatBirthDate(value: string): string {
@@ -40,6 +40,8 @@ export default function ElderClaimPage() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ consented?: string; inviteToken?: string }>();
   const setSession = useAuthStore((s) => s.setSession);
+  const setOnboardingBirthDate = useAuthStore((s) => s.setOnboardingBirthDate);
+  const setOnboardingGender = useAuthStore((s) => s.setOnboardingGender);
 
   // 이전 화면(동의)에서 넘어온 동의 의사. 클레임 성공 직후 함께 제출한다.
   const consented = params.consented === "1";
@@ -47,6 +49,7 @@ export default function ElderClaimPage() {
   const [code, setCode] = useState(params.inviteToken ?? "");
   const [birthDate, setBirthDate] = useState("");
   const [phone, setPhone] = useState("");
+  const [gender, setGender] = useState<SeniorGender | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -58,6 +61,7 @@ export default function ElderClaimPage() {
     if (!/^\d{3}-\d{3,4}-\d{4}$/.test(phone)) {
       return setError("전화번호를 010-1234-5678 형식으로 입력해 주세요.");
     }
+    if (!gender) return setError("성별을 선택해 주세요.");
 
     setSubmitting(true);
     try {
@@ -72,9 +76,12 @@ export default function ElderClaimPage() {
       const { user, refreshToken, consentDone, familyGroup, links, guardianMembers } = res.data;
 
       setSession(user, { refreshToken, consentDone, familyGroup, links, guardianMembers });
+      // 첫 화면에서 받은 생년월일·성별을 온보딩 프로필에 저장 → 기본정보 단계 생략.
+      setOnboardingBirthDate(birthDate);
+      setOnboardingGender(gender);
       setError("");
-      // 클레임 직후 직접사용자 온보딩(기본정보→가족력)으로 진입.
-      router.replace("/(elder)/onboarding/basic-info");
+      // 클레임 직후 가족력 입력으로 바로 진입.
+      router.replace("/(elder)/onboarding/family-history");
     } catch (e) {
       setError(e instanceof Error ? e.message : "연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -128,6 +135,30 @@ export default function ElderClaimPage() {
             maxLength={10}
             accessibilityLabel="생년월일 입력"
           />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>성별</Text>
+          <View style={styles.choiceRow}>
+            {(["male", "female"] as const).map((value) => {
+              const selected = gender === value;
+              return (
+                <TouchableOpacity
+                  key={value}
+                  style={[styles.choice, selected ? styles.choiceSelected : styles.choiceUnselected]}
+                  onPress={() => setGender(value)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={value === "male" ? "남성" : "여성"}
+                >
+                  <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                    {value === "male" ? "남성" : "여성"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         <View style={styles.inputGroup}>
@@ -211,6 +242,18 @@ const styles = StyleSheet.create({
     color: "#342C28",
     backgroundColor: "white",
   },
+  choiceRow: { flexDirection: "row", justifyContent: "space-between" },
+  choice: {
+    width: "47%",
+    minHeight: 60,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  choiceUnselected: { backgroundColor: "white", borderWidth: 1.5, borderColor: "#e8ddd9" },
+  choiceSelected: { backgroundColor: "#FDECDD", borderWidth: 2, borderColor: "#FF7955" },
+  choiceText: { fontSize: 20, fontWeight: "800", color: "#5a4d46" },
+  choiceTextSelected: { color: "#FF7955" },
   errorRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   errorText: { flex: 1, fontSize: 17, lineHeight: 24, fontWeight: "700", color: "#E8943A" },
   primaryBtn: {
