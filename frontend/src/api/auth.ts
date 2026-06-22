@@ -560,6 +560,11 @@ export async function register(payload: RegisterPayload): Promise<SessionUser> {
 
 export async function logout(): Promise<void> {
   realCurrentUser = null;
+  try {
+    await apiFetch("/auth/logout", { method: "POST", auth: true });
+  } catch {
+    // 백엔드 로그아웃 실패해도 로컬 토큰은 반드시 삭제한다.
+  }
   await clearToken();
 }
 
@@ -604,6 +609,7 @@ async function createInviteReal({
   const invite = await apiFetch<BackendInviteResponse>("/auth/invite", {
     method: "POST",
     auth: true,
+    body: JSON.stringify({ senior_name: seniorName?.trim() || null }),
   });
   // TODO(BE 연동): 현재 백엔드는 미사용 invite 목록 조회 API가 없다.
   // real 모드의 초대 대기 카드는 임시로 localStorage 캐시에 의존하므로,
