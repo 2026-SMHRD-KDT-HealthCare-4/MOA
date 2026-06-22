@@ -5,11 +5,16 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 from uuid import UUID
-
 from pydantic import BaseModel, EmailStr, Field
 
 
 # ---------- 공통 ----------
+
+class MeResponse(BaseModel):
+    role: Literal["guardian", "senior"]
+    name: str
+    user_id: UUID
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
