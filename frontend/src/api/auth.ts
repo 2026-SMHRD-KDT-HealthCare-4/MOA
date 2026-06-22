@@ -359,7 +359,7 @@ function parseJwtSub(token: string): string | null {
   }
 }
 
-async function apiFetch<T>(
+export async function apiFetch<T>(
   path: string,
   options: RequestInit & { auth?: boolean } = {},
 ): Promise<T> {

@@ -1,19 +1,42 @@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  getMonthlyStats,
+  getReportTrend,
+  type TrendPoint,
+  type TrendStatus,
+} from "../api/report";
 
-const REPORT_MOCK_DATA = {
+const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
+
+type BarState = "normal" | "detected" | "pending";
+
+interface DayBar {
+  day: string;
+  value: number;
+  state: BarState;
+}
+
+interface ReportView {
+  month: string;
+  status: { icon: string; title: string; description: string };
+  participation: { completedDays: number; totalDays: number };
+  weeklyVoice: DayBar[];
+  summary: string;
+  alert: { title: string; period: string } | null;
+}
+
+// 백엔드 미연결(mock 모드)·조회 실패 시 보여줄 샘플 리포트.
+const FALLBACK_REPORT: ReportView = {
   month: "6월",
   status: {
     icon: "🌧️",
     title: "이번 주 변화가 감지됐어요",
     description: "3주차 이후 패턴 변화가 확인됐어요",
   },
-  participation: {
-    completedDays: 21,
-    totalDays: 30,
-  },
+  participation: { completedDays: 21, totalDays: 30 },
   weeklyVoice: [
     { day: "월", value: 54, state: "normal" },
     { day: "화", value: 61, state: "normal" },
@@ -22,13 +45,74 @@ const REPORT_MOCK_DATA = {
     { day: "금", value: 79, state: "detected" },
     { day: "토", value: 84, state: "detected" },
     { day: "일", value: 64, state: "pending" },
-  ] as const,
+  ],
   summary: "전반적으로 안정적인 패턴이었으나 3주차 이후 변화 패턴이 확인됐어요.",
-  alert: {
-    title: "모아가 변화를 감지했어요",
-    period: "3일 연속 · 목요일부터",
+  alert: { title: "모아가 변화를 감지했어요", period: "3일 연속 · 목요일부터" },
+};
+
+// 상태별 막대 높이(점수 데이터가 없어 상태를 단계로 매핑) — 맑음<흐림<비.
+const STATUS_HEIGHT: Record<TrendStatus, number> = { sunny: 42, cloudy: 66, rainy: 92 };
+
+const STATUS_CARD: Record<TrendStatus, { icon: string; title: string; description: string }> = {
+  sunny: { icon: "☀️", title: "안정적인 한 주예요", description: "특별한 변화가 없었어요" },
+  cloudy: { icon: "⛅", title: "약간의 변화가 있었어요", description: "조금 더 지켜봐 주세요" },
+  rainy: {
+    icon: "🌧️",
+    title: "이번 주 변화가 감지됐어요",
+    description: "최근 패턴 변화가 확인됐어요",
   },
-} as const;
+};
+
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+
+function currentReportMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function daysInMonth(reportMonth: string): number {
+  const [y, m] = reportMonth.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+// trend(상태 추이) + stats(월 집계) → 화면 모델. 의학 점수는 쓰지 않는다.
+function buildReportView(trend: TrendPoint[], measurementCount: number, riskAlertCount: number, reportMonth: string): ReportView {
+  const latest: TrendStatus = trend.length ? trend[trend.length - 1].status : "sunny";
+  const card = STATUS_CARD[latest];
+
+  const weeklyVoice: DayBar[] = trend.map((p) => ({
+    day: WEEKDAY[new Date(`${p.date}T00:00:00`).getDay()],
+    value: STATUS_HEIGHT[p.status],
+    state: p.status === "rainy" ? "detected" : "normal",
+  }));
+
+  // 말미의 연속 '비' 일수 → 알림 기간 문구.
+  let consecutiveRainy = 0;
+  for (let i = trend.length - 1; i >= 0 && trend[i].status === "rainy"; i--) consecutiveRainy++;
+
+  const totalDays = daysInMonth(reportMonth);
+  const hasChange = trend.some((p) => p.status === "rainy");
+
+  return {
+    month: `${Number(reportMonth.split("-")[1])}월`,
+    status: card,
+    participation: {
+      completedDays: Math.min(measurementCount, totalDays),
+      totalDays,
+    },
+    weeklyVoice,
+    summary: hasChange
+      ? "전반적으로 안정적이었으나 최근 변화 패턴이 확인됐어요."
+      : "최근 기간 동안 안정적인 패턴이 이어졌어요.",
+    alert:
+      riskAlertCount > 0
+        ? {
+            title: "모아가 변화를 감지했어요",
+            period: consecutiveRainy > 0 ? `${consecutiveRainy}일 연속` : "최근 변화 감지",
+          }
+        : null,
+  };
+}
 
 const COLOR = {
   background: "#FAF7F2",
@@ -45,10 +129,35 @@ const CHART_HEIGHT = 154;
 export default function DashboardPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { elderlyId } = useLocalSearchParams<{ elderlyId: string }>();
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const participationRate =
-    REPORT_MOCK_DATA.participation.completedDays / REPORT_MOCK_DATA.participation.totalDays;
+
+  // 보호자 리포트. real 모드 + elderlyId가 있을 때만 서버 조회, 실패 시 샘플 유지.
+  const [report, setReport] = useState<ReportView>(FALLBACK_REPORT);
+  useEffect(() => {
+    if (!REAL_API || !elderlyId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const month = currentReportMonth();
+        const [trend, stats] = await Promise.all([
+          getReportTrend(elderlyId, 7),
+          getMonthlyStats(elderlyId, month),
+        ]);
+        if (alive) {
+          setReport(buildReportView(trend, stats.measurementCount, stats.riskAlertCount, month));
+        }
+      } catch {
+        // 조회 실패 — 샘플 리포트 유지
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [elderlyId]);
+
+  const participationRate = report.participation.completedDays / report.participation.totalDays;
 
   useEffect(() => {
     return () => {
@@ -75,7 +184,7 @@ export default function DashboardPage() {
         </Pressable>
         <Text style={styles.headerTitle}>어머니 리포트</Text>
         <View style={[styles.headerSide, styles.monthSide]} accessibilityElementsHidden>
-          <Text style={styles.monthText}>{REPORT_MOCK_DATA.month} ▼</Text>
+          <Text style={styles.monthText}>{report.month} ▼</Text>
         </View>
       </View>
 
@@ -84,27 +193,27 @@ export default function DashboardPage() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 36 }]}
       >
         <View style={styles.statusCard}>
-          <Text style={styles.weatherIcon} accessibilityLabel="비 오는 날씨">
-            {REPORT_MOCK_DATA.status.icon}
+          <Text style={styles.weatherIcon} accessibilityLabel={report.status.title}>
+            {report.status.icon}
           </Text>
           <View style={styles.statusCopy}>
-            <Text style={styles.statusTitle}>{REPORT_MOCK_DATA.status.title}</Text>
-            <Text style={styles.statusDescription}>{REPORT_MOCK_DATA.status.description}</Text>
+            <Text style={styles.statusTitle}>{report.status.title}</Text>
+            <Text style={styles.statusDescription}>{report.status.description}</Text>
           </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>이번 달 검사 참여</Text>
           <Text style={styles.participationText}>
-            {REPORT_MOCK_DATA.participation.completedDays}일 / {REPORT_MOCK_DATA.participation.totalDays}일 참여
+            {report.participation.completedDays}일 / {report.participation.totalDays}일 참여
           </Text>
           <View
             style={styles.progressTrack}
             accessibilityRole="progressbar"
             accessibilityValue={{
               min: 0,
-              max: REPORT_MOCK_DATA.participation.totalDays,
-              now: REPORT_MOCK_DATA.participation.completedDays,
+              max: report.participation.totalDays,
+              now: report.participation.completedDays,
             }}
           >
             <View style={[styles.progressFill, { width: `${participationRate * 100}%` }]} />
@@ -115,8 +224,8 @@ export default function DashboardPage() {
           <Text style={styles.sectionTitle}>목소리 변화 추이</Text>
           <View style={styles.chartCard}>
             <View style={[styles.chart, { height: CHART_HEIGHT }]}>
-              {REPORT_MOCK_DATA.weeklyVoice.map((item) => (
-                <View key={item.day} style={styles.barColumn}>
+              {report.weeklyVoice.map((item, i) => (
+                <View key={i} style={styles.barColumn}>
                   {item.state === "pending" ? (
                     <View style={[styles.pendingBar, { height: `${item.value}%` }]} />
                   ) : (
@@ -132,8 +241,8 @@ export default function DashboardPage() {
               ))}
             </View>
             <View style={styles.axisRow}>
-              {REPORT_MOCK_DATA.weeklyVoice.map((item) => (
-                <Text key={item.day} style={styles.axisLabel}>
+              {report.weeklyVoice.map((item, i) => (
+                <Text key={i} style={styles.axisLabel}>
                   {item.day}
                 </Text>
               ))}
@@ -153,23 +262,25 @@ export default function DashboardPage() {
 
         <View style={styles.summaryCard}>
           <Text style={styles.sectionTitle}>이달의 요약</Text>
-          <Text style={styles.summaryText}>{REPORT_MOCK_DATA.summary}</Text>
-          <Text style={styles.disclaimer}>참고용 — 의학적 진단이 아닙니다</Text>
+          <Text style={styles.summaryText}>{report.summary}</Text>
+          <Text style={styles.disclaimer}>참고용 정보예요 — 의료 행위가 아니에요</Text>
         </View>
 
-        <View style={styles.alertCard}>
-          <View style={styles.alertBar} />
-          <View style={styles.alertContent}>
-            <Text style={styles.alertTitle}>⚠️ {REPORT_MOCK_DATA.alert.title}</Text>
-            <Text style={styles.alertPeriod}>{REPORT_MOCK_DATA.alert.period}</Text>
-            <Pressable
-              style={({ pressed }) => [styles.outlineButton, pressed && styles.buttonPressed]}
-              accessibilityRole="button"
-            >
-              <Text style={styles.outlineButtonText}>전문가 상담 알아보기 →</Text>
-            </Pressable>
+        {report.alert ? (
+          <View style={styles.alertCard}>
+            <View style={styles.alertBar} />
+            <View style={styles.alertContent}>
+              <Text style={styles.alertTitle}>⚠️ {report.alert.title}</Text>
+              <Text style={styles.alertPeriod}>{report.alert.period}</Text>
+              <Pressable
+                style={({ pressed }) => [styles.outlineButton, pressed && styles.buttonPressed]}
+                accessibilityRole="button"
+              >
+                <Text style={styles.outlineButtonText}>전문가 상담 알아보기 →</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
+        ) : null}
 
         <Pressable
           style={({ pressed }) => [styles.exportButton, pressed && styles.buttonPressed]}

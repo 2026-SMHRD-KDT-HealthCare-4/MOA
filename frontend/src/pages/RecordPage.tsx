@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -15,8 +16,14 @@ import { MicIcon } from "../components/icons/MicIcon";
 import { Waveform } from "../components/Waveform";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { useRecorder } from "../features/record/useRecorder";
+import { getTodayScript, saveScriptRecord, type TodayScript } from "../api/record";
+import { useAuthStore } from "../stores/authStore";
 
 const RECORD_SECONDS = 30;
+
+// 백엔드 문구를 못 가져올 때(mock 모드·오프라인) 보여줄 기본 지정문구.
+const DEFAULT_SCRIPT: TodayScript = { scriptId: "", content: "오늘도 좋은 하루\n보내세요." };
+const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
 
 function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -33,6 +40,23 @@ export default function RecordPage() {
 
   const { state, transcript, durationMs, permissionDenied, start, stop, reset } = useRecorder();
 
+  // 오늘의 지정문구. real 모드에서만 서버 조회, 실패 시 기본 문구 유지.
+  const [script, setScript] = useState<TodayScript>(DEFAULT_SCRIPT);
+  useEffect(() => {
+    if (!REAL_API) return;
+    let alive = true;
+    getTodayScript()
+      .then((s) => {
+        if (alive) setScript(s);
+      })
+      .catch(() => {
+        // 기본 문구 유지
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
   const isDone       = state === "done";
@@ -40,7 +64,24 @@ export default function RecordPage() {
   const mood = isRecording ? "listening" : isDone ? "happy" : "idle";
   const progress = Math.min((Math.floor(durationMs / 1000)) / RECORD_SECONDS, 1);
 
-  function handleSave() {
+  const role = useAuthStore((s) => s.role);
+  const user = useAuthStore((s) => s.user);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (saving) return;
+    // 낭독 기록 저장은 직접사용자 본인만 (보호자 자가 체크인은 저장 대상 아님).
+    // 저장에 실패해도 흐름은 막지 않는다.
+    if (REAL_API && role === "elder" && script.scriptId && user) {
+      setSaving(true);
+      try {
+        await saveScriptRecord(script.scriptId, user.id);
+      } catch {
+        // 저장 실패 — 다음 동기화에서 보완 (흐름 유지)
+      } finally {
+        setSaving(false);
+      }
+    }
     router.replace("/done");
   }
 
@@ -84,7 +125,7 @@ export default function RecordPage() {
           <View style={styles.copyWrap}>
             <Text style={styles.recordingGuide}>다음 문장을{"\n"}소리 내어 읽어주세요.</Text>
             <View style={styles.sentenceCard}>
-              <Text style={styles.sentence}>오늘도 좋은 하루{"\n"}보내세요.</Text>
+              <Text style={styles.sentence}>{script.content}</Text>
             </View>
           </View>
         )}
@@ -162,11 +203,16 @@ export default function RecordPage() {
               <TouchableOpacity
                 style={styles.saveBtn}
                 onPress={handleSave}
+                disabled={saving}
                 activeOpacity={0.85}
                 accessibilityLabel="저장하기"
               >
-                <CheckCircle size={22} color="white" />
-                <Text style={styles.saveBtnText}>저장하기</Text>
+                {saving ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <CheckCircle size={22} color="white" />
+                )}
+                <Text style={styles.saveBtnText}>{saving ? "저장 중…" : "저장하기"}</Text>
               </TouchableOpacity>
             </View>
           )}

@@ -80,12 +80,12 @@ export default function SettingsPage() {
                 </View>
                 <View>
                   <Text style={styles.rowTitle}>
-                    {isElder ? "건강 기록 알림" : "직접사용자 상태 알림"}
+                    {isElder ? "건강 기록 알림" : "가족 상태 알림"}
                   </Text>
                   <Text style={styles.rowSub}>
                     {isElder
                       ? "매일 오전 기록을 도와드려요"
-                      : "직접사용자 변화가 감지되면 알려드려요"}
+                      : "가족의 변화가 감지되면 알려드려요"}
                   </Text>
                 </View>
               </View>
@@ -140,7 +140,7 @@ export default function SettingsPage() {
                 </View>
                 <View>
                   <Text style={styles.rowTitle}>현재 역할</Text>
-                  <Text style={styles.rowSub}>{isElder ? "직접사용자" : "보호자"}</Text>
+                  <Text style={styles.rowSub}>{isElder ? "본인" : "보호자"}</Text>
                 </View>
               </View>
             </View>

@@ -37,13 +37,13 @@ export default function RoleSelectPage() {
           onPress={handleElder}
           activeOpacity={0.85}
           accessibilityRole="button"
-          accessibilityLabel="직접사용자로 시작하기"
+          accessibilityLabel="본인 사용으로 시작하기"
         >
           <View style={[styles.iconWrap, styles.iconWrapElder]}>
             <User size={34} color="#4F5A60" strokeWidth={2.2} />
           </View>
           <View style={styles.cardTextWrap}>
-            <Text style={styles.cardTitle}>직접사용자</Text>
+            <Text style={styles.cardTitle}>직접 사용</Text>
             <Text style={styles.cardDesc}>초대 코드를 입력해 가족과 연결해요</Text>
           </View>
         </TouchableOpacity>

@@ -51,7 +51,7 @@ export default function OnboardingPage() {
   async function handleShareCode() {
     if (!inviteCode) return;
     await Share.share({
-      message: `MOA 초대 코드: ${inviteCode}\n직접사용자 기기에서 이 코드를 입력해 연결해 주세요.`,
+      message: `MOA 초대 코드: ${inviteCode}\n${name.trim()}님 기기에서 이 코드를 입력해 연결해 주세요.`,
     });
   }
 
@@ -80,7 +80,7 @@ export default function OnboardingPage() {
             </View>
             <Text style={styles.title}>부모님 정보를 등록해 주세요</Text>
             <Text style={styles.subtitle}>
-              등록이 끝나면 직접사용자 기기에서 입력할 초대 코드를 발급해 드려요.
+              등록이 끝나면 부모님 기기에서 입력할 초대 코드를 발급해 드려요.
             </Text>
 
             <View style={styles.form}>
@@ -126,7 +126,7 @@ export default function OnboardingPage() {
             </View>
             <Text style={styles.title}>{name.trim()}님 등록 완료</Text>
             <Text style={styles.subtitle}>
-              아래 코드를 직접사용자 기기의 초대 코드 입력 화면에 넣으면 가족 연결이 완료돼요.
+              {`아래 코드를 ${name.trim()}님 기기의 초대 코드 입력 화면에 넣으면 가족 연결이 완료돼요.`}
             </Text>
 
             <View style={styles.codePanel}>
@@ -134,7 +134,7 @@ export default function OnboardingPage() {
               <Text selectable style={styles.codeText}>
                 {inviteCode}
               </Text>
-              <Text style={styles.codeHint}>직접사용자 기기에서 동의와 코드 입력을 진행해 주세요.</Text>
+              <Text style={styles.codeHint}>{`${name.trim()}님 기기에서 동의와 코드 입력을 진행해 주세요.`}</Text>
             </View>
 
             <TouchableOpacity style={styles.secondaryBtn} onPress={handleShareCode} activeOpacity={0.82}>

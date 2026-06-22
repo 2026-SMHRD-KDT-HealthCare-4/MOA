@@ -49,7 +49,7 @@ export default function ElderConsentPage() {
         <View style={styles.card}>
           <Text style={styles.cardItem}>목소리의 변화 패턴을 참고용으로 기록하고 살펴봐요.</Text>
           <Text style={styles.cardItem}>녹음 파일은 분석이 끝나면 바로 지우고, 기기에 저장하지 않아요.</Text>
-          <Text style={styles.cardItem}>질병을 진단하지 않는 일상 변화 참고 서비스예요.</Text>
+          <Text style={styles.cardItem}>의료 행위가 아닌, 일상 변화를 살펴보는 참고 서비스예요.</Text>
         </View>
 
         <View style={styles.noticeRow}>
