@@ -326,20 +326,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   hydrate: async () => {
-    const restored = await restoreSession();
-    if (restored) {
-      set({
-        ...sessionState(restored.user, {
-          refreshToken: restored.refreshToken,
-          consentDone: restored.consentDone,
-          familyGroup: restored.familyGroup,
-          links: restored.links,
-          guardianMembers: restored.guardianMembers,
-          onboardingDone: restored.onboardingDone,
-        }),
-        hydrated: true,
-      });
-    } else {
+    try {
+      const restored = await restoreSession();
+      if (restored) {
+        set({
+          ...sessionState(restored.user, {
+            refreshToken: restored.refreshToken,
+            consentDone: restored.consentDone,
+            familyGroup: restored.familyGroup,
+            links: restored.links,
+            guardianMembers: restored.guardianMembers,
+            onboardingDone: restored.onboardingDone,
+          }),
+          hydrated: true,
+        });
+      } else {
+        set({ hydrated: true });
+      }
+    } catch {
+      // 세션 복원 실패해도 앱은 로그인 화면으로 부팅(크래시 방지).
       set({ hydrated: true });
     }
   },

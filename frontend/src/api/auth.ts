@@ -1115,7 +1115,15 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     const token = await getToken();
     if (!token) return null;
 
-    const me = await apiFetch<BackendMeResponse>("/auth/me", { auth: true });
+    let me: BackendMeResponse;
+    try {
+      me = await apiFetch<BackendMeResponse>("/auth/me", { auth: true });
+    } catch {
+      // 저장된 토큰이 만료/무효 → 크래시 대신 깨끗이 로그아웃 상태로 복귀(로그인 화면).
+      await clearToken();
+      realCurrentUser = null;
+      return null;
+    }
     const user: SessionUser = {
       id: me.user_id,
       name: me.name,
