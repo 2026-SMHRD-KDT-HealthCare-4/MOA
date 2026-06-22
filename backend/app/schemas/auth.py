@@ -129,3 +129,21 @@ class GuardianSeniorResponse(BaseModel):
 
 class LinkStatusUpdateRequest(BaseModel):
     link_status: Literal["ACTIVE", "REVOKED"]
+
+
+# ---------- 고령층 재연결 ----------
+
+class ReconnectCodeResponse(BaseModel):
+    code: str
+    expired_at: datetime
+
+
+class ReconnectRequest(BaseModel):
+    code: str
+
+
+class ReconnectResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    role: str
+    name: str

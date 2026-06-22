@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_guardian, get_current_user_id
-from app.core.supabase_client import supabase
-from app.models.models import Guardian, GuardianSenior, Invite, LinkStatus, Senior
+from app.core.supabase_client import supabase, supabase_admin
+from app.models.models import Guardian, GuardianSenior, Invite, LinkStatus, ReconnectCode, Senior
 from app.schemas.auth import (
     GuardianRegisterRequest,
     GuardianResponse,
@@ -31,6 +31,9 @@ from app.schemas.auth import (
     LinkStatusUpdateRequest,
     LoginRequest,
     MeResponse,
+    ReconnectCodeResponse,
+    ReconnectRequest,
+    ReconnectResponse,
     SeniorRegisterRequest,
     SeniorResponse,
 )
@@ -370,3 +373,106 @@ def update_link_status(
     db.commit()
     db.refresh(link)
     return link
+
+
+# ---------------------------------------------------------------------------
+# 고령층 재연결 코드 — 요구사항: 고령층 재로그인
+# 고령층은 랜덤 이메일/비번으로 가입되어 비밀번호 로그인이 불가능하다.
+# 보호자가 재연결 코드를 발급하고, 고령층이 입력하면 매직링크 세션으로 교환한다.
+# ---------------------------------------------------------------------------
+
+RECONNECT_EXPIRE_HOURS = 1
+
+
+def _generate_unique_reconnect_code(db: Session) -> str:
+    while True:
+        code = f"{_generate_invite_code_part()}-{_generate_invite_code_part()}"
+        if not db.query(ReconnectCode).filter(ReconnectCode.code == code).first():
+            return code
+
+
+@router.post("/senior/{senior_id}/reconnect-code", response_model=ReconnectCodeResponse)
+def create_reconnect_code(
+    senior_id: UUID,
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """보호자가 담당 고령층의 재연결 코드 발급. ACTIVE 연동 관계가 있어야만 발급 가능."""
+    link = (
+        db.query(GuardianSenior)
+        .filter(
+            GuardianSenior.guardian_id == guardian.guardian_id,
+            GuardianSenior.senior_id == senior_id,
+            GuardianSenior.link_status == LinkStatus.ACTIVE.value,
+        )
+        .first()
+    )
+    if link is None:
+        raise HTTPException(status_code=403, detail="연동된 고령층이 아닙니다.")
+
+    code = _generate_unique_reconnect_code(db)
+    reconnect = ReconnectCode(
+        code=code,
+        senior_id=senior_id,
+        guardian_id=guardian.guardian_id,
+        expired_at=datetime.utcnow() + timedelta(hours=RECONNECT_EXPIRE_HOURS),
+    )
+    db.add(reconnect)
+    db.commit()
+    db.refresh(reconnect)
+    return reconnect
+
+
+@router.post("/senior/reconnect", response_model=ReconnectResponse)
+def reconnect_senior(req: ReconnectRequest, db: Session = Depends(get_db)):
+    """고령층이 재연결 코드로 세션 발급. 인증 불필요 (로그아웃 상태에서 호출).
+
+    내부 흐름:
+    1) admin.generate_link(magiclink) → hashed_token 추출 (이메일 미전송)
+    2) verify_otp(token_hash) → access_token / refresh_token 획득
+    3) 코드 is_used = True 마킹 후 토큰 반환
+    """
+    normalized = req.code.strip().upper()
+    reconnect = db.query(ReconnectCode).filter(ReconnectCode.code == normalized).first()
+
+    if reconnect is None:
+        raise HTTPException(status_code=404, detail="재연결 코드를 찾을 수 없습니다.")
+    if reconnect.is_used:
+        raise HTTPException(status_code=400, detail="이미 사용된 재연결 코드입니다.")
+    if reconnect.expired_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="만료된 재연결 코드입니다. 보호자에게 재발급을 요청해주세요.")
+
+    senior = db.query(Senior).filter(Senior.senior_id == reconnect.senior_id).first()
+    if senior is None:
+        raise HTTPException(status_code=404, detail="고령층 정보를 찾을 수 없습니다.")
+
+    try:
+        # 매직링크 생성 — 이메일은 보내지 않고 hashed_token만 추출 (service_role 필수)
+        link_res = supabase_admin.auth.admin.generate_link({
+            "type": "magiclink",
+            "email": senior.email,
+        })
+        hashed_token = link_res.properties.hashed_token
+
+        # hashed_token으로 OTP 검증 → 세션 획득
+        session_res = supabase.auth.verify_otp({
+            "token_hash": hashed_token,
+            "type": "magiclink",
+        })
+        session = session_res.session
+        if session is None:
+            raise HTTPException(status_code=500, detail="세션 발급에 실패했습니다.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"재연결 세션 발급 실패: {e}")
+
+    reconnect.is_used = True
+    db.commit()
+
+    return ReconnectResponse(
+        access_token=session.access_token,
+        refresh_token=session.refresh_token,
+        role="senior",
+        name=senior.name,
+    )

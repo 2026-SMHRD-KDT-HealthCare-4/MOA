@@ -372,3 +372,21 @@ class MonthlyReport(Base):
     )
 
     senior = relationship("Senior", backref="monthly_reports")
+
+
+class ReconnectCode(Base):
+    """고령층 재연결 코드 (RECONNECT_CODE).
+    보호자가 발급하고 고령층이 앱 재연결 시 1회 사용하는 단기 코드. 형식은 Invite와 동일한 XXX-XXX.
+    고령층은 랜덤 자격증명으로 가입되므로 비밀번호 로그인이 불가능하다. 이 코드가 유일한 재로그인 수단.
+    """
+    __tablename__ = "reconnect_code"
+
+    code = Column(String(7), primary_key=True)
+    senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
+    guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expired_at = Column(DateTime, nullable=False)  # 생성 + 1시간
+    is_used = Column(Boolean, nullable=False, default=False)
+
+    senior = relationship("Senior", backref="reconnect_codes")
+    guardian = relationship("Guardian", backref="reconnect_codes")
