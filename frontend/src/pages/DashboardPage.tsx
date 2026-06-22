@@ -322,18 +322,21 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   backText: {
+    fontFamily: "Pretendard-Bold",
     color: COLOR.text,
     fontSize: 30,
     lineHeight: 36,
     fontWeight: "700",
   },
   headerTitle: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.text,
     fontSize: 22,
     lineHeight: 29,
     fontWeight: "900",
   },
   monthText: {
+    fontFamily: "Pretendard-Bold",
     color: COLOR.secondary,
     fontSize: 14,
     lineHeight: 20,
@@ -361,12 +364,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statusTitle: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.text,
     fontSize: 20,
     lineHeight: 28,
     fontWeight: "900",
   },
   statusDescription: {
+    fontFamily: "Pretendard-Medium",
     color: COLOR.secondary,
     fontSize: 16,
     lineHeight: 23,
@@ -376,12 +381,14 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.text,
     fontSize: 22,
     lineHeight: 29,
     fontWeight: "900",
   },
   participationText: {
+    fontFamily: "Pretendard-Bold",
     color: COLOR.text,
     fontSize: 18,
     lineHeight: 25,
@@ -440,6 +447,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   axisLabel: {
+    fontFamily: "Pretendard-Bold",
     flex: 1,
     color: COLOR.secondary,
     fontSize: 14,
@@ -470,6 +478,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.warning,
   },
   legendText: {
+    fontFamily: "Pretendard-Bold",
     color: COLOR.secondary,
     fontSize: 14,
     lineHeight: 20,
@@ -482,12 +491,14 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   summaryText: {
+    fontFamily: "Pretendard-Medium",
     color: COLOR.text,
     fontSize: 18,
     lineHeight: 28,
     fontWeight: "600",
   },
   disclaimer: {
+    fontFamily: "Pretendard-Medium",
     color: COLOR.secondary,
     fontSize: 12,
     lineHeight: 18,
@@ -510,12 +521,14 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   alertTitle: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.warning,
     fontSize: 18,
     lineHeight: 25,
     fontWeight: "900",
   },
   alertPeriod: {
+    fontFamily: "Pretendard-Bold",
     color: COLOR.secondary,
     fontSize: 14,
     lineHeight: 20,
@@ -533,6 +546,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.background,
   },
   outlineButtonText: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.brand,
     fontSize: 16,
     lineHeight: 22,
@@ -548,6 +562,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.background,
   },
   exportButtonText: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.brand,
     fontSize: 18,
     lineHeight: 25,
@@ -565,6 +580,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.text,
   },
   toastText: {
+    fontFamily: "Pretendard-ExtraBold",
     color: COLOR.background,
     fontSize: 16,
     lineHeight: 22,
