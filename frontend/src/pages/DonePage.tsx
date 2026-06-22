@@ -23,10 +23,14 @@ export default function DonePage() {
   const v = H / 900;
 
   const charLeft         = Math.round(40 * s);
-  const charTop          = Math.round(70  * v) + insets.top;
-  const charHeight       = Math.round(390 * v);
-  const charBorderRadius = Math.round(160 * s);
-  const cardBottom       = Math.round(118 * v) + insets.bottom;
+  const charTop          = Math.round(76  * v) + insets.top;
+  const charHeight       = Math.round(350 * v);
+  const charBorderRadius = Math.round(132 * s);
+  const cardBottom       = Math.round(225 * v) + insets.bottom;
+  // TODO: replace with record-history comparison from the report API.
+  const resultDetails = "지난 검사와 비슷해요.\n특별한 변화는 없어요.\n내일도 모아와 이야기해요.";
+  const comparisonText = "";
+  const recordStatusText = "처음으로 가기";
 
   return (
     <View style={styles.fill}>
@@ -54,18 +58,25 @@ export default function DonePage() {
       <View style={[styles.feedbackCard, { bottom: cardBottom }]}>
         <View style={styles.feedbackHeadline}>
           <SunIcon />
+          <View>
+            <Text style={styles.feedbackPrimary}>오늘 목소리는</Text>
+            <Text style={styles.feedbackAccent}>맑은 편이에요!</Text>
+          </View>
           <Text style={styles.feedbackText}>오늘 목소리는{"\n"}맑은 편이에요!</Text>
         </View>
         <Text style={styles.feedbackSub}>
           오늘 목소리를 들려주셔서 고마워요.{"\n"}내일도 이야기해 주실 거죠?
         </Text>
+        <Text style={styles.resultDetails}>{resultDetails}</Text>
+        <Text style={styles.comparisonText}>{comparisonText}</Text>
+        <Text style={styles.completeText}>오늘 음성 분석이 정상적으로 완료되었어요.</Text>
       </View>
 
       {/* 녹음 다시 하기 */}
       <Pressable
         style={({ pressed }) => [
           styles.recordAgainBtn,
-          { bottom: cardBottom - 74, left: 18, right: 18 },
+          { bottom: cardBottom - 92, left: 18, right: 18 },
           pressed && { opacity: 0.92, transform: [{ scale: 0.985 }] },
         ]}
         onPress={() => router.replace(recordHref)}
@@ -80,7 +91,9 @@ export default function DonePage() {
         style={[styles.restartBtn, { top: insets.top + 24, right: 18 }]}
         onPress={() => router.replace(homeHref)}
         accessibilityRole="button"
+        accessibilityLabel="홈으로 돌아가기"
       >
+        <Text style={styles.statusLabel}>{recordStatusText}</Text>
         <Text style={styles.restartText}>처음으로</Text>
       </Pressable>
     </View>
@@ -107,11 +120,12 @@ const styles = StyleSheet.create({
 
   feedbackCard: {
     position: "absolute",
-    left: 22, right: 22,
-    minHeight: 145,
+    left: 16, right: 16,
+    minHeight: 225,
     borderRadius: 25,
     backgroundColor: "rgba(255,255,255,0.96)",
-    padding: 20,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
     shadowColor: "#6A4B3C",
     shadowOpacity: 0.09,
     shadowRadius: 16,
@@ -125,22 +139,63 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   feedbackText: {
+    display: "none",
     color: "#3B332F",
-    fontSize: 19,
-    lineHeight: 27,
+    fontSize: 21,
+    lineHeight: 30,
+    fontWeight: "900",
+  },
+  feedbackPrimary: {
+    color: "#3B332F",
+    fontSize: 24,
+    lineHeight: 31,
+    fontWeight: "900",
+  },
+  feedbackAccent: {
+    color: "#FF765A",
+    fontSize: 26,
+    lineHeight: 34,
     fontWeight: "900",
   },
   feedbackSub: {
+    display: "none",
     marginTop: 12,
     color: "#71625A",
-    fontSize: 14,
+    fontSize: 15,
+    lineHeight: 22,
     textAlign: "center",
     fontWeight: "600",
+  },
+  comparisonText: {
+    display: "none",
+    marginTop: 9,
+    color: "#668D5F",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  completeText: {
+    display: "none",
+    marginTop: 8,
+    color: "#9A887D",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  resultDetails: {
+    marginTop: 22,
+    color: "#5B4B43",
+    fontSize: 18,
+    lineHeight: 33,
+    fontWeight: "700",
+    textAlign: "center",
   },
 
   recordAgainBtn: {
     position: "absolute",
-    height: 74,
+    height: 80,
     borderRadius: 23,
     backgroundColor: "#FF7955",
     flexDirection: "row",
@@ -167,8 +222,13 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   restartText: {
-    color: "#8D796D",
+    display: "none",
     fontSize: 13,
+    fontWeight: "700",
+  },
+  statusLabel: {
+    color: "#8D796D",
+    fontSize: 14,
     fontWeight: "700",
   },
 });

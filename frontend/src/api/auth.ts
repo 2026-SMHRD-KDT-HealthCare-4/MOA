@@ -389,7 +389,7 @@ export async function apiFetch<T>(
 export interface ScriptResponseData {
   script_id: string;
   content: string;
-  created_at: string;
+  created_at?: string;
 }
 
 export async function getTodayScript(): Promise<{ data: ScriptResponseData }> {
@@ -1174,3 +1174,11 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     ...familyStateForUser(user),
   };
 }
+
+const DEFAULT_DAILY_SCRIPT: ScriptResponseData = {
+  script_id: "daily-script-fallback",
+  content:
+    "가을은 참 아름다운 계절입니다. 높고 푸른 하늘 아래 산들이 울긋불긋 단풍으로 물들고, 들판에는 오곡백과가 풍성하게 익어갑니다.",
+};
+
+

@@ -302,12 +302,8 @@ async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse
     return await callBackendChatbotApi(params);
   } catch (error) {
     console.warn("[MOA_CHATBOT_BACKEND_FALLBACK]", error);
-    try {
-      return await callOpenAIChatbotApi(params);
-    } catch (llmError) {
-      console.warn("[MOA_CHATBOT_LLM_FALLBACK]", llmError);
-      return mockChatbotApi(params);
-    }
+    // Do not bypass backend rule validation with a browser-side LLM call.
+    return mockChatbotApi(params);
   }
 }
 
@@ -316,11 +312,14 @@ export function useMoaChat() {
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
+  const [route, setRoute] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
   const sendingMessageRef = useRef(false);
   const conversationTurnRef = useRef(0);
   const validSpeechDurationRef = useRef(0);
+  const conversationTopicRef = useRef<string | null>(null);
+  const questionIndexRef = useRef(0);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
   async function sendMessage(text: string, acousticMeta?: Partial<ChatbotApiParams["acoustic_meta"]>) {
@@ -343,12 +342,17 @@ export function useMoaChat() {
           role: message.role === "user" ? "user" : "assistant",
           content: message.text,
         })),
+        current_topic: conversationTopicRef.current,
+        question_index: questionIndexRef.current,
         acoustic_meta: { duration_ms: 0, pause_events: 0, ...acousticMeta },
       };
 
       const res: ChatbotResponse = await callChatbotApi(params);
+      setRoute(res.data.route ?? null);
       conversationTurnRef.current += 1;
       validSpeechDurationRef.current += params.acoustic_meta.duration_ms;
+      conversationTopicRef.current = res.data.conversation_topic ?? conversationTopicRef.current;
+      questionIndexRef.current = res.data.question_index ?? questionIndexRef.current;
 
       const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);
@@ -407,7 +411,7 @@ export function useMoaChat() {
     }
   }
 
-  return { messages, isBotTyping, isBotSpeaking, botEmotion, sendMessage };
+  return { messages, isBotTyping, isBotSpeaking, botEmotion, route, clearRoute: () => setRoute(null), sendMessage };
 }
 
 function splitIntoSentenceChunks(text: string): string[] {

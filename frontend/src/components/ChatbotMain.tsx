@@ -78,7 +78,7 @@ export default function ChatbotMain() {
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
   const [isConversationActive, setIsConversationActive] = useState(false);
-  const { messages, isBotTyping, isBotSpeaking, botEmotion: liveBotEmotion, sendMessage } = useMoaChat();
+  const { messages, isBotTyping, isBotSpeaking, botEmotion: liveBotEmotion, route, clearRoute, sendMessage } = useMoaChat();
   const {
     state: recorderState,
     transcript,
@@ -107,6 +107,13 @@ export default function ChatbotMain() {
   const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
   const resultHref = role === "guardian" ? "/(guardian)/report" : "/(elder)/history";
 
+  useEffect(() => {
+    if (!route) return;
+    clearRoute();
+    if (route === "/record") router.push(recordHref);
+    else router.push(resultHref);
+  }, [clearRoute, recordHref, resultHref, route, router]);
+
   function streamReplyCharacters() {
     if (typewriterTimerRef.current) return;
 
@@ -126,6 +133,10 @@ export default function ChatbotMain() {
   function routeVoiceCommand(command: ReturnType<typeof detectVoiceCommand>) {
     if (command === "record") {
       router.push(recordHref);
+      return true;
+    }
+    if (command === "history") {
+      router.push(resultHref);
       return true;
     }
     if (command === "result") {
@@ -357,7 +368,7 @@ export default function ChatbotMain() {
 
   const headerTop = insets.top + Math.round(42 * v);
   const bubbleTop = insets.top + Math.round(94 * v);
-  const characterTop = insets.top + Math.round(164 * v);
+  const characterTop = insets.top + Math.round(184 * v);
   const navTopGap = Math.max(92 + insets.bottom, Math.round(92 * v) + insets.bottom);
   const characterHeight = H - characterTop - navTopGap;
   const recordBottom = Math.max(9, Math.round(9 * v));
@@ -374,8 +385,8 @@ export default function ChatbotMain() {
 
       <LinearGradient
         pointerEvents="none"
-        colors={["rgba(247,208,164,0)", "rgba(247,208,164,0.78)", "#FFF0DD"]}
-        locations={[0, 0.52, 1]}
+        colors={["rgba(247,214,172,0)", "rgba(247,214,172,0.72)", "#F7D6AC"]}
+        locations={[0, 0.58, 1]}
         style={styles.navBackdrop}
       />
 
@@ -463,6 +474,7 @@ export default function ChatbotMain() {
         <CharacterPlayer
           mood={mood}
           hasUserInteracted={hasUserInteracted}
+          bottomFadeColor="#F7D6AC"
           containerStyle={{
             left: 0,
             right: 0,
@@ -531,7 +543,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 220,
+    height: 240,
     zIndex: 6,
   },
   header: {

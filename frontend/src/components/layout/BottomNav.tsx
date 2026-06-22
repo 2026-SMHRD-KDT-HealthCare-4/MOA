@@ -43,7 +43,8 @@ const ELDER_THEME: NavTheme = {
   activeBg: "rgba(255,118,87,0.11)",
   containerBorder: "rgba(117,76,42,0.08)",
   containerBg: "rgba(255,255,255,0.88)",
-  areaColors: ["#FFF0DD", "#F8D3AA", "#FFF0DD"],
+  // Match the home-screen fade end color so the video background flows into the tab area.
+  areaColors: ["#F7D6AC", "#F7D6AC", "#F7D6AC"],
   areaTopPadding: 0,
   shadow: "0 -12px 30px rgba(75, 52, 42, 0.08)",
 };

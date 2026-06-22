@@ -42,6 +42,10 @@ export function GlobalWakeWordListener() {
       router.push((role === "guardian" ? "/(guardian)/record" : "/(elder)/record") as never);
       return true;
     }
+    if (command === "history") {
+      router.push((role === "guardian" ? "/(guardian)/report" : "/(elder)/history") as never);
+      return true;
+    }
     if (command === "result") {
       router.push((role === "guardian" ? "/(guardian)/report" : "/(elder)/history") as never);
       return true;

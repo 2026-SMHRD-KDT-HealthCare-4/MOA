@@ -247,7 +247,11 @@ export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }
       });
 
       const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        {
+          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+          // Native VAD needs metering; without it foreground wake listening waits for the 30s limit.
+          isMeteringEnabled: true,
+        },
       );
       recordingRef.current = recording;
       lastSpeechAtRef.current = 0;

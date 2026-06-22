@@ -44,6 +44,8 @@ class DevChatRequest(BaseModel):
     valid_speech_duration_ms: int | None = None
     acoustic_meta: dict | None = None
     history: list[dict[str, str]] = Field(default_factory=list)
+    current_topic: str | None = None
+    question_index: int = 0
 
 
 class DevChatResponse(BaseModel):
@@ -60,7 +62,7 @@ def send_dev_message(req: DevChatRequest):
             for item in req.history[-8:]
             if item.get("role") in ("user", "assistant") and item.get("content")
         ]
-        result = chat_for_frontend(req.message, history)
+        result = chat_for_frontend(req.message, history, req.current_topic, req.question_index)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
 

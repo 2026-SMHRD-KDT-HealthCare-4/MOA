@@ -8,6 +8,7 @@ import {
   ViewStyle,
 } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
+import { LinearGradient } from "expo-linear-gradient";
 import { MoaAvatar } from "./MoaAvatar";
 import {
   AVATAR_VIDEO_LAYERS,
@@ -42,6 +43,8 @@ interface CharacterPlayerProps {
   size?: number;
   circular?: boolean;
   containerStyle?: StyleProp<ViewStyle>;
+  /** Optional bottom fade used when the video needs to blend into a page background. */
+  bottomFadeColor?: string;
 }
 
 const MOOD_MAP: Record<Exclude<CharacterMood, "intro">, BotEmotion> = {
@@ -131,11 +134,13 @@ function AbsoluteCharacterVideo({
   containerStyle,
   autoplayAllowed,
   hasUserInteracted,
+  bottomFadeColor,
 }: {
   mood: CharacterMood;
   containerStyle: StyleProp<ViewStyle>;
   autoplayAllowed?: boolean;
   hasUserInteracted?: boolean;
+  bottomFadeColor?: string;
 }) {
   const layers = useMemo<PreparedLayer[]>(() => {
     return [
@@ -201,6 +206,14 @@ function AbsoluteCharacterVideo({
           isIntro={mood === "intro"}
         />
       ))}
+      {bottomFadeColor && (
+        <LinearGradient
+          pointerEvents="none"
+          colors={[`${bottomFadeColor}00`, `${bottomFadeColor}90`, bottomFadeColor]}
+          locations={[0, 0.45, 1]}
+          style={styles.bottomFadeMask}
+        />
+      )}
     </View>
   );
 }
@@ -212,6 +225,7 @@ export function CharacterPlayer({
   size = 200,
   circular = false,
   containerStyle,
+  bottomFadeColor,
 }: CharacterPlayerProps) {
   const emotion = mood === "intro" ? "default" : MOOD_MAP[mood];
 
@@ -222,6 +236,7 @@ export function CharacterPlayer({
         containerStyle={containerStyle}
         autoplayAllowed={autoplayAllowed}
         hasUserInteracted={hasUserInteracted}
+        bottomFadeColor={bottomFadeColor}
       />
     );
   }
@@ -253,5 +268,13 @@ const styles = StyleSheet.create({
   introVideoAdjust: {
     top: -70,
     bottom: 70,
+  },
+  bottomFadeMask: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    left: 0,
+    height: "28%",
+    zIndex: 3,
   },
 });

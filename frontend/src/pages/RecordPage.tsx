@@ -94,7 +94,7 @@ export default function RecordPage() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <LinearGradient colors={["#FFF9F1", "#FFFDF9"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#F7D6AC"]} style={StyleSheet.absoluteFill} />
 
       {/* 상단 바 */}
       <View style={styles.topBar}>

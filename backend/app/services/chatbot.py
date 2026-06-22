@@ -2,6 +2,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import os
 
+from app.services.conversation_rules import detect_rule, suggested_question, validate_llm_response
+
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -78,8 +80,23 @@ def chat_with_gpt(message: str, history: list = []) -> dict:
     return result
 
 
-def chat_for_frontend(message: str, history: list = []) -> dict:
-    messages = [{"role": "system", "content": FRONTEND_CHAT_PROMPT}]
+def chat_for_frontend(
+    message: str,
+    history: list = [],
+    current_topic: str | None = None,
+    question_index: int = 0,
+) -> dict:
+    forced = detect_rule(message)
+    if forced:
+        return forced
+
+    expected_question = suggested_question(current_topic, question_index)
+    topic_instruction = (
+        f"\nBackend conversation topic: {current_topic or 'none'}. "
+        f"Suggested follow-up question: {expected_question or 'choose the most relevant topic'}. "
+        "Safety, exit, and navigation decisions are handled by backend rules."
+    )
+    messages = [{"role": "system", "content": FRONTEND_CHAT_PROMPT + topic_instruction}]
     messages += history
     messages.append({"role": "user", "content": message})
 
@@ -93,6 +110,8 @@ def chat_for_frontend(message: str, history: list = []) -> dict:
     import json
 
     result = json.loads(response.choices[0].message.content)
+
+    return validate_llm_response(result, message, current_topic, question_index)
 
     return {
         "reply": result.get("reply", "그랬군요. 제가 조금 더 들어드릴게요."),

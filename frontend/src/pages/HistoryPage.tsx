@@ -68,7 +68,7 @@ export default function HistoryPage() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#FFF0DD"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#F7D6AC"]} style={StyleSheet.absoluteFill} />
 
       {/* 헤더 */}
       <View style={styles.header}>
