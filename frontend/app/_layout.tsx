@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import { useAuthStore } from "../src/stores/authStore";
+import { GlobalWakeWordListener } from "../src/components/GlobalWakeWordListener";
 
 // 인증/역할 라우트 가드.
 // 로그인 상태·역할을 보고 (auth)/(elder)/(guardian) 영역으로 정리한다.
@@ -73,6 +74,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
+      <GlobalWakeWordListener />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index"      options={{ animation: "none" }} />
         <Stack.Screen name="(auth)"     options={{ animation: "slide_from_bottom" }} />

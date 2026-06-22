@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -10,13 +11,19 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Circle } from "react-native-svg";
 import { ArrowLeft, RotateCcw, CheckCircle } from "lucide-react-native";
 import { MicIcon } from "../components/icons/MicIcon";
 import { Waveform } from "../components/Waveform";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { useRecorder } from "../features/record/useRecorder";
+import * as authApi from "../api/auth";
 
 const RECORD_SECONDS = 30;
+const RING_SIZE = 114;
+const RING_STROKE = 5;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -32,13 +39,28 @@ export default function RecordPage() {
   const W = Math.min(windowWidth, 430);
 
   const { state, transcript, durationMs, permissionDenied, start, stop, reset } = useRecorder();
+  const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void authApi.getTodayScript().then((result) => {
+      if (mounted) setDailyScript(result.data);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
   const isDone       = state === "done";
 
   const mood = isRecording ? "listening" : isDone ? "happy" : "idle";
-  const progress = Math.min((Math.floor(durationMs / 1000)) / RECORD_SECONDS, 1);
+  const elapsedSeconds = durationMs / 1000;
+  const progress = Math.min(elapsedSeconds / RECORD_SECONDS, 1);
+  const showProgressRing = isRecording || isProcessing;
+  const ringProgress = isProcessing ? 1 : progress;
+  const strokeDashoffset = RING_CIRCUMFERENCE * (1 - ringProgress);
 
   function handleSave() {
     router.replace("/done");
@@ -80,11 +102,13 @@ export default function RecordPage() {
         </View>
 
         {/* 가이드 + 문장 카드 */}
-        {!isRecording && !isDone && !isProcessing && (
+        {!isDone && !isProcessing && (
           <View style={styles.copyWrap}>
             <Text style={styles.recordingGuide}>다음 문장을{"\n"}소리 내어 읽어주세요.</Text>
             <View style={styles.sentenceCard}>
-              <Text style={styles.sentence}>오늘도 좋은 하루{"\n"}보내세요.</Text>
+              <Text style={styles.sentence}>
+                {dailyScript?.content ?? "오늘의 지정문구를 불러오고 있어요."}
+              </Text>
             </View>
           </View>
         )}
@@ -125,14 +149,36 @@ export default function RecordPage() {
         <View style={styles.actions}>
           {!isDone ? (
             <View style={styles.recordButtonOuter}>
-              {/* 원형 진행 인디케이터 */}
-              {isRecording && (
-                <View
-                  style={[
-                    styles.recordProgress,
-                    { transform: [{ rotate: `${progress * 360}deg` }] },
-                  ]}
-                />
+              {/* 회전하지 않는 30초 SVG 진행 링 */}
+              {showProgressRing && (
+                <Svg
+                  width={RING_SIZE}
+                  height={RING_SIZE}
+                  viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+                  style={styles.recordProgress}
+                  pointerEvents="none"
+                >
+                  <Circle
+                    cx={RING_SIZE / 2}
+                    cy={RING_SIZE / 2}
+                    r={RING_RADIUS}
+                    stroke="#F1E2D1"
+                    strokeWidth={RING_STROKE}
+                    fill="none"
+                  />
+                  <Circle
+                    cx={RING_SIZE / 2}
+                    cy={RING_SIZE / 2}
+                    r={RING_RADIUS}
+                    stroke="#70AB69"
+                    strokeWidth={RING_STROKE}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+                    strokeDashoffset={strokeDashoffset}
+                    transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+                  />
+                </Svg>
               )}
               <TouchableOpacity
                 style={[styles.recordButton, isRecording && styles.recordButtonActive]}
@@ -143,7 +189,7 @@ export default function RecordPage() {
               >
                 <MicIcon color="#FFFFFF" size={30} />
                 <Text style={styles.recordBtnText}>
-                  {isRecording ? "중지하기" : "시작하기"}
+                  {isRecording || isProcessing ? "중지하기" : "시작하기"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -282,18 +328,14 @@ const styles = StyleSheet.create({
   recordButtonOuter: {
     width: 102, height: 102,
     borderRadius: 51,
-    backgroundColor: "#F5E3D0",
+    backgroundColor: "#F1E2D1",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 5,
-    borderColor: "#E3D1BE",
   },
   recordProgress: {
     position: "absolute",
-    top: -5, width: 102, height: 51,
-    borderTopLeftRadius: 51, borderTopRightRadius: 51,
-    borderWidth: 5, borderBottomWidth: 0,
-    borderColor: "#70AB69",
+    width: RING_SIZE,
+    height: RING_SIZE,
   },
   recordButton: {
     width: 66, height: 66,
