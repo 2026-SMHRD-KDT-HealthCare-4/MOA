@@ -385,6 +385,21 @@ export async function apiFetch<T>(
   return body as T;
 }
 
+// 오늘의 지정문구(SCRIPT) 조회 — 녹음 화면 전용. 백엔드 GET /record/script/today.
+export interface ScriptResponseData {
+  script_id: string;
+  content: string;
+  created_at: string;
+}
+
+export async function getTodayScript(): Promise<{ data: ScriptResponseData }> {
+  const data = await apiFetch<ScriptResponseData>("/record/script/today", {
+    method: "GET",
+    auth: true,
+  });
+  return { data };
+}
+
 let realCurrentUser: SessionUser | null = null;
 
 function realFamilyGroupForGuardian(user: SessionUser): FamilyGroup {

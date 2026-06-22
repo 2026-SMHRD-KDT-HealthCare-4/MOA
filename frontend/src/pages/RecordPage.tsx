@@ -11,18 +11,22 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Circle } from "react-native-svg";
 import { ArrowLeft, RotateCcw, CheckCircle } from "lucide-react-native";
 import { MicIcon } from "../components/icons/MicIcon";
 import { Waveform } from "../components/Waveform";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { useRecorder } from "../features/record/useRecorder";
-import { getTodayScript, saveScriptRecord, type TodayScript } from "../api/record";
+import * as authApi from "../api/auth";
+import { saveScriptRecord } from "../api/record";
 import { useAuthStore } from "../stores/authStore";
 
 const RECORD_SECONDS = 30;
+const RING_SIZE = 114;
+const RING_STROKE = 5;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-// 백엔드 문구를 못 가져올 때(mock 모드·오프라인) 보여줄 기본 지정문구.
-const DEFAULT_SCRIPT: TodayScript = { scriptId: "", content: "오늘도 좋은 하루\n보내세요." };
 const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
 
 function formatDuration(ms: number): string {
@@ -39,21 +43,20 @@ export default function RecordPage() {
   const W = Math.min(windowWidth, 430);
 
   const { state, transcript, durationMs, permissionDenied, start, stop, reset } = useRecorder();
+  const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
 
-  // 오늘의 지정문구. real 모드에서만 서버 조회, 실패 시 기본 문구 유지.
-  const [script, setScript] = useState<TodayScript>(DEFAULT_SCRIPT);
   useEffect(() => {
-    if (!REAL_API) return;
-    let alive = true;
-    getTodayScript()
-      .then((s) => {
-        if (alive) setScript(s);
+    let mounted = true;
+    void authApi
+      .getTodayScript()
+      .then((result) => {
+        if (mounted) setDailyScript(result.data);
       })
       .catch(() => {
-        // 기본 문구 유지
+        // 문구 조회 실패 — placeholder 유지
       });
     return () => {
-      alive = false;
+      mounted = false;
     };
   }, []);
 
@@ -62,7 +65,11 @@ export default function RecordPage() {
   const isDone       = state === "done";
 
   const mood = isRecording ? "listening" : isDone ? "happy" : "idle";
-  const progress = Math.min((Math.floor(durationMs / 1000)) / RECORD_SECONDS, 1);
+  const elapsedSeconds = durationMs / 1000;
+  const progress = Math.min(elapsedSeconds / RECORD_SECONDS, 1);
+  const showProgressRing = isRecording || isProcessing;
+  const ringProgress = isProcessing ? 1 : progress;
+  const strokeDashoffset = RING_CIRCUMFERENCE * (1 - ringProgress);
 
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
@@ -72,10 +79,10 @@ export default function RecordPage() {
     if (saving) return;
     // 낭독 기록 저장은 직접사용자 본인만 (보호자 자가 체크인은 저장 대상 아님).
     // 저장에 실패해도 흐름은 막지 않는다.
-    if (REAL_API && role === "elder" && script.scriptId && user) {
+    if (REAL_API && role === "elder" && dailyScript?.script_id && user) {
       setSaving(true);
       try {
-        await saveScriptRecord(script.scriptId, user.id);
+        await saveScriptRecord(dailyScript.script_id, user.id);
       } catch {
         // 저장 실패 — 다음 동기화에서 보완 (흐름 유지)
       } finally {
@@ -121,11 +128,13 @@ export default function RecordPage() {
         </View>
 
         {/* 가이드 + 문장 카드 */}
-        {!isRecording && !isDone && !isProcessing && (
+        {!isDone && !isProcessing && (
           <View style={styles.copyWrap}>
             <Text style={styles.recordingGuide}>다음 문장을{"\n"}소리 내어 읽어주세요.</Text>
             <View style={styles.sentenceCard}>
-              <Text style={styles.sentence}>{script.content}</Text>
+              <Text style={styles.sentence}>
+                {dailyScript?.content ?? "오늘의 지정문구를 불러오고 있어요."}
+              </Text>
             </View>
           </View>
         )}
@@ -166,14 +175,36 @@ export default function RecordPage() {
         <View style={styles.actions}>
           {!isDone ? (
             <View style={styles.recordButtonOuter}>
-              {/* 원형 진행 인디케이터 */}
-              {isRecording && (
-                <View
-                  style={[
-                    styles.recordProgress,
-                    { transform: [{ rotate: `${progress * 360}deg` }] },
-                  ]}
-                />
+              {/* 회전하지 않는 30초 SVG 진행 링 */}
+              {showProgressRing && (
+                <Svg
+                  width={RING_SIZE}
+                  height={RING_SIZE}
+                  viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+                  style={styles.recordProgress}
+                  pointerEvents="none"
+                >
+                  <Circle
+                    cx={RING_SIZE / 2}
+                    cy={RING_SIZE / 2}
+                    r={RING_RADIUS}
+                    stroke="#F1E2D1"
+                    strokeWidth={RING_STROKE}
+                    fill="none"
+                  />
+                  <Circle
+                    cx={RING_SIZE / 2}
+                    cy={RING_SIZE / 2}
+                    r={RING_RADIUS}
+                    stroke="#70AB69"
+                    strokeWidth={RING_STROKE}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+                    strokeDashoffset={strokeDashoffset}
+                    transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+                  />
+                </Svg>
               )}
               <TouchableOpacity
                 style={[styles.recordButton, isRecording && styles.recordButtonActive]}
@@ -184,7 +215,7 @@ export default function RecordPage() {
               >
                 <MicIcon color="#FFFFFF" size={30} />
                 <Text style={styles.recordBtnText}>
-                  {isRecording ? "중지하기" : "시작하기"}
+                  {isRecording || isProcessing ? "중지하기" : "시작하기"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -328,18 +359,14 @@ const styles = StyleSheet.create({
   recordButtonOuter: {
     width: 102, height: 102,
     borderRadius: 51,
-    backgroundColor: "#F5E3D0",
+    backgroundColor: "#F1E2D1",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 5,
-    borderColor: "#E3D1BE",
   },
   recordProgress: {
     position: "absolute",
-    top: -5, width: 102, height: 51,
-    borderTopLeftRadius: 51, borderTopRightRadius: 51,
-    borderWidth: 5, borderBottomWidth: 0,
-    borderColor: "#70AB69",
+    width: RING_SIZE,
+    height: RING_SIZE,
   },
   recordButton: {
     width: 66, height: 66,

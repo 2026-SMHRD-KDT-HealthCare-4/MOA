@@ -12,8 +12,10 @@ import { useInteractionStore } from "../stores/interactionStore";
 import * as authApi from "../api/auth";
 import { useMoaChat } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
+import { detectVoiceCommand } from "../features/chatbot/wakeWord";
 
-type ChatState = "idle" | "botSpeaking" | "listening" | "thinking" | "completed" | "error";
+type ChatState = "idle" | "waitingCommand" | "botSpeaking" | "listening" | "thinking" | "completed" | "error";
+type VoiceMode = "wake" | "waitingCommand" | "conversation" | null;
 
 type BotEmotion =
   | "default"
@@ -32,6 +34,7 @@ function chatStateToMood(state: ChatState, botEmotion: BotEmotion): CharacterMoo
     case "idle":
       return "idle";
     case "listening":
+    case "waitingCommand":
       return "listening";
     case "thinking":
       return "thinking";
@@ -55,7 +58,11 @@ function formatDuration(ms: number) {
 
 export default function ChatbotMain() {
   const router = useRouter();
-  const { fromIntro } = useLocalSearchParams<{ fromIntro?: string }>();
+  const { fromIntro, voiceText, voiceDurationMs } = useLocalSearchParams<{
+    fromIntro?: string;
+    voiceText?: string;
+    voiceDurationMs?: string;
+  }>();
   const insets = useSafeAreaInsets();
 
   const role = useAuthStore((s) => s.role);
@@ -92,9 +99,13 @@ export default function ChatbotMain() {
   const displayedReplyRef = useRef("");
   const typewriterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterDelayRef = useRef(48);
+  const voiceModeRef = useRef<VoiceMode>(null);
+  const wakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastVoiceTextRef = useRef<string | null>(null);
 
   const mood = chatStateToMood(chatState, botEmotion);
   const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
+  const resultHref = role === "guardian" ? "/(guardian)/report" : "/(elder)/history";
 
   function streamReplyCharacters() {
     if (typewriterTimerRef.current) return;
@@ -112,8 +123,46 @@ export default function ChatbotMain() {
     writeNextCharacter();
   }
 
+  function routeVoiceCommand(command: ReturnType<typeof detectVoiceCommand>) {
+    if (command === "record") {
+      router.push(recordHref);
+      return true;
+    }
+    if (command === "result") {
+      router.push(resultHref);
+      return true;
+    }
+    return false;
+  }
+
+  function handleChatTurn(text: string, turnDurationMs: number) {
+    const command = detectVoiceCommand(text);
+    if (routeVoiceCommand(command)) {
+      voiceModeRef.current = null;
+      conversationActiveRef.current = false;
+      setIsConversationActive(false);
+      setChatState("idle");
+      return;
+    }
+
+    voiceModeRef.current = null;
+    conversationActiveRef.current = true;
+    setIsConversationActive(true);
+    setChatState("thinking");
+    void sendMessage(text, { duration_ms: turnDurationMs });
+  }
+
+  // The app-level listener routes ordinary wake-word speech here so it uses the existing chat/TTS flow.
+  useEffect(() => {
+    const text = voiceText?.trim();
+    if (!text || text === lastVoiceTextRef.current) return;
+    lastVoiceTextRef.current = text;
+    handleChatTurn(text, Number(voiceDurationMs) || 0);
+  }, [voiceDurationMs, voiceText]);
+
   useEffect(() => () => {
     if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
+    if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
   }, []);
 
   // 탭 화면은 기록 화면으로 이동해도 메모리에 남아 있을 수 있다.
@@ -129,12 +178,16 @@ export default function ChatbotMain() {
       setBotEmotion("default");
       setBotReply("오늘은 어떤 하루였나요?");
       resetRecorder();
+      return () => {
+        voiceModeRef.current = null;
+        resetRecorder();
+      };
     }, []),
   );
 
   useEffect(() => {
     const text = transcript?.trim();
-    if (!isConversationActive || !text) {
+    if (!text) {
       // 녹음기를 초기화한 뒤 다음 발화를 전송할 수 있게 잠금을 푼다.
       if (!text) submittingTranscriptRef.current = false;
       return;
@@ -143,10 +196,15 @@ export default function ChatbotMain() {
     if (submittingTranscriptRef.current) return;
     submittingTranscriptRef.current = true;
 
-    setChatState("thinking");
-    void sendMessage(text, { duration_ms: durationMs });
     resetRecorder();
-  }, [durationMs, isConversationActive, resetRecorder, sendMessage, transcript]);
+    const mode = voiceModeRef.current;
+    if (mode === "conversation") {
+      if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+      handleChatTurn(text, durationMs);
+      return;
+    }
+    submittingTranscriptRef.current = false;
+  }, [durationMs, resetRecorder, transcript]);
 
   useEffect(() => {
     if (!isConversationActive) return;
@@ -214,6 +272,8 @@ export default function ChatbotMain() {
   }, []);
 
   function handleStartConversation() {
+    voiceModeRef.current = null;
+    resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
     void startFirstGreeting();
@@ -223,6 +283,7 @@ export default function ChatbotMain() {
     if (!conversationActiveRef.current) return;
     if (recorderState === "recording" || recorderState === "processing") return;
 
+    voiceModeRef.current = "conversation";
     resetRecorder();
     setBotEmotion("listening");
     setChatState("listening");
@@ -295,14 +356,14 @@ export default function ChatbotMain() {
   const v = H / 900;
 
   const headerTop = insets.top + Math.round(42 * v);
-  const bubbleTop = insets.top + Math.round(134 * v);
-  const characterTop = insets.top + Math.round(176 * v);
+  const bubbleTop = insets.top + Math.round(94 * v);
+  const characterTop = insets.top + Math.round(164 * v);
   const navTopGap = Math.max(92 + insets.bottom, Math.round(92 * v) + insets.bottom);
   const characterHeight = H - characterTop - navTopGap;
   const recordBottom = Math.max(9, Math.round(9 * v));
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
-  const characterVideoTopOffset = Math.round(110 * v);
+  const characterVideoTopOffset = Math.round(170 * v);
 
   return (
     <View style={styles.fill}>
@@ -321,7 +382,6 @@ export default function ChatbotMain() {
       <View style={[styles.header, { top: headerTop }]}>
         <View style={styles.dateBlock}>
           <Text style={styles.dateText}>6월 17일 (화)</Text>
-          <Text style={styles.greetingText}>오늘도 모아와 함께해요</Text>
         </View>
       </View>
 
@@ -481,21 +541,14 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   dateBlock: {
-    gap: 7,
+    gap: 0,
   },
   dateText: {
     fontFamily: "Pretendard-ExtraBold",
     color: "#3B2318",
-    fontSize: 31,
-    lineHeight: 38,
+    fontSize: 27,
+    lineHeight: 34,
     fontWeight: "900",
-  },
-  greetingText: {
-    fontFamily: "Pretendard-Bold",
-    color: "#668D5F",
-    fontSize: 22,
-    lineHeight: 27,
-    fontWeight: "800",
   },
   pressed: {
     opacity: 0.9,

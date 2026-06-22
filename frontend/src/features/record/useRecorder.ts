@@ -10,6 +10,8 @@ export type RecordState = "idle" | "recording" | "processing" | "done";
 interface RecorderOptions {
   /** 대화 모드에서는 짧은 무음 뒤 한 발화를 자동 전송한다. */
   autoStopOnSilence?: boolean;
+  /** False for the global wake listener, which must not disable itself. */
+  manageWakeWord?: boolean;
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
@@ -17,6 +19,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8
 
 const MOCK_TRANSCRIPT =
   "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
+const MAX_RECORDING_DURATION_MS = 30_000;
 
 async function whisperSTT(uri: string): Promise<string> {
   async function createFormData() {
@@ -74,7 +77,7 @@ async function whisperSTT(uri: string): Promise<string> {
   return data.text ?? "";
 }
 
-export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {}) {
+export function useRecorder({ autoStopOnSilence = false, manageWakeWord = true }: RecorderOptions = {}) {
   const [state, setState] = useState<RecordState>("idle");
   const [transcript, setTranscript] = useState<string | null>(null);
   const [durationMs, setDurationMs] = useState(0);
@@ -85,6 +88,8 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
   const webRecorderRef = useRef<MediaRecorder | null>(null);
   const webChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const maxDurationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordingStartedAtRef = useRef(0);
   const lastSpeechAtRef = useRef(0);
   const autoStoppingRef = useRef(false);
   const webAudioContextRef = useRef<AudioContext | null>(null);
@@ -156,9 +161,9 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
       if (!isWeb) await FileSystem.deleteAsync(uri);
       setTranscript(text);
       setState("done");
-      enableWakeWord();
+      if (manageWakeWord) enableWakeWord();
     } catch {
-      enableWakeWord();
+      if (manageWakeWord) enableWakeWord();
       setError("목소리를 글로 바꾸지 못했어요. 잠시 후 다시 말씀해 주세요.");
       setState("idle");
     }
@@ -172,6 +177,25 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    if (maxDurationTimeoutRef.current) {
+      clearTimeout(maxDurationTimeoutRef.current);
+      maxDurationTimeoutRef.current = null;
+    }
+  }
+
+  function startDurationTimer() {
+    recordingStartedAtRef.current = Date.now();
+    const updateDuration = () => {
+      setDurationMs(Math.min(Date.now() - recordingStartedAtRef.current, MAX_RECORDING_DURATION_MS));
+    };
+
+    updateDuration();
+    // 100ms 단위 갱신으로 SVG 링이 30초 동안 자연스럽게 채워진다.
+    timerRef.current = setInterval(updateDuration, 100);
+    maxDurationTimeoutRef.current = setTimeout(() => {
+      setDurationMs(MAX_RECORDING_DURATION_MS);
+      void stop();
+    }, MAX_RECORDING_DURATION_MS);
   }
 
   async function start() {
@@ -187,7 +211,7 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
         autoStoppingRef.current = false;
         setPermissionDenied(false);
         setError(null);
-        disableWakeWord();
+        if (manageWakeWord) disableWakeWord();
 
         recorder.ondataavailable = (event) => {
           if (event.data.size > 0) webChunksRef.current.push(event.data);
@@ -203,7 +227,7 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
         recorder.start(250);
         setDurationMs(0);
         setState("recording");
-        timerRef.current = setInterval(() => setDurationMs((prev) => prev + 1000), 1000);
+        startDurationTimer();
         startWebSilenceMonitor(stream);
         return;
       }
@@ -215,7 +239,7 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
       }
       setPermissionDenied(false);
       setError(null);
-      disableWakeWord(); // UC-01a 시작 — 호출어 감지 중단
+      if (manageWakeWord) disableWakeWord(); // UC-01a 시작 — 호출어 감지 중단
 
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -252,12 +276,10 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
       setDurationMs(0);
       setState("recording");
 
-      timerRef.current = setInterval(() => {
-        setDurationMs((prev) => prev + 1000);
-      }, 1000);
+      startDurationTimer();
 
     } catch {
-      enableWakeWord();
+      if (manageWakeWord) enableWakeWord();
       setError("마이크를 시작하지 못했어요. 권한과 기기 연결을 확인해 주세요.");
       setState("idle");
     }
@@ -289,7 +311,7 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
 
       await completeTranscription(uri);
     } catch {
-      enableWakeWord();
+      if (manageWakeWord) enableWakeWord();
       setError("녹음을 마치지 못했어요. 잠시 후 다시 말씀해 주세요.");
       setState("idle");
     }
@@ -298,6 +320,14 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
   function reset() {
     clearTimer();
     stopWebSilenceMonitor();
+    // 화면 전환/호출어 대기 해제 시 네이티브 녹음도 즉시 종료한다.
+    // 그렇지 않으면 탭이 메모리에 남아 있는 동안 마이크가 계속 켜질 수 있다.
+    if (recordingRef.current) {
+      const recording = recordingRef.current;
+      recordingRef.current = null;
+      void recording.stopAndUnloadAsync().catch(() => undefined);
+      void Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+    }
     if (webRecorderRef.current?.state === "recording") {
       webRecorderRef.current.onstop = null;
       webRecorderRef.current.stop();
@@ -309,7 +339,7 @@ export function useRecorder({ autoStopOnSilence = false }: RecorderOptions = {})
     setError(null);
     autoStoppingRef.current = false;
     setState("idle");
-    enableWakeWord();
+    if (manageWakeWord) enableWakeWord();
   }
 
   return { state, transcript, durationMs, permissionDenied, error, start, stop, reset };

@@ -93,7 +93,8 @@ async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
   return btoa(binary);
 }
 
-async function playTTS(
+/** Shared MOA voice playback. Both chat replies and wake prompts use this server TTS path. */
+export async function playTTS(
   text: string,
   soundRef: React.RefObject<Audio.Sound | null>,
   webAudioRef: React.MutableRefObject<HTMLAudioElement | null>,

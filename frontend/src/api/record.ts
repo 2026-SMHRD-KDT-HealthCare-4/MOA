@@ -1,26 +1,6 @@
-// 지정문구(SCRIPT) / 낭독 기록 도메인 API.
-// 녹음 화면(RecordPage) 전용 — 챗봇 영역과 무관하다.
+// 낭독 기록(SCRIPT_RECORD) 저장 API. 녹음 화면(RecordPage) 전용 — 챗봇 영역과 무관.
+// 오늘의 지정문구 조회는 auth.ts의 getTodayScript 사용.
 import { apiFetch } from "./auth";
-
-export interface TodayScript {
-  scriptId: string;
-  content: string;
-}
-
-interface ScriptResponseDto {
-  script_id: string;
-  content: string;
-  created_at: string;
-}
-
-// GET /record/script/today — 오늘 배정된 지정문구를 가져온다(인증 필요).
-export async function getTodayScript(): Promise<TodayScript> {
-  const res = await apiFetch<ScriptResponseDto>("/record/script/today", {
-    method: "GET",
-    auth: true,
-  });
-  return { scriptId: res.script_id, content: res.content };
-}
 
 export interface ScriptRecord {
   recordId: string;
