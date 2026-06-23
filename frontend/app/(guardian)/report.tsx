@@ -1,1 +1,1 @@
-export { default } from "../../src/pages/ReportPage";
+export { default } from "../../src/features/report/ReportHubPage";

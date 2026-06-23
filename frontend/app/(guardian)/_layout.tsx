@@ -13,6 +13,8 @@ export default function GuardianLayout() {
       <Tabs.Screen name="settings" options={{ title: "설정" }} />
       {/* 자기 음성 체크인 — 탭바엔 노출하지 않고 챗봇 메인에서 진입 */}
       <Tabs.Screen name="record" options={{ title: "기록" }} />
+      {/* 음성 건강 가이드 — 탭바엔 노출하지 않고 리포트에서 진입 */}
+      <Tabs.Screen name="report-guide" options={{ title: "음성 건강 가이드" }} />
     </Tabs>
   );
 }

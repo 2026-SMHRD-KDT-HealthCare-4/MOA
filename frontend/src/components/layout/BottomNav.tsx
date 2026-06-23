@@ -53,15 +53,15 @@ const GUARDIAN_THEME: NavTheme = {
   iconSize: 26,
   labelSize: 15,
   labelLineHeight: 20,
-  activeColor: "#E8943A",
-  inactiveColor: "#8A8A86",
-  activeBg: "rgba(232,148,58,0.14)",
-  containerBorder: "rgba(74,74,72,0.08)",
-  containerBg: "#FFF9F4",
-  areaColors: ["#F7EFE8", "#F7EFE8", "#F7EFE8"],
+  activeColor: "#355A8A",
+  inactiveColor: "#9B8A7D",
+  activeBg: "#EEF4FB",
+  containerBorder: "#E5ECF5",
+  containerBg: "rgba(255,255,255,0.9)",
+  areaColors: ["#F7EFE4", "#F7EFE4", "#F7EFE4"],
   areaTopPadding: 12,
-  shadow: "0 -12px 30px rgba(74, 74, 72, 0.08)",
-  safeBackground: "#F7EFE8",
+  shadow: "0 -8px 20px rgba(53,90,138,0.08)",
+  safeBackground: "#F7EFE4",
 };
 
 const ELDER_TABS: TabConfig[] = [

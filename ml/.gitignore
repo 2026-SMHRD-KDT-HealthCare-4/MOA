@@ -1,0 +1,5 @@
+# 파이썬 캐시/임시 산출물만 무시 (모델 가중치 .pth/.pkl, models/, checkpoints/ 는 추적 유지)
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
