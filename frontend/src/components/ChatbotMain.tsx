@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet, useWindowDimensions, Share } from "r
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { UserPlus, Clock, Share2 } from "lucide-react-native";
+import { UserPlus, Clock, Share2, ChevronRight, MessageCircle } from "lucide-react-native";
 import { CharacterPlayer, type CharacterMood } from "./CharacterPlayer";
 import { MicIcon } from "./icons/MicIcon";
 import { Waveform } from "./Waveform";
@@ -494,39 +494,46 @@ export default function ChatbotMain() {
       <Pressable
         style={({ pressed }) => [
           styles.recordButton,
-          { bottom: isConversationActive ? recordBottom : recordBottom + 78 },
+          { bottom: recordBottom },
           pressed && styles.pressed,
         ]}
         onPress={handleGoToRecord}
         accessibilityRole="button"
-        accessibilityLabel="녹음하러가기, 오늘의 목소리를 남겨요"
+        accessibilityLabel="녹음하러 가기"
       >
-        <View style={styles.recordButtonHighlight} />
-
         <View style={styles.recordIconWrap}>
-          <MicIcon color="#FFFFFF" size={32} />
+          <MicIcon color="#5B4636" size={34} />
         </View>
 
         <View style={styles.recordTextWrap}>
-          <Text style={styles.recordTitle}>녹음하러가기</Text>
-          <Text style={styles.recordSub}>오늘의 목소리를 남겨요</Text>
+          <Text style={styles.recordTitle}>녹음하러 가기</Text>
         </View>
+        <ChevronRight style={styles.buttonChevron} size={26} color="#5B4636" strokeWidth={2.2} />
       </Pressable>
 
       {!isConversationActive && (
         <Pressable
           style={({ pressed }) => [
             styles.conversationButton,
-            { bottom: recordBottom },
+            { bottom: recordBottom + 90 },
             pressed && styles.pressed,
           ]}
           onPress={handleStartConversation}
           accessibilityRole="button"
           accessibilityLabel="모아와 대화 시작하기"
         >
-          <View style={styles.conversationButtonHighlight} />
-          <Text style={styles.conversationTitle}>모아와 대화 시작하기</Text>
-          <Text style={styles.conversationSub}>목소리로 모아와 이야기를 나눠봐요</Text>
+          <View style={styles.conversationIconWrap}>
+            <MessageCircle size={32} color="#FFFFFF" fill="#FFFFFF" strokeWidth={1.8} />
+            <View style={styles.conversationIconDots}>
+              <View style={styles.conversationIconDot} />
+              <View style={styles.conversationIconDot} />
+              <View style={styles.conversationIconDot} />
+            </View>
+          </View>
+          <View style={styles.conversationTextWrap}>
+            <Text style={styles.conversationTitle}>모아와 대화 시작하기</Text>
+          </View>
+          <ChevronRight style={styles.buttonChevron} size={26} color="#FFFFFF" strokeWidth={2.2} />
         </Pressable>
       )}
     </View>
@@ -695,89 +702,107 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     position: "absolute",
-    left: 70,
-    right: 70,
-    height: 68,
-    borderRadius: 25,
-    backgroundColor: "#FF765A",
+    left: 24,
+    right: 24,
+    height: 80,
+    borderRadius: 16,
+    backgroundColor: "#F7EFE4",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 13,
+    justifyContent: "flex-start",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    gap: 11,
     zIndex: 15,
     overflow: "hidden",
-    boxShadow: "0 15px 26px rgba(214, 87, 56, 0.22)",
+    boxShadow: "0 8px 16px rgba(91, 70, 54, 0.13)",
   },
   conversationButton: {
     position: "absolute",
-    left: 70,
-    right: 70,
-    height: 64,
-    borderRadius: 25,
-    backgroundColor: "#79A969",
+    left: 24,
+    right: 24,
+    height: 86,
+    borderRadius: 16,
+    backgroundColor: "#355A8A",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    gap: 11,
     zIndex: 15,
     overflow: "hidden",
-    boxShadow: "0 15px 26px rgba(72, 106, 63, 0.2)",
-  },
-  conversationButtonHighlight: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    top: 6,
-    height: 15,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    boxShadow: "0 8px 16px rgba(53, 90, 138, 0.22)",
   },
   conversationTitle: {
-    fontFamily: "Pretendard-ExtraBold",
-    color: "#FFFFFF",
-    fontSize: 21,
-    lineHeight: 26,
-    fontWeight: "900",
-  },
-  conversationSub: {
-    fontFamily: "Pretendard-Bold",
-    color: "#FFFFFF",
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "700",
-    opacity: 0.96,
-  },
-  recordButtonHighlight: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    top: 6,
-    height: 16,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.16)",
-  },
-  recordIconWrap: {
-    width: 39,
-    height: 39,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  recordTextWrap: {
-    alignItems: "flex-start",
-    justifyContent: "center",
-    gap: 5,
-  },
-  recordTitle: {
     fontFamily: "Pretendard-ExtraBold",
     color: "#FFFFFF",
     fontSize: 23,
     lineHeight: 28,
     fontWeight: "900",
   },
-  recordSub: {
+  conversationSub: {
     fontFamily: "Pretendard-Bold",
     color: "#FFFFFF",
-    fontSize: 14,
+    fontSize: 12.5,
     lineHeight: 17,
     fontWeight: "700",
-    opacity: 0.96,
+  },
+  recordIconWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#EFE1D0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recordTextWrap: {
+    flex: 1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    gap: 1,
+  },
+  recordTitle: {
+    fontFamily: "Pretendard-ExtraBold",
+    color: "#5B4636",
+    fontSize: 23,
+    lineHeight: 28,
+    fontWeight: "900",
+  },
+  recordSub: {
+    fontFamily: "Pretendard-Bold",
+    color: "#5B4636",
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "700",
+    opacity: 1,
+  },
+  conversationIconWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  conversationIconDots: {
+    position: "absolute",
+    flexDirection: "row",
+    gap: 2,
+  },
+  conversationIconDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#355A8A",
+  },
+  conversationTextWrap: {
+    flex: 1,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    gap: 1,
+  },
+  buttonChevron: {
+    marginLeft: "auto",
   },
 });
