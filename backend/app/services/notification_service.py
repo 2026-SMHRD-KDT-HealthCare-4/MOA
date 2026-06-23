@@ -10,12 +10,14 @@ NOTE: 실제 FCM 푸시 / SMS Fallback 발송은 아직 붙이지 않았다. 여
       이 함수 안에서 발송을 호출하고, 결과에 따라 status를 SENT/FAILED로 세팅하면 된다.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.models import GuardianSenior, LinkStatus, Notification
+from app.models.models import Guardian, GuardianSenior, LinkStatus, Notification, UrgentAlert
+
+URGENT_ALERT_COOLDOWN_MINUTES = 15
 
 
 def create_risk_notifications_for_active_guardians(
@@ -60,3 +62,89 @@ def create_risk_notifications_for_active_guardians(
             db.refresh(n)
 
     return notifications
+
+
+def create_urgent_alert_with_notifications(
+    db: Session,
+    senior_id: UUID,
+    session_id: UUID | None,
+    level: str,
+    rule_id: str | None,
+    commit: bool = True,
+) -> UrgentAlert | None:
+    """챗봇 긴급 감지 시 UrgentAlert 레코드와 보호자 Notification 후보를 생성한다.
+
+    쿨다운 정책: 동일 senior_id + 동일 level 알림이 최근 15분 내에 있으면 생성하지 않고 None 반환.
+    보호자 알림: ACTIVE 연동 + fcm_token이 등록된 보호자에게만 Notification 생성.
+    실제 FCM/SMS 발송: TODO — 여기서는 DB 레코드 생성까지만 담당.
+
+    Args:
+        level: "SUICIDE_RISK" | "MEDICAL_EMERGENCY"  (GENERAL_DISCOMFORT는 이 함수 호출 안 함)
+        commit: True면 이 함수 안에서 commit. 외부 트랜잭션에 포함하려면 False.
+
+    Returns:
+        생성된 UrgentAlert 또는 쿨다운으로 스킵된 경우 None.
+    """
+    # ── 쿨다운 검사 ──────────────────────────────────────────────────────────
+    cooldown_cutoff = datetime.utcnow() - timedelta(minutes=URGENT_ALERT_COOLDOWN_MINUTES)
+    recent = (
+        db.query(UrgentAlert)
+        .filter(
+            UrgentAlert.senior_id == senior_id,
+            UrgentAlert.level == level,
+            UrgentAlert.created_at >= cooldown_cutoff,
+            UrgentAlert.alert_status != "cancelled",
+        )
+        .first()
+    )
+    if recent is not None:
+        return None  # 쿨다운 중 — 중복 생성 방지
+
+    # ── UrgentAlert 레코드 생성 ──────────────────────────────────────────────
+    alert = UrgentAlert(
+        senior_id=senior_id,
+        session_id=session_id,
+        level=level,
+        rule_id=rule_id,
+        alert_status="pending",
+    )
+    db.add(alert)
+    db.flush()  # alert_id 확정
+
+    # ── 보호자 알림 후보 생성 ─────────────────────────────────────────────────
+    # 조건: ACTIVE 연동 + fcm_token 등록(알림 수신 가능 상태)
+    active_links = (
+        db.query(GuardianSenior)
+        .filter(
+            GuardianSenior.senior_id == senior_id,
+            GuardianSenior.link_status == LinkStatus.ACTIVE.value,
+        )
+        .all()
+    )
+
+    guardian_ids = [link.guardian_id for link in active_links]
+    notifiable_guardians = (
+        db.query(Guardian)
+        .filter(
+            Guardian.guardian_id.in_(guardian_ids),
+            Guardian.fcm_token.isnot(None),
+        )
+        .all()
+    )
+
+    for guardian in notifiable_guardians:
+        notification = Notification(
+            guardian_id=guardian.guardian_id,
+            senior_id=senior_id,
+            notification_type="RISK",
+            status="SENT",          # TODO: 실제 FCM 발송 후 SENT/FAILED 갱신
+            sent_at=datetime.utcnow(),
+        )
+        db.add(notification)
+        # TODO: FCM push / SMS fallback 발송 호출 위치 (notification 생성 직후)
+
+    if commit:
+        db.commit()
+        db.refresh(alert)
+
+    return alert
