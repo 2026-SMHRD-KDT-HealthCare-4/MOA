@@ -390,3 +390,33 @@ class ReconnectCode(Base):
 
     senior = relationship("Senior", backref="reconnect_codes")
     guardian = relationship("Guardian", backref="reconnect_codes")
+
+
+class UrgentAlert(Base):
+    """긴급 알림 후보 (URGENT_ALERT) — 챗봇 발화 긴급 키워드 감지 시 생성.
+
+    ZDR 원칙: 발화 원문 / 발화 텍스트는 어떠한 컬럼에도 저장하지 않는다.
+    level 은 SUICIDE_RISK / MEDICAL_EMERGENCY 만 저장 (GENERAL_DISCOMFORT는 알림 없음).
+    """
+    __tablename__ = "urgent_alert"
+
+    alert_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
+    session_id = Column(UUID(as_uuid=True), nullable=True)  # 어느 챗봇 세션에서 발생했는지
+    level = Column(String(20), nullable=False)               # SUICIDE_RISK | MEDICAL_EMERGENCY
+    rule_id = Column(String(50), nullable=True)              # 트리거된 키워드 상수 (원문 아님)
+    alert_status = Column(String(10), nullable=False, default="pending")  # pending | cancelled | sent
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "level IN ('SUICIDE_RISK','MEDICAL_EMERGENCY')",
+            name="ck_urgent_alert_level",
+        ),
+        CheckConstraint(
+            "alert_status IN ('pending','cancelled','sent')",
+            name="ck_urgent_alert_status",
+        ),
+    )
+
+    senior = relationship("Senior", backref="urgent_alerts")

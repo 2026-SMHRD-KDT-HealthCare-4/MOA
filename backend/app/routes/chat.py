@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_senior, get_current_user_id, verify_senior_access
-from app.models.models import ChatSession, Senior
+from app.core.security import get_current_guardian, get_current_senior, get_current_user_id, verify_senior_access
+from app.models.models import ChatSession, Guardian, GuardianSenior, LinkStatus, Senior, UrgentAlert
 from app.schemas.chat import (
     ChatMessageRequest,
     ChatMessageResponseData,
@@ -186,3 +186,45 @@ def get_session(
         raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
     verify_senior_access(user_id, session.senior_id, db)
     return session
+
+
+@router.post("/alert/{alert_id}/cancel")
+def cancel_urgent_alert(
+    alert_id: UUID,
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """보호자가 오탐으로 판단한 긴급 알림을 취소한다.
+
+    레코드 자체는 삭제하지 않고 alert_status 를 'cancelled'로 변경만 한다 (감사 로그 보존).
+    취소 권한: 해당 senior 와 ACTIVE 연동된 보호자만 가능.
+    """
+    alert = db.query(UrgentAlert).filter(UrgentAlert.alert_id == alert_id).first()
+    if alert is None:
+        raise HTTPException(status_code=404, detail="긴급 알림을 찾을 수 없습니다.")
+
+    # 요청 보호자가 해당 senior 와 ACTIVE 연동인지 확인
+    link = (
+        db.query(GuardianSenior)
+        .filter(
+            GuardianSenior.guardian_id == guardian.guardian_id,
+            GuardianSenior.senior_id == alert.senior_id,
+            GuardianSenior.link_status == LinkStatus.ACTIVE.value,
+        )
+        .first()
+    )
+    if link is None:
+        raise HTTPException(status_code=403, detail="연동된 보호자만 취소할 수 있습니다.")
+
+    if alert.alert_status == "cancelled":
+        raise HTTPException(status_code=400, detail="이미 취소된 알림입니다.")
+
+    alert.alert_status = "cancelled"
+    db.commit()
+    db.refresh(alert)
+
+    return {
+        "status": "success",
+        "alert_id": str(alert.alert_id),
+        "alert_status": alert.alert_status,
+    }
