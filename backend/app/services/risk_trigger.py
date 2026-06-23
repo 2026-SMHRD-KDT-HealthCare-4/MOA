@@ -25,6 +25,75 @@ from sqlalchemy.orm import Session
 
 from app.models.models import RiskPrediction
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 챗봇 발화 긴급 분류 — 룰 기반 (키워드 매칭)
+# ZDR 원칙: 발화 원문은 여기서 저장하거나 반환하지 않는다.
+# 키워드 목록은 상수로 분리해 쉽게 추가·수정 가능하도록 한다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 자살·자해 위험 키워드
+SUICIDE_KEYWORDS: list[str] = [
+    "죽고 싶어", "살기 싫어", "사라지고 싶어", "그만 살고 싶어",
+    "죽고싶어", "살기싫어", "사라지고싶어", "그만살고싶어",
+    "이 세상에서 사라지고", "스스로 목숨", "자해하고 싶어",
+]
+
+# 신체 응급 키워드
+MEDICAL_EMERGENCY_KEYWORDS: list[str] = [
+    "쓰러질 것 같아", "가슴이 답답해", "숨이 안 쉬어져", "심하게 어지러워",
+    "쓰러질것같아", "가슴이답답해", "숨이안쉬어져",
+    "가슴이 아파", "가슴 통증", "숨을 못 쉬겠어", "쓰러졌어",
+]
+
+# 일반 불편 키워드 (자동 긴급 알림 없음, 봇 응답 분기에만 활용)
+GENERAL_DISCOMFORT_KEYWORDS: list[str] = [
+    "아파", "불편하다", "어지럽다", "힘들다",
+    "아프다", "몸이 안 좋아", "기운이 없어", "피곤해",
+]
+
+# 백엔드 고정 안전 문구 — LLM 응답 대신 사용
+SAFETY_REPLY: dict[str, str] = {
+    "SUICIDE_RISK": (
+        "지금 많이 힘드신 것 같아요. 혼자 계시지 말고 가까운 가족이나 119에 바로 도움을 요청해 주세요. "
+        "모아는 의료 진단이나 긴급 구조를 대신할 수 없어요."
+    ),
+    "MEDICAL_EMERGENCY": (
+        "지금은 바로 주변에 도움을 요청해 주세요. 증상이 심하거나 숨쉬기 어렵다면 119에 연락하는 것이 좋아요. "
+        "모아의 안내는 의료 진단을 대신하지 않아요."
+    ),
+    "GENERAL_DISCOMFORT": (
+        "몸이 불편하셨군요. 무리하지 말고 쉬어 주세요. "
+        "불편함이 계속되거나 심해지면 의료진 또는 가족에게 알려주세요."
+    ),
+}
+
+
+def classify_chat_urgency(message: str) -> tuple[str | None, str | None]:
+    """발화 텍스트를 긴급도 등급으로 분류한다.
+
+    Returns:
+        (level, rule_id)
+        - level: "SUICIDE_RISK" | "MEDICAL_EMERGENCY" | "GENERAL_DISCOMFORT" | None
+        - rule_id: 매칭된 키워드 상수 (감사 로그용, 발화 원문이 아님)
+
+    우선순위: SUICIDE_RISK > MEDICAL_EMERGENCY > GENERAL_DISCOMFORT.
+    """
+    text = message.lower()
+
+    for kw in SUICIDE_KEYWORDS:
+        if kw.lower() in text:
+            return "SUICIDE_RISK", kw
+
+    for kw in MEDICAL_EMERGENCY_KEYWORDS:
+        if kw.lower() in text:
+            return "MEDICAL_EMERGENCY", kw
+
+    for kw in GENERAL_DISCOMFORT_KEYWORDS:
+        if kw.lower() in text:
+            return "GENERAL_DISCOMFORT", kw
+
+    return None, None
+
 # 등급 우선순위 (높을수록 위험)
 _LEVEL_RANK = {"GREEN": 0, "YELLOW": 1, "AMBER": 2}
 
