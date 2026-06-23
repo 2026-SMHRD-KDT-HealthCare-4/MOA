@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, TextInput, Modal, RefreshControl } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Share, TextInput, Modal, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
@@ -150,8 +150,8 @@ export default function FamilyHubPage() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={["#FF7955"]}
-            tintColor="#FF7955"
+            colors={["#4F76A8"]}
+            tintColor="#4F76A8"
           />
         }
       >
@@ -174,9 +174,9 @@ export default function FamilyHubPage() {
               <TouchableOpacity
                 style={styles.reportTapArea}
                 activeOpacity={0.88}
-                onPress={() => router.push(`/(guardian)/family/${link.counterpartId}`)}
+                onPress={() => router.push(`/(guardian)/report?elderId=${link.counterpartId}`)}
                 accessibilityRole="button"
-                accessibilityLabel={`${link.counterpartName}님 상세 리포트 보기`}
+                accessibilityLabel={`${link.counterpartName}님 리포트 보기`}
               >
                 <View style={styles.profileRow}>
                   <View style={styles.avatarCircle}>
@@ -186,35 +186,38 @@ export default function FamilyHubPage() {
                   <View style={styles.nameArea}>
                     <Text style={styles.memberName}>{link.counterpartName} 님</Text>
                     <View style={styles.lastRow}>
-                      <Clock size={13} color="#a99a92" />
+                      <Clock size={13} color="#9B8A7D" />
                       <Text style={styles.lastText}>마지막 인사 {meta.lastGreeting}</Text>
                     </View>
                   </View>
-                  <ChevronRight size={20} color="#c4b5ae" />
+                  <ChevronRight size={20} color="#9B8A7D" />
                 </View>
 
                 <StatusPill status={meta.status} />
                 <View style={styles.reportLinkRow}>
                   <Text style={styles.reportLinkText}>리포트 보기</Text>
-                  <ChevronRight size={18} color="#FF7955" strokeWidth={2.4} />
+                  <ChevronRight size={18} color="#4F76A8" strokeWidth={2.4} />
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity
+              <Pressable
                 style={styles.unlinkButton}
-                activeOpacity={0.8}
                 onPress={() => openUnlinkModal(link.linkId, link.counterpartName)}
                 accessibilityRole="button"
                 accessibilityLabel={`${link.counterpartName}님 연결 해제`}
               >
-                <Text style={styles.unlinkButtonText}>연결 해제</Text>
-              </TouchableOpacity>
+                {({ pressed }) => (
+                  <Text style={[styles.unlinkButtonText, pressed && styles.unlinkButtonTextPressed]}>
+                    연결 해제
+                  </Text>
+                )}
+              </Pressable>
             </View>
           );
         })}
 
         {active.length > 0 && (
           <TouchableOpacity style={styles.addBtn} activeOpacity={0.8} onPress={() => router.push("/onboarding")}>
-            <UserPlus size={22} color="#FF7955" />
+            <UserPlus size={22} color="#355A8A" />
             <Text style={styles.addBtnText}>부모님 연결 추가</Text>
           </TouchableOpacity>
         )}
@@ -222,7 +225,7 @@ export default function FamilyHubPage() {
         {(active.length > 0 || guardianMembers.length > 0) && (
           <View style={styles.guardianCard}>
             <View style={styles.guardianHeader}>
-              <Users size={20} color="#765E52" />
+              <Users size={20} color="#9B8A7D" />
               <Text style={styles.guardianTitle}>함께 돌보는 보호자</Text>
             </View>
 
@@ -238,7 +241,7 @@ export default function FamilyHubPage() {
                 value={inviteName}
                 onChangeText={setInviteName}
                 placeholder="예: 김지훈"
-                placeholderTextColor="#c4b5ae"
+                placeholderTextColor="#B7A99D"
               />
               {inviteError ? <Text style={styles.inviteError}>{inviteError}</Text> : null}
               <TouchableOpacity
@@ -255,7 +258,7 @@ export default function FamilyHubPage() {
                   onPress={() => shareGuardianInvite(inviteCode)}
                   activeOpacity={0.85}
                 >
-                  <Share2 size={17} color="#FF7955" />
+                  <Share2 size={17} color="#4F76A8" />
                   <Text style={styles.inviteCodeText}>{inviteCode}</Text>
                 </TouchableOpacity>
               ) : null}
@@ -328,27 +331,50 @@ function GuardianMemberRow({ member }: { member: GuardianMember }) {
 
 function StatusPill({ status }: { status: ParentStatus }) {
   const normal = status === "normal";
-  const color = normal ? "#2ECC71" : "#E8943A";
-  const bg = normal ? "#EAF8F0" : "#FBEFDD";
+  // 안정 상태는 따뜻한 세이지 그린(병원식 채도 높은 초록 대신), 주의는 앰버
+  const color = normal ? "#6F9C7A" : "#C9793F";
+  const bg = normal ? "#EDF5EF" : "#FBEFDD";
   const Icon = normal ? CheckCircle2 : AlertTriangle;
+  // "정상" 같은 진단 어감 대신 "안정적"으로 부드럽게 표기
+  const label = normal ? "안정적" : PARENT_STATUS_LABEL[status];
   return (
     <View style={[styles.statusPill, { backgroundColor: bg }]}>
-      <Icon size={18} color={color} strokeWidth={2.4} />
-      <Text style={[styles.statusPillText, { color }]}>오늘 상태 · {PARENT_STATUS_LABEL[status]}</Text>
+      <Icon size={16} color={color} strokeWidth={2.4} />
+      <Text style={[styles.statusPillText, { color }]}>오늘 상태 · {label}</Text>
     </View>
   );
 }
 
+// 가족 탭(보호자 모니터링) 팔레트 — 4색 체계: 네이비 + 베이지 + 세이지그린 + 앰버.
+// 레드 사용 금지. 신뢰감 70% / 따뜻함 30%. CTA·핵심 액션은 브랜드 블루(#4F76A8~#355A8A).
+const C = {
+  mainText: "#3B2318",
+  subText: "#765E52",
+  bg: "#FFF8EF",
+  cardBg: "#FFFFFF",
+  cardBorder: "#E5ECF5",
+  blue: "#4F76A8",
+  blueDark: "#355A8A",
+  blueLight: "#EEF4FB",
+  divider: "#F1E1D2",
+  iconMuted: "#9B8A7D",
+  sage: "#6F9C7A", // 안정 상태 텍스트·아이콘
+  sageBg: "#EDF5EF", // 안정 배지 배경
+  sageDot: "#7FA38A", // 온라인/참여 상태 점(부드럽게)
+  unlinkText: "#7B8796", // 보조 액션(연결 해제) — 존재감 낮춘 차분한 블루그레이
+  cardShadow: "0 8px 20px rgba(53,90,138,0.08)",
+};
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFF9F2" },
-  header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8, gap: 4 },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#342C28" },
-  headerSub: { fontSize: 16, color: "#765E52" },
-  scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 12 },
+  container: { flex: 1, backgroundColor: C.bg },
+  header: { paddingHorizontal: 24, paddingTop: 22, paddingBottom: 10, gap: 4 },
+  headerTitle: { fontSize: 24, fontWeight: "900", color: C.mainText },
+  headerSub: { fontSize: 16, color: C.subText },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, gap: 14 },
   listError: {
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: "#FBEFDD",
     color: "#9A6B25",
     fontSize: 15,
@@ -356,50 +382,46 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   memberCard: {
-    backgroundColor: "white",
-    borderRadius: 20,
+    backgroundColor: C.cardBg,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#f0e8e2",
-    shadowColor: "#c0a99f",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 14,
-    elevation: 3,
+    borderColor: C.cardBorder,
+    boxShadow: C.cardShadow,
   },
-  reportTapArea: { padding: 18, gap: 14 },
+  reportTapArea: { padding: 19, gap: 14 },
   profileRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatarCircle: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#ffede9",
+    backgroundColor: C.blueLight,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarInitial: { fontSize: 22, fontWeight: "800", color: "#FF7955" },
+  avatarInitial: { fontSize: 22, fontWeight: "800", color: C.blue },
   onlineDot: {
     position: "absolute",
     bottom: 2,
     right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     borderWidth: 2,
-    borderColor: "white",
-    backgroundColor: "#2ECC71",
+    borderColor: "#FFFFFF",
+    backgroundColor: C.sageDot,
   },
   nameArea: { flex: 1, gap: 3 },
-  memberName: { fontSize: 18, fontWeight: "700", color: "#342C28" },
+  memberName: { fontSize: 18, fontWeight: "700", color: C.mainText },
   lastRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  lastText: { fontSize: 13, color: "#a99a92" },
+  lastText: { fontSize: 13, color: C.iconMuted },
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
     alignSelf: "flex-start",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
   },
   statusPillText: { fontSize: 15, fontWeight: "800" },
   reportLinkRow: {
@@ -409,148 +431,155 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingTop: 2,
   },
-  reportLinkText: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
+  reportLinkText: { fontSize: 16, fontWeight: "800", color: C.blue },
   unlinkButton: {
     minHeight: 48,
     borderTopWidth: 1,
-    borderTopColor: "#f0e8e2",
+    borderTopColor: C.divider,
     alignItems: "center",
     justifyContent: "center",
   },
-  unlinkButtonText: { fontSize: 16, fontWeight: "800", color: "#E8943A" },
+  unlinkButtonText: { fontSize: 15, fontWeight: "700", color: C.unlinkText },
+  unlinkButtonTextPressed: { color: "#5C6675" },
   emptyCard: {
-    backgroundColor: "white",
-    borderRadius: 20,
+    backgroundColor: C.cardBg,
+    borderRadius: 24,
     padding: 22,
     borderWidth: 1,
-    borderColor: "#f0e8e2",
+    borderColor: C.cardBorder,
+    boxShadow: C.cardShadow,
     gap: 10,
     alignItems: "center",
   },
-  emptyTitle: { fontSize: 19, fontWeight: "800", color: "#342C28" },
-  emptyBody: { fontSize: 15, lineHeight: 22, color: "#765E52", textAlign: "center" },
+  emptyTitle: { fontSize: 19, fontWeight: "800", color: C.mainText },
+  emptyBody: { fontSize: 15, lineHeight: 22, color: C.subText, textAlign: "center" },
   primaryBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 56,
+    height: 58,
     alignSelf: "stretch",
-    borderRadius: 15,
-    backgroundColor: "#FF7955",
+    borderRadius: 16,
+    backgroundColor: C.blue,
+    boxShadow: "0 8px 18px rgba(53,90,138,0.18)",
     marginTop: 6,
   },
-  primaryBtnText: { fontSize: 18, fontWeight: "800", color: "white" },
+  primaryBtnText: { fontSize: 18, fontWeight: "800", color: "#FFFFFF" },
   addBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    padding: 18,
-    borderRadius: 18,
+    height: 64,
+    borderRadius: 22,
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "#FF7955",
-    backgroundColor: "white",
+    borderColor: "#A9BEDC",
+    backgroundColor: C.blueLight,
   },
-  addBtnText: { fontSize: 18, fontWeight: "600", color: "#FF7955" },
+  addBtnText: { fontSize: 18, fontWeight: "700", color: C.blueDark },
   guardianCard: {
-    backgroundColor: "white",
-    borderRadius: 20,
-    padding: 18,
+    backgroundColor: C.cardBg,
+    borderRadius: 24,
+    padding: 19,
     borderWidth: 1,
-    borderColor: "#f0e8e2",
+    borderColor: C.cardBorder,
+    boxShadow: C.cardShadow,
     gap: 12,
   },
   guardianHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  guardianTitle: { fontSize: 18, fontWeight: "800", color: "#342C28" },
+  guardianTitle: { fontSize: 18, fontWeight: "800", color: C.mainText },
   guardianRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   guardianDot: { width: 10, height: 10, borderRadius: 5 },
-  guardianDotActive: { backgroundColor: "#2ECC71" },
+  guardianDotActive: { backgroundColor: C.sageDot },
   guardianDotPending: { backgroundColor: "#E8943A" },
   guardianCopy: { flex: 1, gap: 2 },
-  guardianName: { fontSize: 15, fontWeight: "800", color: "#40332D" },
-  guardianRole: { fontSize: 12, color: "#a99a92", fontWeight: "700" },
-  guardianCode: { fontSize: 13, fontWeight: "900", color: "#765E52" },
-  inviteBox: { gap: 8, borderTopWidth: 1, borderTopColor: "#f5eeea", paddingTop: 12 },
-  inviteTitle: { fontSize: 14, fontWeight: "800", color: "#765E52" },
+  guardianName: { fontSize: 15, fontWeight: "800", color: C.mainText },
+  guardianRole: { fontSize: 12, color: C.subText, fontWeight: "700" },
+  guardianCode: { fontSize: 13, fontWeight: "900", color: C.subText },
+  inviteBox: { gap: 8, borderTopWidth: 1, borderTopColor: C.cardBorder, paddingTop: 14 },
+  inviteTitle: { fontSize: 14, fontWeight: "800", color: C.subText },
   inviteInput: {
-    height: 48,
+    height: 54,
     borderWidth: 1,
-    borderColor: "#e8ddd9",
-    borderRadius: 13,
-    paddingHorizontal: 14,
+    borderColor: C.cardBorder,
+    borderRadius: 16,
+    paddingHorizontal: 16,
     fontSize: 16,
-    color: "#342C28",
+    color: C.mainText,
     backgroundColor: "#FFFDF9",
   },
   inviteBtn: {
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: "#FF7955",
+    height: 58,
+    borderRadius: 16,
+    backgroundColor: C.blue,
     alignItems: "center",
     justifyContent: "center",
+    boxShadow: "0 8px 18px rgba(53,90,138,0.18)",
   },
-  inviteBtnText: { fontSize: 16, fontWeight: "800", color: "white" },
+  inviteBtnText: { fontSize: 16, fontWeight: "900", color: "#FFFFFF" },
   disabled: { opacity: 0.6 },
-  inviteError: { fontSize: 13, fontWeight: "700", color: "#E8943A" },
+  inviteError: { fontSize: 13, fontWeight: "700", color: "#B07A48" },
   inviteCodeBtn: {
-    height: 46,
-    borderRadius: 14,
+    height: 48,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#FFD3C6",
-    backgroundColor: "white",
+    borderColor: "#A9BEDC",
+    backgroundColor: C.blueLight,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
-  inviteCodeText: { fontSize: 17, fontWeight: "900", color: "#FF7955", letterSpacing: 1 },
+  inviteCodeText: { fontSize: 17, fontWeight: "900", color: C.blue, letterSpacing: 1 },
   modalBackdrop: {
     flex: 1,
     paddingHorizontal: 24,
-    backgroundColor: "rgba(0,0,0,0.42)",
+    backgroundColor: "rgba(59,35,24,0.42)",
     alignItems: "center",
     justifyContent: "center",
   },
   modalCard: {
     width: "100%",
     maxWidth: 420,
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 22,
-    backgroundColor: "white",
+    backgroundColor: "#FFFDF9",
+    borderWidth: 1,
+    borderColor: C.cardBorder,
     gap: 14,
   },
-  modalTitle: { fontSize: 22, lineHeight: 29, fontWeight: "900", color: "#342C28" },
-  modalBody: { fontSize: 17, lineHeight: 25, fontWeight: "600", color: "#765E52" },
-  modalError: { fontSize: 14, lineHeight: 20, fontWeight: "700", color: "#E8943A" },
+  modalTitle: { fontSize: 22, lineHeight: 29, fontWeight: "900", color: C.mainText },
+  modalBody: { fontSize: 17, lineHeight: 25, fontWeight: "600", color: C.subText },
+  modalError: { fontSize: 14, lineHeight: 20, fontWeight: "700", color: "#B07A48" },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 4 },
   cancelButton: {
     flex: 1,
     minHeight: 52,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#e8ddd9",
+    borderColor: C.cardBorder,
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelButtonText: { fontSize: 17, fontWeight: "800", color: "#765E52" },
+  cancelButtonText: { fontSize: 17, fontWeight: "800", color: C.subText },
   confirmButton: {
     flex: 1,
     minHeight: 52,
-    borderRadius: 14,
-    backgroundColor: "#FF7955",
+    borderRadius: 16,
+    backgroundColor: C.blue,
     alignItems: "center",
     justifyContent: "center",
   },
-  confirmButtonText: { fontSize: 17, fontWeight: "800", color: "white" },
+  confirmButtonText: { fontSize: 17, fontWeight: "800", color: "#FFFFFF" },
   toast: {
     position: "absolute",
     alignSelf: "center",
     paddingHorizontal: 22,
     paddingVertical: 13,
     borderRadius: 16,
-    backgroundColor: "#342C28",
+    backgroundColor: C.mainText,
   },
-  toastText: { fontSize: 16, lineHeight: 22, fontWeight: "800", color: "white" },
+  toastText: { fontSize: 16, lineHeight: 22, fontWeight: "800", color: "#FFFFFF" },
 });

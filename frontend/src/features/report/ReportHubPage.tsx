@@ -7,13 +7,11 @@ import {
   StyleSheet,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors } from "../../styles/tokens";
+import { useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../stores/authStore";
 import { mockFamilyReports } from "./mockReport";
 import { FamilyReport } from "./FamilyReport";
 import { MyReport } from "./MyReport";
-
-const G = colors.guardian;
 
 // 선택된 직접사용자에 표시할 mock 리포트 (실제 API 연결 전까지 placeholder)
 const FALLBACK_REPORT = Object.values(mockFamilyReports)[0];
@@ -31,8 +29,16 @@ export default function ReportHubPage() {
     return [...elders, { id: "me", name: "내 리포트" }];
   }, [links]);
 
+  // 가족 탭 등에서 특정 직접사용자를 지정해 진입할 때 사용 (?elderId=<counterpartId>)
+  const { elderId } = useLocalSearchParams<{ elderId?: string }>();
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // 연동 변동으로 선택이 사라지면 첫 칩으로 보정
+  // 라우트로 elderId 가 들어오면 그 직접사용자를 선택 (이후 칩 탭으로 변경 가능)
+  useEffect(() => {
+    if (typeof elderId === "string" && elderId) setSelectedId(elderId);
+  }, [elderId]);
+
+  // 선택이 유효하지 않으면(미지정·연동 해제) 첫 칩으로 보정
   const effectiveId =
     selectedId && chips.some((c) => c.id === selectedId)
       ? selectedId
@@ -120,7 +126,7 @@ export default function ReportHubPage() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: G.bgPage },
+  screen: { flex: 1, backgroundColor: "#FFF8EF" },
   header: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -129,7 +135,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontFamily: "Pretendard-ExtraBold",
     fontSize: 24,
-    color: G.textPrimary,
+    color: "#3B2318",
   },
   chipRow: {
     paddingHorizontal: 20,
@@ -144,18 +150,18 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 22,
     borderRadius: 20,
-    backgroundColor: G.card,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: G.border,
+    borderColor: "#E5ECF5",
   },
   chipActive: {
-    backgroundColor: G.amber,
-    borderColor: G.amber,
+    backgroundColor: "#4F76A8",
+    borderColor: "#4F76A8",
   },
   chipText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 15,
-    color: G.textSecondary,
+    color: "#765E52",
   },
   chipTextActive: { color: "#FFFFFF" },
   scroll: {
@@ -168,7 +174,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 13,
     borderRadius: 16,
-    backgroundColor: G.textPrimary,
+    backgroundColor: "#3B2318",
   },
   toastText: {
     fontFamily: "Pretendard-ExtraBold",

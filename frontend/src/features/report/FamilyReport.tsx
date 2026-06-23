@@ -18,7 +18,6 @@ import {
   VictoryAxis,
   VictoryScatter,
 } from "victory-native";
-import { colors } from "../../styles/tokens";
 import { WEATHER_IMAGE } from "../../constants/weatherIcons";
 import {
   STATUS_LABELS,
@@ -27,11 +26,29 @@ import {
   type CheckinCalendar,
 } from "./mockReport";
 
-const G = colors.guardian;
+// 보호자 리포트 네이비 컬러 시스템 (Family 탭과 통일). 레드 금지.
+// 네이비=주요 정보 · 세이지=안정 · 앰버=주의/변화감지 · 베이지=배경.
+const G = {
+  bg: "#FFF8EF",
+  card: "#FFFFFF",
+  border: "#E5ECF5",
+  text: "#3B2318",
+  sub: "#765E52",
+  primary: "#4F76A8",
+  primaryDark: "#355A8A",
+  primaryLight: "#EEF4FB",
+  gridline: "#E5ECF5",
+  trackBg: "#E8EEF6",
+  chartNormal: "#7FA38A", // 그래프 정상 점 + 캘린더 정상 — 가족 탭 안정 세이지그린
+  chartLine: "#B8C7DD", // 추이 그래프 연결선 — 블루톤(점 색과 분리)
+  chartChange: "#4F76A8", // 변화감지 라인/범례
+  chartChangeDot: "#355A8A", // 변화감지 dot
+  warning: "#E8943A", // 주의(앰버)
+};
 
-// "이번 달 주목할 변화" 항목 상태별 색상 (레드 금지 — 변화감지는 앰버 오렌지 계열)
-const PATTERN_CAUTION = { bg: "#FDF1E5", bar: "#E8943A", text: "#D97706" };
-const PATTERN_NORMAL = { bg: "#F3F4F6", bar: "#CBD5E1", text: "#6B7280" };
+// "이번 달 주목할 변화" 항목 상태별 색상 — 안정=세이지그린 / 변화감지=앰버 (Family 탭과 동일)
+const PATTERN_CAUTION = { bg: "#FDF1E5", bar: "#E8943A", text: "#C26A1F" };
+const PATTERN_NORMAL = { bg: "#EDF5EF", bar: "#7FA38A", text: "#6F9C7A" };
 
 // Android 에서 LayoutAnimation 활성화
 if (
@@ -164,7 +181,7 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
           accessibilityLabel={`${monthLabel} 선택`}
         >
           <Text style={styles.monthText}>{monthLabel}</Text>
-          <ChevronDown size={18} color={G.textPrimary} />
+          <ChevronDown size={18} color={G.text} />
         </Pressable>
         {monthOpen ? (
           <View style={styles.monthMenu}>
@@ -218,9 +235,9 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
           <View style={styles.checkinHeadRow}>
             <Text style={styles.sectionTitle}>체크인 현황</Text>
             {calendarOpen ? (
-              <ChevronUp size={20} color={G.textSecondary} />
+              <ChevronUp size={20} color={G.sub} />
             ) : (
-              <ChevronDown size={20} color={G.textSecondary} />
+              <ChevronDown size={20} color={G.sub} />
             )}
           </View>
           <Text style={styles.checkinText}>
@@ -253,7 +270,7 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
             style={{
               tickLabels: {
                 fontSize: 11,
-                fill: G.textSecondary,
+                fill: G.sub,
                 fontFamily: "Pretendard-Medium",
               },
               axis: { stroke: G.gridline },
@@ -267,7 +284,7 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
             style={{
               tickLabels: {
                 fontSize: 11,
-                fill: G.textSecondary,
+                fill: G.sub,
                 fontFamily: "Pretendard-Medium",
               },
               axis: { stroke: "transparent" },
@@ -279,7 +296,7 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
             x="date"
             y="value"
             interpolation="monotoneX"
-            style={{ data: { stroke: G.chartBar, strokeWidth: 2.5 } }}
+            style={{ data: { stroke: G.chartLine, strokeWidth: 2.5 } }}
           />
           <VictoryScatter
             data={report.chartData}
@@ -288,9 +305,13 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
             size={4.5}
             style={{
               data: {
-                // 변화감지(2) 지점만 앰버, 나머지는 정상색
-                fill: ({ datum }: { datum?: { value?: number } }) =>
-                  (datum?.value ?? 0) >= 2 ? G.amber : G.chartBar,
+                // 3단계: 정상(0)=네이비그레이 · 주의(1)=앰버 · 변화감지(2)=네이비
+                fill: ({ datum }: { datum?: { value?: number } }) => {
+                  const v = datum?.value ?? 0;
+                  if (v >= 2) return G.chartChangeDot;
+                  if (v === 1) return G.warning;
+                  return G.chartNormal;
+                },
                 stroke: "#FFFFFF",
                 strokeWidth: 2,
               },
@@ -299,12 +320,16 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
         </VictoryChart>
         <View style={styles.legendRow}>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: G.chartBar }]} />
+            <View style={[styles.legendDot, { backgroundColor: G.chartNormal }]} />
             <Text style={styles.legendText}>정상</Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: G.amber }]} />
+            <View style={[styles.legendDot, { backgroundColor: G.chartChange }]} />
             <Text style={styles.legendText}>변화감지</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: G.warning }]} />
+            <Text style={styles.legendText}>주의</Text>
           </View>
         </View>
       </View>
@@ -419,7 +444,7 @@ const styles = StyleSheet.create({
   monthText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 16,
-    color: G.textPrimary,
+    color: G.text,
   },
   monthMenu: {
     position: "absolute",
@@ -438,11 +463,11 @@ const styles = StyleSheet.create({
   monthItemText: {
     fontFamily: "Pretendard-Medium",
     fontSize: 15,
-    color: G.textSecondary,
+    color: G.sub,
   },
   monthItemActive: {
     fontFamily: "Pretendard-Bold",
-    color: G.amber,
+    color: G.primary,
   },
 
   // 상태 요약 카드
@@ -450,7 +475,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    backgroundColor: G.cardPeach,
+    backgroundColor: G.primaryLight,
     borderRadius: 17,
     padding: 18,
   },
@@ -459,12 +484,12 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontFamily: "Pretendard-Medium",
     fontSize: 14,
-    color: G.textSecondary,
+    color: G.sub,
   },
   summaryText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 18,
-    color: G.textPrimary,
+    color: G.primaryDark,
   },
 
   // 공용 카드
@@ -479,7 +504,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontFamily: "Pretendard-Bold",
     fontSize: 16,
-    color: G.textPrimary,
+    color: G.text,
   },
 
   // 체크인
@@ -492,16 +517,16 @@ const styles = StyleSheet.create({
   checkinText: {
     fontFamily: "Pretendard-Medium",
     fontSize: 15,
-    color: G.textPrimary,
+    color: G.text,
   },
-  checkinPct: { fontFamily: "Pretendard-Bold", color: G.amber },
+  checkinPct: { fontFamily: "Pretendard-Bold", color: G.primaryDark },
   progressTrack: {
     height: 10,
     borderRadius: 5,
-    backgroundColor: "#EFE9E2",
+    backgroundColor: G.trackBg,
     overflow: "hidden",
   },
-  progressFill: { height: 10, borderRadius: 5, backgroundColor: G.amber },
+  progressFill: { height: 10, borderRadius: 5, backgroundColor: G.primary },
 
   // 체크인 캘린더
   calendar: {
@@ -522,7 +547,7 @@ const styles = StyleSheet.create({
   calWeekday: {
     fontFamily: "Pretendard-Bold",
     fontSize: 12,
-    color: G.textSecondary,
+    color: G.sub,
   },
   calDot: {
     width: 34,
@@ -531,15 +556,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dotNormal: { backgroundColor: G.chartBar },
-  dotCaution: { backgroundColor: G.amber },
+  dotNormal: { backgroundColor: G.chartNormal },
+  dotCaution: { backgroundColor: G.chartChange },
   dotMissed: {
     backgroundColor: "transparent",
     borderWidth: 1.5,
     borderColor: "#D8D2CC",
   },
   calDayText: { fontFamily: "Pretendard-Bold", fontSize: 13 },
-  calDayDone: { color: G.textPrimary },
+  calDayDone: { color: G.text },
   calDayMissed: { color: "#B5ADA6" },
   calDayFuture: {
     fontFamily: "Pretendard-Medium",
@@ -562,7 +587,7 @@ const styles = StyleSheet.create({
   legendText: {
     fontFamily: "Pretendard-Medium",
     fontSize: 13,
-    color: G.textSecondary,
+    color: G.sub,
   },
 
   // 음성 영역별 변화 — 좌측 컬러 바 + 제목 + 설명 (이모지 없음)
@@ -594,7 +619,7 @@ const styles = StyleSheet.create({
   disclaimer: {
     fontFamily: "Pretendard-Light",
     fontSize: 12,
-    color: G.textSecondary,
+    color: G.sub,
     paddingTop: 2,
   },
 
@@ -602,32 +627,32 @@ const styles = StyleSheet.create({
   emptyAlert: {
     fontFamily: "Pretendard-Medium",
     fontSize: 14,
-    color: G.textSecondary,
+    color: G.sub,
   },
   alertList: { gap: 12 },
   alertRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   alertDate: {
     fontFamily: "Pretendard-Bold",
     fontSize: 14,
-    color: G.textPrimary,
+    color: G.text,
     width: 64,
   },
   alertBadge: {
     paddingVertical: 4,
     paddingHorizontal: 9,
     borderRadius: 9,
-    backgroundColor: "rgba(232,148,58,0.14)",
+    backgroundColor: G.primaryLight,
   },
   alertBadgeText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 12,
-    color: G.amber,
+    color: G.primary,
   },
   alertText: {
     flex: 1,
     fontFamily: "Pretendard-Medium",
     fontSize: 14,
-    color: G.textSecondary,
+    color: G.sub,
   },
 
   // 하단 버튼
@@ -639,12 +664,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: G.card,
     borderWidth: 1.5,
-    borderColor: G.amber,
+    borderColor: G.primary,
   },
   secondaryButtonText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 16,
-    color: G.amber,
+    color: G.primary,
   },
   primaryButton: {
     height: 52,
@@ -653,7 +678,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    backgroundColor: colors.brand.DEFAULT,
+    backgroundColor: G.primary,
+    boxShadow: "0 8px 18px rgba(53,90,138,0.18)",
   },
   primaryButtonText: {
     fontFamily: "Pretendard-Bold",

@@ -1,7 +1,4 @@
 import { View, Text, StyleSheet } from "react-native";
-import { colors } from "../../styles/tokens";
-
-const G = colors.guardian;
 
 // "내 리포트" 칩 선택 시 표시되는 빈 화면 (추후 본인 음성 리포트로 구현 예정)
 export function MyReport() {
@@ -28,13 +25,13 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: "Pretendard-Bold",
     fontSize: 18,
-    color: G.textPrimary,
+    color: "#3B2318",
   },
   sub: {
     fontFamily: "Pretendard-Medium",
     fontSize: 14,
     lineHeight: 22,
-    color: G.textSecondary,
+    color: "#765E52",
     textAlign: "center",
   },
 });
