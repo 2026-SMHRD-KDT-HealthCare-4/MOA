@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { UserPlus, Clock, Share2, ChevronRight, MessageCircle } from "lucide-react-native";
+import Svg, { Path } from "react-native-svg";
 import { CharacterPlayer, type CharacterMood } from "./CharacterPlayer";
 import { MicIcon } from "./icons/MicIcon";
 import { Waveform } from "./Waveform";
@@ -78,13 +79,14 @@ export default function ChatbotMain() {
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
   const [isConversationActive, setIsConversationActive] = useState(false);
-  const { messages, isBotTyping, isBotSpeaking, botEmotion: liveBotEmotion, route, clearRoute, sendMessage } = useMoaChat();
+  const { messages, isBotTyping, isBotSpeaking, botEmotion: liveBotEmotion, route, clearRoute, sendMessage, speakText } = useMoaChat();
   const {
     state: recorderState,
     transcript,
     durationMs,
     permissionDenied,
     error: recorderError,
+    noSpeechDetected,
     start: startRecording,
     reset: resetRecorder,
   } = useRecorder({ autoStopOnSilence: true });
@@ -102,6 +104,8 @@ export default function ChatbotMain() {
   const voiceModeRef = useRef<VoiceMode>(null);
   const wakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVoiceTextRef = useRef<string | null>(null);
+  const silenceRetryRef = useRef(0);
+  const lastPromptRef = useRef("");
 
   const mood = chatStateToMood(chatState, botEmotion);
   const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
@@ -157,6 +161,7 @@ export default function ChatbotMain() {
     }
 
     voiceModeRef.current = null;
+    silenceRetryRef.current = 0;
     conversationActiveRef.current = true;
     setIsConversationActive(true);
     setChatState("thinking");
@@ -218,6 +223,28 @@ export default function ChatbotMain() {
   }, [durationMs, resetRecorder, transcript]);
 
   useEffect(() => {
+    if (!isConversationActive || !noSpeechDetected || voiceModeRef.current !== "conversation") return;
+
+    if (silenceRetryRef.current >= 1) {
+      voiceModeRef.current = null;
+      conversationActiveRef.current = false;
+      setChatState("idle");
+      setIsConversationActive(false);
+      resetRecorder();
+      return;
+    }
+
+    const prompt = lastPromptRef.current || botReply;
+    if (!prompt) return;
+
+    silenceRetryRef.current = 1;
+    voiceModeRef.current = null;
+    setBotReply(prompt);
+    setChatState("botSpeaking");
+    void speakText(prompt);
+  }, [botReply, isConversationActive, noSpeechDetected, resetRecorder, speakText]);
+
+  useEffect(() => {
     if (!isConversationActive) return;
     if (isBotTyping) {
       setChatState("thinking");
@@ -231,18 +258,16 @@ export default function ChatbotMain() {
     if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) return;
 
     lastBotMessageIdRef.current = lastBotMessage.id;
-    if (lastBotMessage.turnId !== activeBotTurnIdRef.current) {
-      activeBotTurnIdRef.current = lastBotMessage.turnId ?? lastBotMessage.id;
-      streamedReplyRef.current = "";
-      displayedReplyRef.current = "";
-      typewriterDelayRef.current = lastBotMessage.typingDelayMs ?? 48;
-      if (typewriterTimerRef.current) {
-        clearTimeout(typewriterTimerRef.current);
-        typewriterTimerRef.current = null;
-      }
-      setBotReply("");
+    activeBotTurnIdRef.current = lastBotMessage.turnId ?? lastBotMessage.id;
+    streamedReplyRef.current = lastBotMessage.text;
+    lastPromptRef.current = lastBotMessage.text;
+    displayedReplyRef.current = "";
+    typewriterDelayRef.current = lastBotMessage.typingDelayMs ?? 48;
+    if (typewriterTimerRef.current) {
+      clearTimeout(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
     }
-    streamedReplyRef.current = [streamedReplyRef.current, lastBotMessage.text].filter(Boolean).join(" ");
+    setBotReply("");
     setBotEmotion(lastBotMessage.emotion ?? liveBotEmotion);
     streamReplyCharacters();
     setChatState("botSpeaking");
@@ -263,6 +288,8 @@ export default function ChatbotMain() {
     try {
       const firstReply = "안녕하세요. 오늘은 어떤 하루였나요?";
 
+      silenceRetryRef.current = 0;
+      lastPromptRef.current = firstReply;
       setBotReply(firstReply);
       setBotEmotion("happy");
       setChatState("botSpeaking");
@@ -441,22 +468,42 @@ export default function ChatbotMain() {
           )}
         </View>
       ) : (
-        <Pressable
-          style={[styles.speechBubble, { top: bubbleTop }]}
-          onPress={handleConversationVoice}
-          disabled={!isConversationActive || recorderState === "processing" || chatState === "botSpeaking" || chatState === "thinking"}
-          accessibilityRole={isConversationActive ? "button" : undefined}
-          accessibilityLabel={isConversationActive ? "모아가 듣고 있어요. 말씀을 마치면 자동으로 전송됩니다" : undefined}
-        >
-          <Text style={styles.speechText}>{botReply}</Text>
+        <View style={[styles.speechBubbleWrap, { top: bubbleTop }]}>
+          <Pressable
+            style={styles.speechBubble}
+            onPress={handleConversationVoice}
+            disabled={!isConversationActive || recorderState === "processing" || chatState === "botSpeaking" || chatState === "thinking"}
+            accessibilityRole={isConversationActive ? "button" : undefined}
+            accessibilityLabel={isConversationActive ? "모아가 듣고 있어요. 말씀을 마치면 자동으로 전송됩니다" : undefined}
+          >
+          <Svg
+            pointerEvents="none"
+            width="100%"
+            height="100%"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            style={styles.speechBubbleShape}
+          >
+            <Path
+              d="M 12 0 H 88 C 94.6 0 100 13.5 100 30 V 64 C 100 79.5 94.6 92 88 92 H 60 C 56 92 55 97 50 97 C 45 97 44 92 40 92 H 12 C 5.4 92 0 79.5 0 64 V 30 C 0 13.5 5.4 0 12 0 Z"
+              fill="#FFFCF8"
+            />
+          </Svg>
+          <Svg pointerEvents="none" width={18} height={18} viewBox="0 0 18 18" style={[styles.speechSparkle, styles.speechSparkleLeft]}>
+            <Path d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round" />
+          </Svg>
+          <Svg pointerEvents="none" width={18} height={18} viewBox="0 0 18 18" style={[styles.speechSparkle, styles.speechSparkleRight]}>
+            <Path d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round" />
+          </Svg>
+            <Text style={styles.speechText}>{botReply}</Text>
+          </Pressable>
           {recorderState === "recording" && (
-            <View style={styles.recordingWaveWrap}>
-              <Waveform color="#6F9C62" large animated />
+            <View style={styles.recordingStatusBar}>
+              <Waveform color="#6F9C62" animated />
               <Text style={styles.recordingTime}>{formatDuration(durationMs)}</Text>
             </View>
           )}
-          <View style={styles.speechTail} />
-        </Pressable>
+        </View>
       )}
 
       <View
@@ -573,20 +620,37 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     transform: [{ scale: 0.985 }],
   },
-  speechBubble: {
+  speechBubbleWrap: {
     position: "absolute",
     left: 62,
     right: 62,
-    minHeight: 86,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.87)",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
     zIndex: 7,
     overflow: "visible",
-    boxShadow: "0 18px 38px rgba(95, 55, 30, 0.09)",
+  },
+  speechBubble: {
+    width: "100%",
+    minHeight: 70,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+    paddingVertical: 18,
+    overflow: "visible",
+  },
+  speechBubbleShape: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
+  speechSparkle: {
+    position: "absolute",
+  },
+  speechSparkleLeft: {
+    top: -15,
+    left: -24,
+  },
+  speechSparkleRight: {
+    top: -15,
+    right: -24,
   },
   speechText: {
     fontFamily: "Jua",
@@ -596,25 +660,21 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
-  recordingWaveWrap: {
+  recordingStatusBar: {
+    alignSelf: "center",
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: -10,
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,253,248,0.38)",
   },
   recordingTime: {
-    marginTop: 4,
     color: "#668D5F",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "800",
-  },
-  speechTail: {
-    position: "absolute",
-    left: 47,
-    bottom: -13,
-    width: 27,
-    height: 27,
-    borderBottomLeftRadius: 5,
-    backgroundColor: "rgba(255,255,255,0.87)",
-    transform: [{ rotate: "45deg" }],
   },
   noticeWrap: {
     position: "absolute",
@@ -702,8 +762,8 @@ const styles = StyleSheet.create({
   },
   recordButton: {
     position: "absolute",
-    left: 24,
-    right: 24,
+    left: 36,
+    right: 36,
     height: 80,
     borderRadius: 16,
     backgroundColor: "#F7EFE4",
@@ -719,8 +779,8 @@ const styles = StyleSheet.create({
   },
   conversationButton: {
     position: "absolute",
-    left: 24,
-    right: 24,
+    left: 36,
+    right: 36,
     height: 86,
     borderRadius: 16,
     backgroundColor: "#355A8A",

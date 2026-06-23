@@ -26,6 +26,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8
 const MOCK_TRANSCRIPT =
   "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
 const MAX_RECORDING_DURATION_MS = 30_000;
+const NO_SPEECH_TIMEOUT_MS = 8_000;
 
 async function whisperSTT(uri: string): Promise<string> {
   async function createFormData() {
@@ -93,6 +94,7 @@ export function useRecorder({
   const [durationMs, setDurationMs] = useState(0);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noSpeechDetected, setNoSpeechDetected] = useState(false);
   // keepAudio=true일 때만 채워진다. 그 외에는 항상 null (기존 동작 유지).
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const keptAudioRef = useRef<{ uri: string; isWeb: boolean } | null>(null);
@@ -151,12 +153,13 @@ export function useRecorder({
         if (rms > 0.018) {
           heardSpeech = true;
           lastSpeechAt = now;
+          lastSpeechAtRef.current = now - startedAt;
         }
 
         // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
         if (heardSpeech && now - lastSpeechAt >= 900 && now - startedAt >= 700) {
           autoStoppingRef.current = true;
-          void stop();
+          void finishRecording();
           return;
         }
 
@@ -225,10 +228,11 @@ export function useRecorder({
     updateDuration();
     // 100ms 단위 갱신으로 SVG 링이 30초 동안 자연스럽게 채워진다.
     timerRef.current = setInterval(updateDuration, 100);
+    const timeoutMs = autoStopOnSilence ? NO_SPEECH_TIMEOUT_MS : MAX_RECORDING_DURATION_MS;
     maxDurationTimeoutRef.current = setTimeout(() => {
-      setDurationMs(MAX_RECORDING_DURATION_MS);
-      void stop();
-    }, MAX_RECORDING_DURATION_MS);
+      setDurationMs(timeoutMs);
+      void finishRecording(autoStopOnSilence && lastSpeechAtRef.current === 0);
+    }, timeoutMs);
   }
 
   async function start() {
@@ -242,6 +246,7 @@ export function useRecorder({
         webChunksRef.current = [];
         lastSpeechAtRef.current = 0;
         autoStoppingRef.current = false;
+        setNoSpeechDetected(false);
         setPermissionDenied(false);
         setError(null);
         if (manageWakeWord) disableWakeWord();
@@ -292,6 +297,7 @@ export function useRecorder({
       recordingRef.current = recording;
       lastSpeechAtRef.current = 0;
       autoStoppingRef.current = false;
+      setNoSpeechDetected(false);
       recording.setProgressUpdateInterval(200);
       recording.setOnRecordingStatusUpdate((status) => {
         if (!autoStopOnSilence || autoStoppingRef.current || !status.isRecording) return;
@@ -310,7 +316,7 @@ export function useRecorder({
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
           autoStoppingRef.current = true;
-          void stop();
+          void finishRecording();
         }
       });
       setDurationMs(0);
@@ -325,11 +331,21 @@ export function useRecorder({
     }
   }
 
-  async function stop() {
+  async function finishRecording(discardSilence = false) {
     if (webRecorderRef.current) {
       clearTimer();
-      stopWebSilenceMonitor(false);
+      stopWebSilenceMonitor(discardSilence);
       setState("processing");
+      if (discardSilence) {
+        webRecorderRef.current.onstop = null;
+        webRecorderRef.current.stop();
+        webRecorderRef.current = null;
+        setTranscript(null);
+        setNoSpeechDetected(true);
+        setState("idle");
+        if (manageWakeWord) enableWakeWord();
+        return;
+      }
       webRecorderRef.current.stop();
       return;
     }
@@ -348,6 +364,15 @@ export function useRecorder({
 
       const uri = recording.getURI();
       if (!uri) throw new Error("NO_URI");
+
+      if (discardSilence) {
+        await FileSystem.deleteAsync(uri, { idempotent: true });
+        setTranscript(null);
+        setNoSpeechDetected(true);
+        setState("idle");
+        if (manageWakeWord) enableWakeWord();
+        return;
+      }
 
       await completeTranscription(uri);
     } catch {
@@ -375,6 +400,7 @@ export function useRecorder({
     }
     void clearAudio();
     setTranscript(null);
+    setNoSpeechDetected(false);
     setDurationMs(0);
     setPermissionDenied(false);
     setError(null);
@@ -383,5 +409,17 @@ export function useRecorder({
     if (manageWakeWord) enableWakeWord();
   }
 
-  return { state, transcript, durationMs, permissionDenied, error, start, stop, reset, audioUri, clearAudio };
+  return {
+    state,
+    transcript,
+    durationMs,
+    permissionDenied,
+    error,
+    noSpeechDetected,
+    start,
+    stop: () => finishRecording(),
+    reset,
+    audioUri,
+    clearAudio,
+  };
 }
