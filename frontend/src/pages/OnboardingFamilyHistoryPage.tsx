@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft } from "lucide-react-native";
 import {
   useAuthStore,
   type FamilyHistoryDetails,
@@ -116,15 +115,8 @@ export default function OnboardingFamilyHistoryPage() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
       <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.back()}
-          accessibilityRole="button"
-          accessibilityLabel="뒤로 가기"
-        >
-          <ArrowLeft size={24} color="#756a66" />
-        </TouchableOpacity>
-        <Text style={styles.progress}>2/2</Text>
+        <View style={styles.backBtn} />
+        <Text style={styles.progress}>1/1</Text>
         <View style={styles.backBtn} />
       </View>
 

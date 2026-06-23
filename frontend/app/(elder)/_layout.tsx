@@ -12,10 +12,11 @@ export default function ElderLayout() {
   // 온보딩 경로 자체에서는 게이트를 적용하지 않는다(리다이렉트 루프 방지).
   const inOnboarding = segments.includes("onboarding");
 
-  // 직접사용자가 온보딩을 끝내지 않았으면 온보딩 첫 화면으로 보낸다.
+  // 직접사용자가 온보딩을 끝내지 않았으면 온보딩(가족력) 화면으로 보낸다.
+  // 생년월일·성별은 초대코드 클레임 화면에서 받으므로 가족력이 온보딩의 유일한 단계다.
   useEffect(() => {
     if (role === "elder" && !onboardingDone && !inOnboarding) {
-      router.replace("/(elder)/onboarding/basic-info");
+      router.replace("/(elder)/onboarding/family-history");
     }
   }, [role, onboardingDone, inOnboarding, router]);
 
