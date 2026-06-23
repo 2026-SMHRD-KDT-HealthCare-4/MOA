@@ -115,11 +115,14 @@ function BottomNavBase({
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeRouteName === tab.name;
+          const isHomeTab = tab.name === "index";
+          const activeColor = isHomeTab ? "#355A8A" : theme.activeColor;
+          const activeBg = isHomeTab ? "#E8EEF6" : theme.activeBg;
 
           return (
             <TouchableOpacity
               key={tab.name}
-              style={[styles.tab, isActive && { backgroundColor: theme.activeBg }]}
+              style={[styles.tab, isActive && { backgroundColor: activeBg }]}
               onPress={() => navigation.navigate(tab.name)}
               accessibilityLabel={tab.label}
               accessibilityRole="button"
@@ -127,8 +130,8 @@ function BottomNavBase({
             >
               <Icon
                 size={theme.iconSize}
-                color={isActive ? theme.activeColor : theme.inactiveColor}
-                fill={isActive ? theme.activeColor : "transparent"}
+                color={isActive ? activeColor : theme.inactiveColor}
+                fill={isActive ? activeColor : "transparent"}
               />
               <Text
                 style={[
@@ -138,7 +141,7 @@ function BottomNavBase({
                     lineHeight: theme.labelLineHeight,
                     color: theme.inactiveColor,
                   },
-                  isActive && { color: theme.activeColor },
+                  isActive && { color: activeColor },
                 ]}
               >
                 {tab.label}
