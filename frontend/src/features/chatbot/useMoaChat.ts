@@ -23,8 +23,9 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8
 const MOA_CHATBOT_INSTRUCTIONS = `
 Never invent, guess, or use a person's name. The caller does not provide an approved display name, so address the user without a name.
 Primary goal: collect a rich, voluntary daily-life narrative for later analysis, not merely to give advice.
-For every normal turn, acknowledge one specific detail in one short sentence, then ask exactly one warm, concrete, open-ended follow-up question that invites a 2-4 sentence answer.
-Prefer sequence, time, place, people, feelings, or a memorable example. Avoid yes/no questions, generic "anything else?", multiple questions in one turn, and ending early.
+For every normal turn, respond with exactly one short, natural Korean sentence that fits within two UI lines (preferably 20 Korean characters or fewer). Do not write a paragraph or combine multiple sentences.
+Do not combine empathy/acknowledgment and a follow-up question in the same response: choose one conversational purpose per reply. Prefer sequence, time, place, people, feelings, or a memorable example when asking a question.
+Never rely on splitting a sentence mid-way to fit the UI; shorten or rephrase it instead. Avoid ellipses, yes/no questions, generic "anything else?", multiple questions in one turn, and ending early.
 Rotate naturally across sleep, meals, movement, social contact, routine, mood, memories, and discomfort. Give advice only when asked or when a safety concern is present.
 당신은 '모아'라는 이름의 AI 돌봄 친구입니다.
 노년층 사용자가 편하게 말한 한국어 문장을 이해하고, 따뜻하고 짧게 응답하세요.
@@ -322,6 +323,16 @@ export function useMoaChat() {
   const questionIndexRef = useRef(0);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
+  async function speakText(text: string) {
+    if (!text.trim()) return;
+    setIsBotSpeaking(true);
+    try {
+      await playTTS(text, soundRef, webAudioRef);
+    } finally {
+      setIsBotSpeaking(false);
+    }
+  }
+
   async function sendMessage(text: string, acousticMeta?: Partial<ChatbotApiParams["acoustic_meta"]>) {
     if (!text.trim() || sendingMessageRef.current) return;
     sendingMessageRef.current = true;
@@ -362,36 +373,24 @@ export function useMoaChat() {
 
       const turnId = `turn_${Date.now()}`;
       const chunks = splitIntoSentenceChunks(res.data.reply);
-      let resolveAudioReady: (durationMs: number | null) => void = () => {};
-      const audioReady = new Promise<number | null>((resolve) => {
-        resolveAudioReady = resolve;
-      });
-      // 화면 타이핑과 별개로 음성 다운로드를 바로 시작해 첫 재생 지연을 줄인다.
-      const ttsPromise = playTTS(res.data.reply, soundRef, webAudioRef, resolveAudioReady);
-      const audioDurationMs = await Promise.race([
-        audioReady,
-        wait(700).then(() => null),
-      ]);
-      // 한국어 TTS 길이에 맞춘 글자 단위 출력 속도. 오디오 정보를 못 받으면 부드러운 기본값을 쓴다.
-      const typingDelayMs = audioDurationMs
-        ? Math.max(42, Math.min(115, Math.round(audioDurationMs / Math.max(res.data.reply.length, 1))))
-        : 48;
+      // A short bubble is fully spoken before the next one is displayed.
+      const typingDelayMs = 48;
       for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
         setMessages((prev) => [
           ...prev,
           {
             id: `b_${turnId}_${index}`,
             turnId,
             role: "bot",
-            text: chunks[index],
+            text: chunk,
             emotion,
             typingDelayMs,
           },
         ]);
-        if (index < chunks.length - 1) await wait(120);
+        await wait(0);
+        await playTTS(chunk, soundRef, webAudioRef);
       }
-
-      await ttsPromise;
       setIsBotSpeaking(false);
     } catch {
       setBotEmotion("worried");
@@ -411,16 +410,12 @@ export function useMoaChat() {
     }
   }
 
-  return { messages, isBotTyping, isBotSpeaking, botEmotion, route, clearRoute: () => setRoute(null), sendMessage };
+  return { messages, isBotTyping, isBotSpeaking, botEmotion, route, clearRoute: () => setRoute(null), sendMessage, speakText };
 }
 
 function splitIntoSentenceChunks(text: string): string[] {
   const sentences = text.match(/[^.!?。]+[.!?。]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [text];
-  const chunks: string[] = [];
-  for (let index = 0; index < sentences.length; index += 2) {
-    chunks.push(sentences.slice(index, index + 2).join(" "));
-  }
-  return chunks.filter(Boolean);
+  return sentences.filter(Boolean);
 }
 
 function wait(ms: number) {
