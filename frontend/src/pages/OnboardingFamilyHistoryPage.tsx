@@ -67,7 +67,9 @@ export default function OnboardingFamilyHistoryPage() {
 
   const selectedDiseases = DISEASES.filter((disease) => selected.includes(disease.key));
   const detailsComplete = selected.every((key) => details[key] !== null);
-  const canNext = noneMode !== null || (selected.length > 0 && detailsComplete);
+  // Skipping this optional question means no family history is recorded for now.
+  // This keeps the final (1/1) onboarding screen from trapping the user.
+  const canNext = noneMode !== null || selected.length === 0 || detailsComplete;
 
   function animate() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);

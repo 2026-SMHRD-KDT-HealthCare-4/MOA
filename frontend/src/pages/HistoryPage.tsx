@@ -164,8 +164,8 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     gap: 7,
   },
-  headerTitle: { fontSize: 31, lineHeight: 38, fontWeight: "900", color: "#3B2318" },
-  headerSub: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: "#668D5F" },
+  headerTitle: { fontSize: 31, lineHeight: 38, fontWeight: "900", color: "#3F2A1D" },
+  headerSub: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: "#6F5A49" },
   scroll: { paddingHorizontal: 16 },
   monthNav: {
     flexDirection: "row",
@@ -206,9 +206,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 2,
   },
-  todayCell: { backgroundColor: "rgba(255,255,255,0.78)", borderWidth: 1.5, borderColor: "#FF7657" },
+  todayCell: { backgroundColor: "#FFF9F1", borderWidth: 1.5, borderColor: "#173F73" },
   dayNum: { fontSize: 14, color: "#5f4c45", fontWeight: "700" },
-  todayNum: { color: "#FF7955", fontWeight: "800" },
+  todayNum: { color: "#173F73", fontWeight: "800" },
   weatherIcon: { width: 24, height: 24 },
   emptyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#ede4df" },
   legend: {
@@ -243,5 +243,5 @@ const styles = StyleSheet.create({
   },
   summaryEmoji: { fontSize: 36 },
   summaryText: { flex: 1, fontSize: 18, color: "#40332D", lineHeight: 28 },
-  summaryHighlight: { color: "#FF7955", fontWeight: "800" },
+  summaryHighlight: { color: "#173F73", fontWeight: "800" },
 });

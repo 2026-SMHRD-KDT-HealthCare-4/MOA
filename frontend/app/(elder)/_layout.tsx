@@ -28,7 +28,12 @@ export default function ElderLayout() {
       <Tabs.Screen name="index"    options={{ title: "홈" }} />
       <Tabs.Screen name="record"   options={{ title: "기록" }} />
       <Tabs.Screen name="history"  options={{ title: "히스토리" }} />
+      <Tabs.Screen name="health"   options={{ title: "복약/병원" }} />
       <Tabs.Screen name="settings" options={{ title: "설정" }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="medication-settings" options={{ href: null }} />
+      <Tabs.Screen name="medication-form" options={{ href: null }} />
+      <Tabs.Screen name="hospital-form" options={{ href: null }} />
       {/* 온보딩은 탭 밖 풀스크린 — 탭 항목으로 노출하지 않는다(href: null). */}
       <Tabs.Screen name="onboarding" options={{ href: null }} />
     </Tabs>

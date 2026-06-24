@@ -7,8 +7,8 @@ export const colors = {
     safeArea: "#EDE5DE",
   },
   brand: {
-    DEFAULT: "#FF7955",
-    coral: "#FF7955",
+    DEFAULT: "#173F73",
+    coral: "#173F73",
     light: "#FFE9E6",
     record: "#F06D4D",
   },
@@ -62,14 +62,14 @@ export const colors = {
   // 보호자 가족/리포트 탭 네이비 팔레트 — 2026-06-23 결정(네이비+베이지+세이지그린+앰버, 코랄 미사용).
   // 가족 탭 카드·버튼·모달은 이 토큰만 참조한다.
   guardianNavy: {
-    primary:      "#4F76A8", // CTA · 핵심 액션
-    primaryDark:  "#355A8A", // 강조 텍스트 · pressed
-    primaryLight: "#EEF4FB", // 아이콘 배경 · pressed 배경
-    bgPage:       "#FFF8EF", // 페이지 배경(베이지)
-    card:         "#FFFFFF",
-    border:       "#E5ECF5",
-    textMain:     "#3B2318",
-    textSub:      "#765E52",
+    primary:      "#173F73", // CTA · 핵심 액션
+    primaryDark:  "#12345F", // 강조 텍스트 · pressed
+    primaryLight: "#F6E3C2", // 아이콘 배경 · pressed 배경
+    bgPage:       "#F6E3C2", // 페이지 배경(베이지)
+    card:         "#FFF9F1",
+    border:       "rgba(94,65,40,0.12)",
+    textMain:     "#3F2A1D",
+    textSub:      "#6F5A49",
     textMuted:    "#9B8A7D",
   },
 } as const;
