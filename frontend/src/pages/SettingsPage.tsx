@@ -1,16 +1,18 @@
-import { View, Text, TouchableOpacity, Switch, ScrollView, StyleSheet, Alert, Platform, Pressable } from "react-native";
+import { View, Text, Switch, ScrollView, StyleSheet, Alert, Platform, Pressable, Modal, TouchableOpacity } from "react-native";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
 import { useRouter } from "expo-router";
 import { Bell, LogOut, Info, ChevronRight, ShieldCheck, UserRound } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
+import { colors } from "../styles/tokens";
 
 export default function SettingsPage() {
   const insets = useSafeAreaInsets();
   const { role, logout } = useAuthStore();
   const router = useRouter();
   const [notifEnabled, setNotifEnabled] = useState(false);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   async function handleNotifToggle(next: boolean) {
     if (next) {
@@ -33,6 +35,13 @@ export default function SettingsPage() {
   }
 
   function handleLogout() {
+    // 직접사용자(고령층)는 재로그인이 어려우므로(랜덤 credential) 바텀시트 모달로 더 신중히 확인한다.
+    // (Alert 와 달리 RN Web 에서도 동작하므로 플랫폼 분기 없이 모달 하나로 처리)
+    if (isElder) {
+      setLogoutModalVisible(true);
+      return;
+    }
+
     if (Platform.OS === "web") {
       const confirmed = globalThis.confirm?.("정말 로그아웃 하시겠어요?") ?? true;
       if (confirmed) void performLogout();
@@ -49,6 +58,11 @@ export default function SettingsPage() {
         },
       },
     ]);
+  }
+
+  function confirmElderLogout() {
+    setLogoutModalVisible(false);
+    void performLogout();
   }
 
   const isElder = role === "elder";
@@ -155,6 +169,44 @@ export default function SettingsPage() {
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
       </ScrollView>
+
+      {/* 직접사용자 로그아웃 확인 — 하단 바텀시트 모달 */}
+      <Modal
+        visible={logoutModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setLogoutModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setLogoutModalVisible(false)}
+            accessibilityLabel="닫기"
+          />
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={styles.modalTitle}>앱 나가기</Text>
+            <Text style={styles.modalBody}>
+              나가시고, 다시 들어오려면{"\n"}자녀분께 도움을 받으셔야 해요.{"\n"}정말 나가시겠어요?
+            </Text>
+            <TouchableOpacity
+              style={styles.modalStayBtn}
+              onPress={() => setLogoutModalVisible(false)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+            >
+              <Text style={styles.modalStayText}>아니요, 계속 쓸게요</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalLeaveBtn}
+              onPress={confirmElderLogout}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+            >
+              <Text style={styles.modalLeaveText}>나갈게요</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -239,4 +291,37 @@ const styles = StyleSheet.create({
   },
   logoutBtnPressed: { backgroundColor: C.blueLight },
   logoutText: { fontSize: 18, fontWeight: "800", color: C.blueDark },
+
+  // 직접사용자 로그아웃 바텀시트 — 코랄/웜 톤(직접사용자 화면 팔레트). 색은 tokens.ts 참조.
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)", // 반투명 어두운 오버레이(브랜드 색 아님)
+  },
+  modalSheet: {
+    width: "100%",
+    backgroundColor: colors.bg.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  modalTitle: { fontSize: 22, fontWeight: "800", color: colors.text.primary, marginBottom: 12 },
+  modalBody: { fontSize: 18, lineHeight: 28, color: colors.text.secondary, marginBottom: 20 },
+  modalStayBtn: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: colors.brand.coral,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  modalStayText: { fontSize: 18, fontWeight: "700", color: "white" },
+  modalLeaveBtn: {
+    height: 56,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalLeaveText: { fontSize: 18, fontWeight: "600", color: colors.text.muted },
 });

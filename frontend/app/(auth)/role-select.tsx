@@ -19,19 +19,10 @@ export default function RoleSelectPage() {
     router.push("/(auth)/login");
   }
 
-  function handleGuardianInvite() {
-    router.push("/(auth)/guardian-invite");
-  }
-
-  function handleElderReconnect() {
-    router.push("/(auth)/elder-reconnect");
-  }
-
   return (
     <View style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
       <View style={styles.header}>
         <Text style={styles.logo}>moa</Text>
-        <Text style={styles.title}>어떻게 사용하실까요?</Text>
         <Text style={styles.subtitle}>역할을 선택해 주세요</Text>
       </View>
 
@@ -44,11 +35,11 @@ export default function RoleSelectPage() {
           accessibilityLabel="본인 사용으로 시작하기"
         >
           <View style={[styles.iconWrap, styles.iconWrapElder]}>
-            <User size={34} color="#4F5A60" strokeWidth={2.2} />
+            <User size={34} color="#FF7955" strokeWidth={2.2} />
           </View>
           <View style={styles.cardTextWrap}>
             <Text style={styles.cardTitle}>직접 사용</Text>
-            <Text style={styles.cardDesc}>초대 코드를 입력해 가족과 연결해요</Text>
+            <Text style={styles.cardDesc}>목소리로 건강을 기록해요</Text>
           </View>
         </TouchableOpacity>
 
@@ -60,26 +51,20 @@ export default function RoleSelectPage() {
           accessibilityLabel="보호자로 시작하기"
         >
           <View style={[styles.iconWrap, styles.iconWrapGuardian]}>
-            <HeartHandshake size={34} color="#667178" strokeWidth={2.2} />
+            <HeartHandshake size={34} color="#E8943A" strokeWidth={2.2} />
           </View>
           <View style={styles.cardTextWrap}>
             <Text style={styles.cardTitle}>보호자</Text>
-            <Text style={styles.cardDesc}>부모님을 등록하고 함께 돌봐요</Text>
+            <Text style={styles.cardDesc}>부모님을 함께 돌봐요</Text>
           </View>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.footerLinks}>
-        <TouchableOpacity onPress={handleLogin} activeOpacity={0.7}>
-          <Text style={styles.loginLink}>
-            이미 계정이 있으신가요? <Text style={styles.loginLinkHighlight}>로그인</Text>
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleGuardianInvite} activeOpacity={0.7}>
-          <Text style={styles.inviteLink}>보호자 초대 코드를 받았어요</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleElderReconnect} activeOpacity={0.7}>
-          <Text style={styles.inviteLink}>기기를 바꾸셨나요? 재연결 코드 입력</Text>
+      <View style={styles.footer}>
+        <View style={styles.footerDivider} />
+        <Text style={styles.footerHint}>이미 계정이 있으신가요?</Text>
+        <TouchableOpacity onPress={handleLogin} activeOpacity={0.7} accessibilityRole="button">
+          <Text style={styles.loginLink}>보호자 로그인</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -94,9 +79,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   header: { alignItems: "center", gap: 8, marginTop: 8 },
-  logo: { fontSize: 20, fontWeight: "800", color: "#4F5A60", letterSpacing: 4, marginBottom: 8 },
-  title: { fontSize: 26, fontWeight: "800", color: "#342C28" },
-  subtitle: { fontSize: 18, color: "#765E52" },
+  logo: { fontSize: 20, fontWeight: "800", color: "#FF7955", letterSpacing: 4, marginBottom: 8 },
+  subtitle: { fontSize: 24, lineHeight: 32, fontWeight: "700", color: "#5a4d46" },
   cards: { gap: 18 },
   card: {
     flexDirection: "row",
@@ -107,10 +91,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     paddingHorizontal: 20,
     paddingVertical: 20,
-    backgroundColor: "white",
+    backgroundColor: "#FFFDFB",
   },
-  cardElder: { borderColor: "#CBD5DC", backgroundColor: "#F8FAFC" },
-  cardGuardian: { borderColor: "#D8DEE3", backgroundColor: "#FFFFFF" },
+  cardElder: { borderColor: "#F2D9CE" },
+  cardGuardian: { borderColor: "#F1DFCB" },
   iconWrap: {
     width: 64,
     height: 64,
@@ -118,13 +102,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconWrapElder: { backgroundColor: "#EEF1F3" },
-  iconWrapGuardian: { backgroundColor: "#F3F5F6" },
+  iconWrapElder: { backgroundColor: "#FFE9E6" },
+  iconWrapGuardian: { backgroundColor: "#FDECDD" },
   cardTextWrap: { flex: 1, gap: 4 },
   cardTitle: { fontSize: 22, fontWeight: "800", color: "#342C28" },
   cardDesc: { fontSize: 16, color: "#765E52", lineHeight: 22 },
-  footerLinks: { gap: 10 },
-  loginLink: { textAlign: "center", fontSize: 16, color: "#765E52" },
-  loginLinkHighlight: { color: "#4F5A60", fontWeight: "700" },
-  inviteLink: { textAlign: "center", fontSize: 15, color: "#765E52", fontWeight: "700" },
+  footer: { alignItems: "center", gap: 10 },
+  footerDivider: { height: 1, alignSelf: "stretch", backgroundColor: "#EFE3DA", marginBottom: 4 },
+  footerHint: { fontSize: 15, color: "#9A887D" },
+  loginLink: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
 });
