@@ -16,6 +16,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Integer,
     Numeric,
     String,
     Time,
@@ -310,6 +311,34 @@ class MedicationCheck(Base):
 
     medication = relationship("Medication", back_populates="checks")
     senior = relationship("Senior", backref="medication_checks")
+
+
+class MedicationReminder(Base):
+    """고령층 본인에게만 전달되는 복약 알림의 응답/재알림 상태."""
+    __tablename__ = "medication_reminder"
+
+    reminder_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    medication_id = Column(UUID(as_uuid=True), ForeignKey("medication.medication_id"), nullable=False)
+    senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
+    scheduled_for = Column(DateTime, nullable=False)
+    status = Column(String(24), nullable=False, default="PENDING")
+    reminder_count = Column(Integer, nullable=False, default=0)
+    retry_at = Column(DateTime, nullable=True)
+    opened_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING','REMINDER_SCHEDULED','COMPLETED')",
+            name="ck_medication_reminder_status",
+        ),
+        UniqueConstraint("medication_id", "scheduled_for", name="uq_medication_reminder_schedule"),
+    )
+
+    medication = relationship("Medication", backref="reminders")
+    senior = relationship("Senior", backref="medication_reminders")
 
 
 class Notification(Base):
