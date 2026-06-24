@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Bell, LogOut, Info, ChevronRight } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
+import { registerFCMToken } from "../api/auth";
 
 export default function SettingsPage() {
   const insets = useSafeAreaInsets();
@@ -23,6 +24,14 @@ export default function SettingsPage() {
           [{ text: "확인", style: "default" }]
         );
         return;
+      }
+
+      try {
+        const tokenData = await Notifications.getDevicePushTokenAsync();
+        const token = tokenData.data;
+        await registerFCMToken(token);
+      } catch (err) {
+        console.error("Failed to register FCM push token:", err);
       }
     }
     setNotifEnabled(next);

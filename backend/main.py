@@ -1,7 +1,15 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import auth, record, analyze, chat, medication, notification, report, speech, hospital
 from app.services.scheduler import start_scheduler, shutdown_scheduler
+from app.services.fcm_service import initialize_firebase
+
+# 로깅 기본 설정 (앱 로그 출력용)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+)
 
 # DB 스키마는 Alembic 마이그레이션으로 관리한다.
 # 테이블 생성/변경은 `alembic upgrade head` 로 적용하며, 여기서 create_all 을 호출하지 않는다.
@@ -31,6 +39,7 @@ app.include_router(speech.router)
 
 @app.on_event("startup")
 def on_startup():
+    initialize_firebase()
     start_scheduler()
 
 @app.on_event("shutdown")
