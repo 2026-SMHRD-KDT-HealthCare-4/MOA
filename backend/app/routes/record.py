@@ -15,8 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_senior, get_current_user_id, verify_senior_access
-from app.models.models import Script, ScriptRecord, Senior
+from app.core.security import get_current_user_id, verify_senior_access
+from app.models.models import Script, ScriptRecord
 from app.schemas.voice import ScriptRecordCreateRequest, ScriptRecordResponse, ScriptResponse
 
 router = APIRouter(prefix="/record", tags=["record"])
@@ -66,15 +66,15 @@ def get_script(
 def create_script_record(
     req: ScriptRecordCreateRequest,
     db: Session = Depends(get_db),
-    senior: Senior = Depends(get_current_senior),
+    user_id: UUID = Depends(get_current_user_id),
 ):
-    """고령층 본인의 지정 문구 낭독 측정 이력을 저장한다 (원본 음성 미저장)."""
+    """로그인한 사용자(고령층·보호자 공통)의 지정 문구 낭독 측정 이력을 저장한다 (원본 음성 미저장)."""
     script = db.query(Script).filter(Script.script_id == req.script_id).first()
     if script is None:
         raise HTTPException(status_code=404, detail="지정문구를 찾을 수 없습니다.")
 
     record = ScriptRecord(
-        senior_id=senior.senior_id,  # 토큰 본인 ID 사용
+        senior_id=user_id,  # 토큰 본인 ID 사용 (guardian·senior 공통)
         script_id=req.script_id,
         measured_at=req.measured_at or datetime.utcnow(),
     )
