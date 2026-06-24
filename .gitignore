@@ -50,3 +50,5 @@ ml/checkpoints/
 /__pycache__/
 *.pth
 *.pkl
+
+team-moa-firebase-adminsdk.json

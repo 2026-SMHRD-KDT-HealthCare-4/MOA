@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, record, analyze, chat, medication, notification, report, speech
+from app.routes import auth, record, analyze, chat, medication, notification, report, speech, hospital
+from app.services.scheduler import start_scheduler, shutdown_scheduler
 
 # DB 스키마는 Alembic 마이그레이션으로 관리한다.
 # 테이블 생성/변경은 `alembic upgrade head` 로 적용하며, 여기서 create_all 을 호출하지 않는다.
@@ -23,9 +24,18 @@ app.include_router(record.router)
 app.include_router(analyze.router)
 app.include_router(chat.router)
 app.include_router(medication.router)
+app.include_router(hospital.router)
 app.include_router(notification.router)
 app.include_router(report.router)
 app.include_router(speech.router)
+
+@app.on_event("startup")
+def on_startup():
+    start_scheduler()
+
+@app.on_event("shutdown")
+def on_shutdown():
+    shutdown_scheduler()
 
 @app.get("/")
 def root():

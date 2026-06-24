@@ -36,6 +36,7 @@ from app.schemas.auth import (
     ReconnectResponse,
     SeniorRegisterRequest,
     SeniorResponse,
+    FCMTokenRegisterRequest,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -476,3 +477,25 @@ def reconnect_senior(req: ReconnectRequest, db: Session = Depends(get_db)):
         role="senior",
         name=senior.name,
     )
+
+
+@router.post("/fcm-token")
+def register_fcm_token(
+    req: FCMTokenRegisterRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """현재 로그인한 사용자(보호자 혹은 고령자)의 FCM 토큰을 저장/업데이트한다."""
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        guardian.fcm_token = req.fcm_token
+        db.commit()
+        return {"status": "success", "message": "보호자 FCM 토큰이 등록되었습니다."}
+
+    senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+    if senior is not None:
+        senior.fcm_token = req.fcm_token
+        db.commit()
+        return {"status": "success", "message": "고령자 FCM 토큰이 등록되었습니다."}
+
+    raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")

@@ -15,3 +15,6 @@ numpy
 librosa
 praat-parselmouth
 opensmile
+firebase-admin
+apscheduler
+

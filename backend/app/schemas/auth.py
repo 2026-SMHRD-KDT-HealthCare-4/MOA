@@ -147,3 +147,10 @@ class ReconnectResponse(BaseModel):
     refresh_token: str
     role: str
     name: str
+
+
+# ---------- FCM 토큰 등록 ----------
+
+class FCMTokenRegisterRequest(BaseModel):
+    fcm_token: str
+

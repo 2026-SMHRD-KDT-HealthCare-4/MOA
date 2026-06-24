@@ -77,6 +77,7 @@ class NotificationCreateRequest(BaseModel):
     notification_type: NotificationTypeLiteral
     prediction_id: Optional[UUID] = None   # RISK일 때만
     medication_id: Optional[UUID] = None    # MEDICATION일 때만
+    visit_id: Optional[UUID] = None         # HOSPITAL일 때만
     status: NotificationStatusLiteral = "SENT"
 
 
@@ -87,8 +88,37 @@ class NotificationResponse(BaseModel):
     notification_type: NotificationTypeLiteral
     prediction_id: Optional[UUID]
     medication_id: Optional[UUID]
+    visit_id: Optional[UUID]
     status: NotificationStatusLiteral
     sent_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---------- 병원방문 일정 (HOSPITAL_VISIT) ----------
+
+class HospitalVisitCreateRequest(BaseModel):
+    senior_id: UUID
+    hospital_name: str
+    visit_datetime: datetime
+    is_active: bool = True
+
+
+class HospitalVisitUpdateRequest(BaseModel):
+    hospital_name: Optional[str] = None
+    visit_datetime: Optional[datetime] = None
+    is_active: Optional[bool] = None
+
+
+class HospitalVisitResponse(BaseModel):
+    visit_id: UUID
+    senior_id: UUID
+    guardian_id: UUID
+    hospital_name: str
+    visit_datetime: datetime
+    is_active: bool
+    created_at: datetime
 
     class Config:
         from_attributes = True

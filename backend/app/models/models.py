@@ -311,6 +311,25 @@ class MedicationCheck(Base):
     medication = relationship("Medication", back_populates="checks")
     senior = relationship("Senior", backref="medication_checks")
 
+class HospitalVisit(Base):
+    """병원방문 일정 (HOSPITAL_VISIT)
+    보호자가 등록한 고령층의 병원 방문 일정을 관리한다.
+    """
+    __tablename__ = "hospital_visit"
+
+    visit_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
+    guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)  # 등록한 보호자
+    hospital_name = Column(String(100), nullable=False)
+    visit_datetime = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    senior = relationship("Senior", backref="hospital_visits")
+    guardian = relationship("Guardian", backref="hospital_visits")
+
 
 class Notification(Base):
     """알림 (NOTIFICATION) — 요구사항 10, 11번.
@@ -318,6 +337,7 @@ class Notification(Base):
 
     - prediction_id: notification_type이 RISK일 때만 값이 존재 (RISK_PREDICTION 참조)
     - medication_id: notification_type이 MEDICATION일 때만 값이 존재 (MEDICATION 참조)
+    - visit_id: notification_type이 HOSPITAL일 때만 값이 존재 (HOSPITAL_VISIT 참조)
     - status: FCM 푸시 전송 실패 시 SMS Fallback이 적용되는 점을 고려해
               SENT/FAILED/READ로 구분 저장한다. (요구사항 11번)
     """
@@ -329,6 +349,7 @@ class Notification(Base):
 
     prediction_id = Column(UUID(as_uuid=True), ForeignKey("risk_prediction.prediction_id"), nullable=True)
     medication_id = Column(UUID(as_uuid=True), ForeignKey("medication.medication_id"), nullable=True)
+    visit_id = Column(UUID(as_uuid=True), ForeignKey("hospital_visit.visit_id"), nullable=True)
 
     notification_type = Column(String(15), nullable=False)
     status = Column(String(10), nullable=False)
@@ -346,6 +367,7 @@ class Notification(Base):
 
     guardian = relationship("Guardian", backref="notifications")
     senior = relationship("Senior", backref="notifications")
+    visit = relationship("HospitalVisit", backref="notifications")
 
 
 class MonthlyReport(Base):
