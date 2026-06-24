@@ -23,6 +23,10 @@ export default function RoleSelectPage() {
     router.push("/(auth)/guardian-invite");
   }
 
+  function handleElderReconnect() {
+    router.push("/(auth)/elder-reconnect");
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
       <View style={styles.header}>
@@ -73,6 +77,9 @@ export default function RoleSelectPage() {
         </TouchableOpacity>
         <TouchableOpacity onPress={handleGuardianInvite} activeOpacity={0.7}>
           <Text style={styles.inviteLink}>보호자 초대 코드를 받았어요</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleElderReconnect} activeOpacity={0.7}>
+          <Text style={styles.inviteLink}>기기를 바꾸셨나요? 재연결 코드 입력</Text>
         </TouchableOpacity>
       </View>
     </View>

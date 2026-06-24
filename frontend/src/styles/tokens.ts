@@ -59,6 +59,19 @@ export const colors = {
     border:        "rgba(74,74,72,0.08)",
     gridline:      "rgba(74,74,72,0.10)", // 차트 Y축 눈금선(중립)
   },
+  // 보호자 가족/리포트 탭 네이비 팔레트 — 2026-06-23 결정(네이비+베이지+세이지그린+앰버, 코랄 미사용).
+  // 가족 탭 카드·버튼·모달은 이 토큰만 참조한다.
+  guardianNavy: {
+    primary:      "#4F76A8", // CTA · 핵심 액션
+    primaryDark:  "#355A8A", // 강조 텍스트 · pressed
+    primaryLight: "#EEF4FB", // 아이콘 배경 · pressed 배경
+    bgPage:       "#FFF8EF", // 페이지 배경(베이지)
+    card:         "#FFFFFF",
+    border:       "#E5ECF5",
+    textMain:     "#3B2318",
+    textSub:      "#765E52",
+    textMuted:    "#9B8A7D",
+  },
 } as const;
 
 export const spacing = {

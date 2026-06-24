@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Share, TextInput, Modal, RefreshControl } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Share, TextInput, Modal, RefreshControl, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import {
@@ -14,6 +14,7 @@ import {
 import { useAuthStore, type GuardianMember } from "../stores/authStore";
 import { getParentMeta, PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
 import * as authApi from "../api/auth";
+import { colors } from "../styles/tokens";
 
 export default function FamilyHubPage() {
   const insets = useSafeAreaInsets();
@@ -32,6 +33,11 @@ export default function FamilyHubPage() {
   const [unlinkTarget, setUnlinkTarget] = useState<{ linkId: string; name: string } | null>(null);
   const [unlinking, setUnlinking] = useState(false);
   const [unlinkError, setUnlinkError] = useState("");
+  const [relinkTarget, setRelinkTarget] = useState<{ seniorId: string; name: string } | null>(null);
+  const [relinkCode, setRelinkCode] = useState("");
+  const [relinkExpiresAt, setRelinkExpiresAt] = useState("");
+  const [relinkLoading, setRelinkLoading] = useState(false);
+  const [relinkError, setRelinkError] = useState("");
   const [toastMessage, setToastMessage] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [listError, setListError] = useState("");
@@ -112,6 +118,37 @@ export default function FamilyHubPage() {
     } finally {
       setUnlinking(false);
     }
+  }
+
+  async function openRelinkModal(seniorId: string, name: string) {
+    setRelinkTarget({ seniorId, name });
+    setRelinkCode("");
+    setRelinkExpiresAt("");
+    setRelinkError("");
+    setRelinkLoading(true);
+    try {
+      const res = await authApi.requestRelinkCode(seniorId);
+      setRelinkCode(res.data.code);
+      setRelinkExpiresAt(res.data.expired_at);
+    } catch (error) {
+      setRelinkError(error instanceof Error ? error.message : "재연결 코드를 받지 못했어요.");
+    } finally {
+      setRelinkLoading(false);
+    }
+  }
+
+  function closeRelinkModal() {
+    setRelinkTarget(null);
+    setRelinkCode("");
+    setRelinkExpiresAt("");
+    setRelinkError("");
+  }
+
+  async function shareRelinkCode() {
+    if (!relinkCode) return;
+    await Share.share({
+      message: `MOA 기기 재연결 코드: ${relinkCode}\n부모님 기기에서 이 코드를 입력하면 다시 연결돼요. (24시간 유효)`,
+    });
   }
 
   async function handleInviteGuardian() {
@@ -199,18 +236,33 @@ export default function FamilyHubPage() {
                   <ChevronRight size={18} color="#4F76A8" strokeWidth={2.4} />
                 </View>
               </TouchableOpacity>
-              <Pressable
-                style={styles.unlinkButton}
-                onPress={() => openUnlinkModal(link.linkId, link.counterpartName)}
-                accessibilityRole="button"
-                accessibilityLabel={`${link.counterpartName}님 연결 해제`}
-              >
-                {({ pressed }) => (
-                  <Text style={[styles.unlinkButtonText, pressed && styles.unlinkButtonTextPressed]}>
-                    연결 해제
-                  </Text>
-                )}
-              </Pressable>
+              <View style={styles.cardActions}>
+                <Pressable
+                  style={styles.relinkButton}
+                  onPress={() => openRelinkModal(link.counterpartId, link.counterpartName)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${link.counterpartName}님 기기 재연결 코드`}
+                >
+                  {({ pressed }) => (
+                    <Text style={[styles.relinkButtonText, pressed && styles.relinkButtonTextPressed]}>
+                      기기 재연결 코드
+                    </Text>
+                  )}
+                </Pressable>
+                <View style={styles.actionDivider} />
+                <Pressable
+                  style={styles.unlinkButton}
+                  onPress={() => openUnlinkModal(link.linkId, link.counterpartName)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${link.counterpartName}님 연결 해제`}
+                >
+                  {({ pressed }) => (
+                    <Text style={[styles.unlinkButtonText, pressed && styles.unlinkButtonTextPressed]}>
+                      연결 해제
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
             </View>
           );
         })}
@@ -302,6 +354,56 @@ export default function FamilyHubPage() {
         </View>
       </Modal>
 
+      <Modal
+        visible={relinkTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeRelinkModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} accessibilityRole="alert">
+            <Text style={styles.modalTitle}>재연결 코드</Text>
+            <Text style={styles.modalBody}>
+              아래 코드를 부모님 기기에서 입력해 주세요
+              {relinkExpiresAt ? ` (${formatRelinkValidity(relinkExpiresAt)})` : ""}
+            </Text>
+
+            {relinkLoading ? (
+              <ActivityIndicator color={G.primary} style={styles.relinkSpinner} />
+            ) : relinkError ? (
+              <Text style={styles.modalError}>{relinkError}</Text>
+            ) : (
+              <>
+                <View style={styles.relinkCodeBox}>
+                  <Text style={styles.relinkCodeText} accessibilityLabel={`재연결 코드 ${relinkCode}`}>
+                    {relinkCode}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.relinkShareBtn}
+                  onPress={shareRelinkCode}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="재연결 코드 공유"
+                >
+                  <Share2 size={18} color="#FFFFFF" />
+                  <Text style={styles.relinkShareText}>코드 공유</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <TouchableOpacity
+              style={styles.relinkCloseBtn}
+              onPress={closeRelinkModal}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
+              <Text style={styles.relinkCloseText}>닫기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {toastMessage ? (
         <View style={[styles.toast, { bottom: insets.bottom + 22 }]} accessibilityLiveRegion="polite">
           <Text style={styles.toastText}>{toastMessage}</Text>
@@ -309,6 +411,17 @@ export default function FamilyHubPage() {
       ) : null}
     </View>
   );
+}
+
+// 재연결 코드 유효시간을 응답 expired_at 기준으로 사람이 읽기 좋은 문구로 변환.
+// 백엔드 발급 정책(real 1시간 / mock 24시간)이 바뀌어도 표시가 자동으로 맞춰진다.
+function formatRelinkValidity(expiresAt: string): string {
+  const remainMs = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(remainMs) || remainMs <= 0) return "잠시 후 만료";
+  const hours = Math.round(remainMs / (60 * 60 * 1000));
+  if (hours >= 1) return `약 ${hours}시간 유효`;
+  const minutes = Math.max(1, Math.round(remainMs / (60 * 1000)));
+  return `약 ${minutes}분 유효`;
 }
 
 function GuardianMemberRow({ member }: { member: GuardianMember }) {
@@ -364,6 +477,9 @@ const C = {
   unlinkText: "#7B8796", // 보조 액션(연결 해제) — 존재감 낮춘 차분한 블루그레이
   cardShadow: "0 8px 20px rgba(53,90,138,0.08)",
 };
+
+// 재연결 코드 버튼·모달 전용 — tokens.ts 네이비 팔레트만 참조(하드코딩 금지).
+const G = colors.guardianNavy;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
@@ -432,15 +548,60 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   reportLinkText: { fontSize: 16, fontWeight: "800", color: C.blue },
-  unlinkButton: {
-    minHeight: 48,
+  cardActions: {
+    flexDirection: "row",
+    alignItems: "stretch",
     borderTopWidth: 1,
     borderTopColor: C.divider,
+  },
+  actionDivider: { width: 1, backgroundColor: C.divider, marginVertical: 12 },
+  relinkButton: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  relinkButtonText: { fontSize: 15, fontWeight: "700", color: G.primary },
+  relinkButtonTextPressed: { color: G.primaryDark },
+  unlinkButton: {
+    flex: 1,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   unlinkButtonText: { fontSize: 15, fontWeight: "700", color: C.unlinkText },
   unlinkButtonTextPressed: { color: "#5C6675" },
+  relinkSpinner: { paddingVertical: 18 },
+  relinkCodeBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 18,
+    borderRadius: 18,
+    backgroundColor: G.primaryLight,
+    borderWidth: 1,
+    borderColor: G.border,
+  },
+  relinkCodeText: { fontSize: 28, fontWeight: "900", color: G.primaryDark, letterSpacing: 3 },
+  relinkShareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: G.primary,
+    boxShadow: "0 8px 18px rgba(53,90,138,0.18)",
+  },
+  relinkShareText: { fontSize: 17, fontWeight: "800", color: "#FFFFFF" },
+  relinkCloseBtn: {
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: G.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  relinkCloseText: { fontSize: 17, fontWeight: "800", color: G.textSub },
   emptyCard: {
     backgroundColor: C.cardBg,
     borderRadius: 24,
