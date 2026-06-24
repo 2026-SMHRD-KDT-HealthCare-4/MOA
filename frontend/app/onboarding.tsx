@@ -2,7 +2,8 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Share 
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, CheckCircle2, Share2, UserPlus } from "lucide-react-native";
+import { ArrowLeft, CheckCircle2, Copy, Share2, UserPlus } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
 import { useAuthStore } from "../src/stores/authStore";
 import * as authApi from "../src/api/auth";
 
@@ -20,6 +21,7 @@ export default function OnboardingPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // 보호자가 직접사용자 초대 토큰을 발급한다(POST /auth/invite). 직접사용자 계정은
   // 클레임 시점에 본인 기기에서 생성되므로, 여기서는 미리 만들지 않는다.
@@ -53,6 +55,13 @@ export default function OnboardingPage() {
     await Share.share({
       message: `MOA 초대 코드: ${inviteCode}\n${name.trim()}님 기기에서 이 코드를 입력해 연결해 주세요.`,
     });
+  }
+
+  async function handleCopyCode() {
+    if (!inviteCode) return;
+    await Clipboard.setStringAsync(inviteCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
   }
 
   return (
@@ -136,6 +145,17 @@ export default function OnboardingPage() {
               </Text>
               <Text style={styles.codeHint}>{`${name.trim()}님 기기에서 동의와 코드 입력을 진행해 주세요.`}</Text>
             </View>
+
+            <TouchableOpacity style={styles.secondaryBtn} onPress={handleCopyCode} activeOpacity={0.82}>
+              {copied ? (
+                <CheckCircle2 size={20} color="#6F9C7A" strokeWidth={2.4} />
+              ) : (
+                <Copy size={20} color="#FF7955" />
+              )}
+              <Text style={[styles.secondaryBtnText, copied && styles.secondaryBtnTextCopied]}>
+                {copied ? "복사됐어요!" : "코드 복사"}
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.secondaryBtn} onPress={handleShareCode} activeOpacity={0.82}>
               <Share2 size={20} color="#FF7955" />
@@ -229,5 +249,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   secondaryBtnText: { fontSize: 17, fontWeight: "800", color: "#FF7955" },
+  secondaryBtnTextCopied: { color: "#6F9C7A" },
   errorText: { fontSize: 15, fontWeight: "700", color: "#E8943A" },
 });

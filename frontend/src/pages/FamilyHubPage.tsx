@@ -7,10 +7,12 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  Copy,
   Share2,
   UserPlus,
   Users,
 } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
 import { useAuthStore, type GuardianMember } from "../stores/authStore";
 import { getParentMeta, PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
 import * as authApi from "../api/auth";
@@ -84,6 +86,11 @@ export default function FamilyHubPage() {
     });
   }
 
+  async function copyGuardianInvite(code: string) {
+    await Clipboard.setStringAsync(code);
+    showToast("초대 코드를 복사했어요.");
+  }
+
   function showToast(message: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToastMessage(message);
@@ -149,6 +156,12 @@ export default function FamilyHubPage() {
     await Share.share({
       message: `MOA 기기 재연결 코드: ${relinkCode}\n부모님 기기에서 이 코드를 입력하면 다시 연결돼요. (24시간 유효)`,
     });
+  }
+
+  async function copyRelinkCode() {
+    if (!relinkCode) return;
+    await Clipboard.setStringAsync(relinkCode);
+    showToast("코드를 복사했어요.");
   }
 
   async function handleInviteGuardian() {
@@ -305,14 +318,33 @@ export default function FamilyHubPage() {
                 <Text style={styles.inviteBtnText}>{inviting ? "초대 중..." : "초대 코드 발급"}</Text>
               </TouchableOpacity>
               {inviteCode ? (
-                <TouchableOpacity
-                  style={styles.inviteCodeBtn}
-                  onPress={() => shareGuardianInvite(inviteCode)}
-                  activeOpacity={0.85}
-                >
-                  <Share2 size={17} color="#4F76A8" />
-                  <Text style={styles.inviteCodeText}>{inviteCode}</Text>
-                </TouchableOpacity>
+                <>
+                  <View style={styles.inviteCodeBtn}>
+                    <Text style={styles.inviteCodeText}>{inviteCode}</Text>
+                  </View>
+                  <View style={styles.inviteCodeActions}>
+                    <TouchableOpacity
+                      style={styles.inviteActionBtn}
+                      onPress={() => copyGuardianInvite(inviteCode)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="초대 코드 복사"
+                    >
+                      <Copy size={16} color={C.blue} />
+                      <Text style={styles.inviteActionText}>복사</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.inviteActionBtn}
+                      onPress={() => shareGuardianInvite(inviteCode)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityLabel="초대 코드 공유"
+                    >
+                      <Share2 size={16} color={C.blue} />
+                      <Text style={styles.inviteActionText}>공유</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
               ) : null}
             </View>
           </View>
@@ -379,6 +411,16 @@ export default function FamilyHubPage() {
                     {relinkCode}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  style={styles.relinkCopyBtn}
+                  onPress={copyRelinkCode}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="재연결 코드 복사"
+                >
+                  <Copy size={18} color={G.primary} />
+                  <Text style={styles.relinkCopyText}>코드 복사</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.relinkShareBtn}
                   onPress={shareRelinkCode}
@@ -582,6 +624,18 @@ const styles = StyleSheet.create({
     borderColor: G.border,
   },
   relinkCodeText: { fontSize: 28, fontWeight: "900", color: G.primaryDark, letterSpacing: 3 },
+  relinkCopyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: G.primaryLight,
+    borderWidth: 1,
+    borderColor: G.border,
+  },
+  relinkCopyText: { fontSize: 17, fontWeight: "800", color: G.primary },
   relinkShareBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -694,6 +748,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   inviteCodeText: { fontSize: 17, fontWeight: "900", color: C.blue, letterSpacing: 1 },
+  inviteCodeActions: { flexDirection: "row", gap: 8 },
+  inviteActionBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#A9BEDC",
+    backgroundColor: C.blueLight,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  inviteActionText: { fontSize: 15, fontWeight: "800", color: C.blue },
   modalBackdrop: {
     flex: 1,
     paddingHorizontal: 24,
