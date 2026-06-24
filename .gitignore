@@ -44,3 +44,5 @@ frontend/expo-web.pid
 *.log
 backend/dev-chat-proxy.mjs
 backend/run-dev-chat-proxy.cmd
+
+team-moa-firebase-adminsdk.json
