@@ -92,3 +92,26 @@ class NotificationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+MedicationReminderStatusLiteral = Literal["PENDING", "REMINDER_SCHEDULED", "COMPLETED"]
+
+
+class MedicationReminderReplyRequest(BaseModel):
+    answer: str
+
+
+class MedicationReminderResponse(BaseModel):
+    reminder_id: UUID
+    medication_id: UUID
+    medicine_name: str
+    scheduled_for: datetime
+    status: MedicationReminderStatusLiteral
+    reminder_count: int
+    retry_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    needs_attention: bool
+
+
+class MedicationReminderReplyResponse(MedicationReminderResponse):
+    reply: str

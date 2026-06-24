@@ -244,16 +244,16 @@ export default function SettingsPage() {
 // 설정 화면 팔레트 — 가족/리포트 탭과 동일한 네이비 중심 시스템.
 // 신뢰감 70% / 따뜻함 30%. 코랄·오렌지 제거, 베이지 배경 유지.
 const C = {
-  mainText: "#3B2318",
-  subText: "#765E52",
+  mainText: "#3F2A1D",
+  subText: "#6F5A49",
   inactiveText: "#9B8A7D",
-  bg: "#FFF8EF",
-  cardBg: "#FFFFFF",
-  cardBorder: "#E5ECF5",
-  blue: "#4F76A8",
-  blueDark: "#355A8A",
-  blueLight: "#EEF4FB",
-  cardShadow: "0 8px 20px rgba(53,90,138,0.08)",
+  bg: "#F6E3C2",
+  cardBg: "#FFF9F1",
+  cardBorder: "rgba(94,65,40,0.12)",
+  blue: "#173F73",
+  blueDark: "#12345F",
+  blueLight: "#F6E3C2",
+  cardShadow: "0 8px 20px rgba(63,42,29,0.08)",
 };
 
 const styles = StyleSheet.create({
@@ -318,11 +318,11 @@ const styles = StyleSheet.create({
     height: 58,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#D7E3F3",
-    backgroundColor: "#F8FAFD",
+    borderColor: "#173F73",
+    backgroundColor: "#173F73",
   },
   logoutBtnPressed: { backgroundColor: C.blueLight },
-  logoutText: { fontSize: 18, fontWeight: "800", color: C.blueDark },
+  logoutText: { fontSize: 18, fontWeight: "800", color: "#FFFFFF" },
 
   // 직접사용자 로그아웃 바텀시트 — 코랄/웜 톤(직접사용자 화면 팔레트). 색은 tokens.ts 참조.
   modalOverlay: {

@@ -48,7 +48,7 @@ export default function IntroScreen() {
       accessibilityRole="button"
       accessibilityLabel="화면을 터치하면 대화를 시작해요"
     >
-      <LinearGradient colors={["#FFF8EE", "#FFFDF9", "#F8E5D2"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient pointerEvents="none" colors={["#FFF8EE", "#FFFDF9", "#F8E5D2"]} style={StyleSheet.absoluteFill} />
 
       <View style={[styles.logoWrap, { paddingTop: logoPaddingTop }]}>
         <Text style={styles.logo}>MOA</Text>
@@ -67,7 +67,7 @@ export default function IntroScreen() {
       />
 
       <View style={[styles.introBubble, { bottom: bubbleBottom }]}>
-        <Text style={styles.introGreeting}>안녕하세요.</Text>
+        <Text style={styles.introGreeting}>안녕하세요</Text>
         <Text style={styles.introQuestion}>오늘은 어떤 하루였나요?</Text>
       </View>
 

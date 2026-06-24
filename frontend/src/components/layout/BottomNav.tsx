@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { type ComponentProps } from "react";
 import { type Tabs } from "expo-router";
-import { CalendarDays, FileText, Home, Settings, Users } from "lucide-react-native";
+import { CalendarDays, FileText, Home, Pill, Settings, Users } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { LucideIcon } from "lucide-react-native";
@@ -38,11 +38,11 @@ const ELDER_THEME: NavTheme = {
   iconSize: 30,
   labelSize: 19,
   labelLineHeight: 24,
-  activeColor: "#FF7657",
+  activeColor: "#173F73",
   inactiveColor: "#6D5A51",
-  activeBg: "rgba(255,118,87,0.11)",
-  containerBorder: "rgba(117,76,42,0.08)",
-  containerBg: "rgba(255,255,255,0.88)",
+  activeBg: "rgba(23,63,115,0.10)",
+  containerBorder: "rgba(94,65,40,0.12)",
+  containerBg: "rgba(255,249,241,0.92)",
   // Match the home-screen fade end color so the video background flows into the tab area.
   areaColors: ["#F7D6AC", "#F7D6AC", "#F7D6AC"],
   areaTopPadding: 0,
@@ -53,20 +53,21 @@ const GUARDIAN_THEME: NavTheme = {
   iconSize: 26,
   labelSize: 15,
   labelLineHeight: 20,
-  activeColor: "#355A8A",
+  activeColor: "#173F73",
   inactiveColor: "#9B8A7D",
-  activeBg: "#EEF4FB",
-  containerBorder: "#E5ECF5",
-  containerBg: "rgba(255,255,255,0.9)",
-  areaColors: ["#F7EFE4", "#F7EFE4", "#F7EFE4"],
+  activeBg: "rgba(23,63,115,0.10)",
+  containerBorder: "rgba(94,65,40,0.12)",
+  containerBg: "rgba(255,249,241,0.92)",
+  areaColors: ["#F6E3C2", "#F6E3C2", "#F6E3C2"],
   areaTopPadding: 12,
   shadow: "0 -8px 20px rgba(53,90,138,0.08)",
-  safeBackground: "#F7EFE4",
+  safeBackground: "#F6E3C2",
 };
 
 const ELDER_TABS: TabConfig[] = [
   { name: "index", icon: Home, label: "홈" },
   { name: "history", icon: CalendarDays, label: "기록" },
+  { name: "health", icon: Pill, label: "복약/병원" },
   { name: "settings", icon: Settings, label: "설정" },
 ];
 
@@ -116,8 +117,8 @@ function BottomNavBase({
           const Icon = tab.icon;
           const isActive = activeRouteName === tab.name;
           const isHomeTab = tab.name === "index";
-          const activeColor = isHomeTab ? "#355A8A" : theme.activeColor;
-          const activeBg = isHomeTab ? "#E8EEF6" : theme.activeBg;
+          const activeColor = theme.activeColor;
+          const activeBg = theme.activeBg;
 
           return (
             <TouchableOpacity
@@ -188,7 +189,7 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     borderWidth: 1,
     paddingVertical: 10,
-    paddingHorizontal: 17,
+    paddingHorizontal: 10,
     elevation: 8,
     zIndex: 1,
   },
@@ -199,7 +200,7 @@ const styles = StyleSheet.create({
     gap: 4,
     borderRadius: 22,
     paddingVertical: 5,
-    marginHorizontal: 2,
+    marginHorizontal: 1,
   },
   label: {
     fontFamily: "Pretendard-Bold",

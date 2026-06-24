@@ -4,8 +4,10 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
+import * as Notifications from "expo-notifications";
 import { useAuthStore } from "../src/stores/authStore";
 import { GlobalWakeWordListener } from "../src/components/GlobalWakeWordListener";
+import { useMedicationStore } from "../src/stores/medicationStore";
 
 // 인증/역할 라우트 가드.
 // 로그인 상태·역할을 보고 (auth)/(elder)/(guardian) 영역으로 정리한다.
@@ -54,6 +56,7 @@ function useAuthGuard() {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
   const [fontsLoaded] = useFonts({
     Jua: require("../assets/fonts/BMJUA.ttf"),
     "Pretendard-Light": require("../assets/fonts/Pretendard-Light.ttf"),
@@ -66,6 +69,23 @@ export default function RootLayout() {
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data ?? {};
+      const reminderId = typeof data.medicationReminderId === "string" ? data.medicationReminderId : null;
+      const localMedicationId = typeof data.localMedicationId === "string" ? data.localMedicationId : null;
+      const prompt = typeof data.medicationPrompt === "string" ? data.medicationPrompt : undefined;
+      if (!reminderId && !localMedicationId) return;
+      if (localMedicationId && data.isRetry !== true) useMedicationStore.getState().markPending(localMedicationId);
+
+      router.push({
+        pathname: "/(elder)",
+        params: { medicationReminderId: reminderId ?? undefined, localMedicationId: localMedicationId ?? undefined, medicationPrompt: prompt },
+      });
+    });
+    return () => subscription.remove();
+  }, [router]);
 
   useAuthGuard();
 

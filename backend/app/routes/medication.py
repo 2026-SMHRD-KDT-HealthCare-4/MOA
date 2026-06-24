@@ -5,7 +5,7 @@
 - MEDICATION_CHECK: 고령층의 일별 복약 이행 여부 (medication_id + check_date UNIQUE)
 """
 
-from datetime import date as date_type
+from datetime import date as date_type, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,16 +19,123 @@ from app.core.security import (
     verify_guardian_senior_link,
     verify_senior_access,
 )
-from app.models.models import Guardian, Medication, MedicationCheck, Senior
+from app.models.models import Guardian, Medication, MedicationCheck, MedicationReminder, Senior
 from app.schemas.notification import (
     MedicationCheckRequest,
     MedicationCheckResponse,
     MedicationCreateRequest,
     MedicationResponse,
+    MedicationReminderReplyRequest,
+    MedicationReminderReplyResponse,
+    MedicationReminderResponse,
     MedicationUpdateRequest,
 )
 
 router = APIRouter(prefix="/medication", tags=["medication"])
+
+POSITIVE_MEDICATION_ANSWERS = ("응", "예", "네", "먹었어", "먹었지", "먹었어요", "먹었습니다", "복용했")
+NEGATIVE_MEDICATION_ANSWERS = ("안 먹", "아직", "나중", "까먹", "못 먹", "못먹")
+
+
+def _reminder_response(reminder: MedicationReminder, reply: str | None = None) -> dict:
+    payload = {
+        "reminder_id": reminder.reminder_id,
+        "medication_id": reminder.medication_id,
+        "medicine_name": reminder.medication.medicine_name,
+        "scheduled_for": reminder.scheduled_for,
+        "status": reminder.status,
+        "reminder_count": reminder.reminder_count,
+        "retry_at": reminder.retry_at,
+        "completed_at": reminder.completed_at,
+        # 재알림까지 보냈는데도 완료되지 않은 건은 알림센터에서 계속 확인한다.
+        "needs_attention": reminder.reminder_count >= 1 and reminder.status != "COMPLETED",
+    }
+    if reply is not None:
+        payload["reply"] = reply
+    return payload
+
+
+def _mark_completed(reminder: MedicationReminder, db: Session) -> None:
+    check_date = reminder.scheduled_for.date()
+    check = (
+        db.query(MedicationCheck)
+        .filter(
+            MedicationCheck.medication_id == reminder.medication_id,
+            MedicationCheck.check_date == check_date,
+        )
+        .first()
+    )
+    if check is None:
+        check = MedicationCheck(
+            medication_id=reminder.medication_id,
+            senior_id=reminder.senior_id,
+            check_date=check_date,
+            is_completed=True,
+        )
+        db.add(check)
+    else:
+        check.is_completed = True
+
+
+def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[MedicationReminder]:
+    """스케줄러가 호출하는 복약 푸시 대상 생성/재발송 대기열.
+
+    반환된 항목의 `senior.fcm_token`으로만 푸시를 보내야 하며, 보호자에게는 전송하지 않는다.
+    """
+    now = now or datetime.utcnow()
+    today = now.date()
+    dispatched: list[MedicationReminder] = []
+
+    medications = (
+        db.query(Medication)
+        .filter(
+            Medication.is_active.is_(True),
+            Medication.start_date <= today,
+            (Medication.end_date.is_(None) | (Medication.end_date >= today)),
+        )
+        .all()
+    )
+    for medication in medications:
+        scheduled_for = datetime.combine(today, medication.intake_time)
+        if scheduled_for > now:
+            continue
+        reminder = (
+            db.query(MedicationReminder)
+            .filter(
+                MedicationReminder.medication_id == medication.medication_id,
+                MedicationReminder.scheduled_for == scheduled_for,
+            )
+            .first()
+        )
+        if reminder is None:
+            reminder = MedicationReminder(
+                medication_id=medication.medication_id,
+                senior_id=medication.senior_id,
+                scheduled_for=scheduled_for,
+                status="PENDING",
+            )
+            db.add(reminder)
+            dispatched.append(reminder)
+
+    retries = (
+        db.query(MedicationReminder)
+        .filter(
+            MedicationReminder.status == "REMINDER_SCHEDULED",
+            MedicationReminder.retry_at <= now,
+            MedicationReminder.reminder_count == 0,
+        )
+        .all()
+    )
+    for reminder in retries:
+        reminder.reminder_count = 1
+        reminder.status = "PENDING"
+        reminder.retry_at = None
+        dispatched.append(reminder)
+
+    db.commit()
+    for reminder in dispatched:
+        db.refresh(reminder)
+    return dispatched
 
 
 # ---------------------------------------------------------------------------
@@ -164,3 +271,98 @@ def list_checks(
     if check_date is not None:
         query = query.filter(MedicationCheck.check_date == check_date)
     return query.order_by(MedicationCheck.check_date.desc()).all()
+
+
+# ---------------------------------------------------------------------------
+# 복약 알림 응답 / 알림센터
+# ---------------------------------------------------------------------------
+
+@router.get("/reminders/me", response_model=list[MedicationReminderResponse])
+def list_my_medication_reminders(
+    db: Session = Depends(get_db),
+    senior: Senior = Depends(get_current_senior),
+):
+    """종 모양 알림센터용 목록. 완료 여부와 재알림 후 확인 필요 상태를 함께 반환한다."""
+    reminders = (
+        db.query(MedicationReminder)
+        .filter(MedicationReminder.senior_id == senior.senior_id)
+        .order_by(MedicationReminder.scheduled_for.desc())
+        .limit(50)
+        .all()
+    )
+    return [_reminder_response(reminder) for reminder in reminders]
+
+
+@router.post("/reminders/{reminder_id}/open", response_model=MedicationReminderReplyResponse)
+def open_medication_reminder(
+    reminder_id: UUID,
+    db: Session = Depends(get_db),
+    senior: Senior = Depends(get_current_senior),
+):
+    """푸시 탭 후 모아 대화에 전달할 첫 질문을 반환한다."""
+    reminder = (
+        db.query(MedicationReminder)
+        .filter(
+            MedicationReminder.reminder_id == reminder_id,
+            MedicationReminder.senior_id == senior.senior_id,
+        )
+        .first()
+    )
+    if reminder is None:
+        raise HTTPException(status_code=404, detail="복약 알림을 찾을 수 없습니다.")
+
+    if reminder.opened_at is None:
+        reminder.opened_at = datetime.utcnow()
+        db.commit()
+        db.refresh(reminder)
+
+    hour = reminder.scheduled_for.hour
+    return _reminder_response(reminder, f"{hour}시에 드시기로 한 약은 드셨나요?")
+
+
+@router.post("/reminders/{reminder_id}/reply", response_model=MedicationReminderReplyResponse)
+def reply_to_medication_reminder(
+    reminder_id: UUID,
+    req: MedicationReminderReplyRequest,
+    db: Session = Depends(get_db),
+    senior: Senior = Depends(get_current_senior),
+):
+    """긍정 응답은 완료 처리하고, 첫 부정 응답에만 10분 뒤 재알림을 예약한다."""
+    reminder = (
+        db.query(MedicationReminder)
+        .filter(
+            MedicationReminder.reminder_id == reminder_id,
+            MedicationReminder.senior_id == senior.senior_id,
+        )
+        .first()
+    )
+    if reminder is None:
+        raise HTTPException(status_code=404, detail="복약 알림을 찾을 수 없습니다.")
+
+    answer = req.answer.strip().lower().replace(" ", "")
+    if any(keyword.replace(" ", "") in answer for keyword in POSITIVE_MEDICATION_ANSWERS):
+        reminder.status = "COMPLETED"
+        reminder.retry_at = None
+        reminder.completed_at = datetime.utcnow()
+        _mark_completed(reminder, db)
+        db.commit()
+        db.refresh(reminder)
+        return _reminder_response(reminder, "잘하셨어요. 체크해둘게요.")
+
+    if any(keyword.replace(" ", "") in answer for keyword in NEGATIVE_MEDICATION_ANSWERS):
+        if reminder.reminder_count == 0 and reminder.status != "REMINDER_SCHEDULED":
+            reminder.status = "REMINDER_SCHEDULED"
+            reminder.retry_at = datetime.utcnow() + timedelta(minutes=10)
+            db.commit()
+            db.refresh(reminder)
+            return _reminder_response(
+                reminder,
+                "그럼 약 드시고 말씀해주세요. 10분 뒤에 한 번 더 알려드릴게요.",
+            )
+
+        # 재알림은 한 번만 보낸다. 이후 미완료 건은 알림센터에 그대로 남긴다.
+        db.commit()
+        db.refresh(reminder)
+        return _reminder_response(reminder, "약을 드신 뒤에 말씀해주세요. 복약 확인이 필요해요.")
+
+    return _reminder_response(reminder, "드셨는지 아직 못 드셨는지만 말씀해주세요.")

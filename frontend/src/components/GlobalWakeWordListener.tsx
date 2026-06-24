@@ -18,7 +18,8 @@ export function GlobalWakeWordListener() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const role = useAuthStore((s) => s.role);
   const wakeWordEnabled = useWakeWordStore((s) => s.isActive);
-  const { state, transcript, durationMs, start, reset } = useRecorder({
+  const setWakePrompt = useWakeWordStore((s) => s.setWakePrompt);
+  const { state, transcript, durationMs, noSpeechDetected, start, reset } = useRecorder({
     autoStopOnSilence: true,
     manageWakeWord: false,
   });
@@ -66,6 +67,7 @@ export function GlobalWakeWordListener() {
 
   async function enterWaitingCommand() {
     modeRef.current = "waitingCommand";
+    setWakePrompt("네, 말씀하세요.");
     await playWakeChime().catch(() => undefined);
     await playTTS("네, 말씀하세요.", ttsSoundRef, ttsWebAudioRef);
     beginCommandListening();
@@ -74,6 +76,7 @@ export function GlobalWakeWordListener() {
       if (modeRef.current !== "waitingCommand") return;
       modeRef.current = null;
       reset();
+      setWakePrompt("필요하시면 다시 불러주세요.");
       void playTTS("필요하시면 다시 불러주세요.", ttsSoundRef, ttsWebAudioRef).finally(() => {
         setTimeout(startWakeListening, 300);
       });
@@ -102,6 +105,13 @@ export function GlobalWakeWordListener() {
     const timer = setTimeout(startWakeListening, 150);
     return () => clearTimeout(timer);
   }, [isReady]);
+
+  useEffect(() => {
+    if (!isReady || !noSpeechDetected || modeRef.current !== "wake") return;
+    reset();
+    const timer = setTimeout(startWakeListening, 150);
+    return () => clearTimeout(timer);
+  }, [isReady, noSpeechDetected, reset]);
 
   useEffect(() => {
     const text = transcript?.trim();
