@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -115,10 +115,15 @@ export default function RegisterPage() {
       ) : (
         <View style={[styles.hub, { paddingBottom: insets.bottom + 24 }]}>
           <View style={styles.header}>
-            <Text style={styles.logo}>moa</Text>
+            <Image
+              source={require("../../assets/images/moa-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
             <Text style={styles.title}>보호자로{"\n"}시작하기</Text>
-            <Text style={styles.subtitle}>아래에서 선택해 주세요</Text>
           </View>
+
+          <View style={styles.topSpacer} />
 
           <View style={styles.actions}>
             <TouchableOpacity
@@ -152,6 +157,8 @@ export default function RegisterPage() {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.bottomSpacer} />
+
           <View style={styles.footer}>
             <View style={styles.footerDivider} />
             <Text style={styles.footerHint}>이미 계정이 있으신가요?</Text>
@@ -166,7 +173,7 @@ export default function RegisterPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFF9F2" },
+  container: { flex: 1, backgroundColor: "#FFF9F2", overflow: "hidden" },
   topBar: {
     height: 56,
     flexDirection: "row",
@@ -178,11 +185,15 @@ const styles = StyleSheet.create({
   topTitle: { fontSize: 16, fontWeight: "800", color: "#4d403b", letterSpacing: 1 },
 
   // 허브
-  hub: { flex: 1, paddingHorizontal: 24, justifyContent: "space-between" },
+  hub: { flex: 1, paddingHorizontal: 24 },
   header: { alignItems: "center", gap: 10, marginTop: 8 },
-  logo: { fontSize: 20, fontWeight: "800", color: "#FF7955", letterSpacing: 4, marginBottom: 4 },
+  // 비율 1.5(1536×1024) 고정 크기, 2.5배. (aspectRatio 는 rn-web 에서 레이아웃이 깨져 사용하지 않음)
+  // marginHorizontal 음수로 화면 폭 넘침 흡수, marginTop/Bottom 음수로 위아래 여백 정리.
+  logo: { width: 420, height: 280, marginHorizontal: -24, marginTop: -24, marginBottom: -24 },
+  // 액션(회원가입/초대코드) 묶음을 위쪽으로 — 위 spacer 작게, 아래 spacer 크게.
+  topSpacer: { flex: 1, minHeight: 8 },
+  bottomSpacer: { flex: 3, minHeight: 16 },
   title: { fontSize: 30, lineHeight: 40, fontWeight: "800", color: "#342C28", textAlign: "center" },
-  subtitle: { fontSize: 18, color: "#765E52" },
   actions: { gap: 16 },
   primaryBtn: {
     flexDirection: "row",
@@ -231,8 +242,8 @@ const styles = StyleSheet.create({
   inviteDesc: { fontSize: 15, color: "#765E52", lineHeight: 21 },
   footer: { alignItems: "center", gap: 10 },
   footerDivider: { height: 1, alignSelf: "stretch", backgroundColor: "#EFE3DA", marginBottom: 4 },
-  footerHint: { fontSize: 15, color: "#9A887D" },
-  loginLink: { fontSize: 16, fontWeight: "800", color: "#FF7955" },
+  footerHint: { fontSize: 20, color: "#9A887D" },
+  loginLink: { fontSize: 21, fontWeight: "800", color: "#FF7955" },
 
   // 가입 폼
   scroll: { paddingHorizontal: 24, paddingTop: 16, gap: 24 },

@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowLeft, IdCard, Smartphone } from "lucide-react-native";
@@ -35,9 +35,12 @@ export default function ElderConsentPage() {
 
       <View style={styles.content}>
         <View style={styles.header}>
-          <Text style={styles.logo}>moa</Text>
+          <Image
+            source={require("../../assets/images/moa-logo.png")}
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>처음{"\n"}오셨나요?</Text>
-          <Text style={styles.subtitle}>아래에서 선택해 주세요</Text>
         </View>
 
         <View style={styles.actions}>
@@ -52,7 +55,7 @@ export default function ElderConsentPage() {
           </TouchableOpacity>
 
           <Text style={styles.hint}>
-            전에 쓰시던 분이거나 기기를 바꾸신 경우{"\n"}아래를 눌러주세요 👋
+            기존 사용자 또는 기기 변경 시{"\n"}아래를 눌러주세요
           </Text>
 
           <TouchableOpacity
@@ -71,14 +74,16 @@ export default function ElderConsentPage() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFF9F2" },
+  container: { flex: 1, backgroundColor: "#FFF9F2", overflow: "hidden" },
   topBar: { height: 56, flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   backBtn: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
-  content: { flex: 1, paddingHorizontal: 24, justifyContent: "center", gap: 40 },
-  header: { alignItems: "center", gap: 10 },
-  logo: { fontSize: 20, fontWeight: "800", color: "#FF7955", letterSpacing: 4, marginBottom: 4 },
+  // 상단 정렬로 로고·제목·버튼을 위쪽에 모음.
+  content: { flex: 1, paddingHorizontal: 24, justifyContent: "flex-start", gap: 28 },
+  header: { alignItems: "center", gap: 8 },
+  // 비율 1.5(1536×1024) 고정 크기. marginHorizontal 음수로 화면 폭 넘침 흡수, 위아래 음수로 여백 정리.
+  // (aspectRatio 는 rn-web 에서 레이아웃이 깨져 사용하지 않음)
+  logo: { width: 420, height: 280, marginHorizontal: -24, marginTop: -16, marginBottom: -16 },
   title: { fontSize: 30, lineHeight: 40, fontWeight: "800", color: "#342C28", textAlign: "center" },
-  subtitle: { fontSize: 18, color: "#765E52" },
   actions: { gap: 16 },
   primaryBtn: {
     flexDirection: "row",
