@@ -67,6 +67,7 @@ export interface GuardianMember {
 export interface SessionUser {
   id: string;
   name: string;
+  email?: string;
   role: UserRole;
   token: string;
   linkedElderName?: string;
@@ -75,12 +76,14 @@ export interface SessionUser {
 const MOCK_ELDER_SESSION: SessionUser = {
   id: "elder-1",
   name: "김순자",
+  email: "senior@moa.app",
   role: "elder",
   token: "mock-token-elder-1",
 };
 const MOCK_GUARDIAN_SESSION: SessionUser = {
   id: "guardian-1",
   name: "김보호",
+  email: "guardian@moa.app",
   role: "guardian",
   token: "mock-token-guardian-1",
 };

@@ -2,7 +2,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, KeyRound, AlertCircle } from "lucide-react-native";
+import { ArrowLeft, KeyRound, AlertCircle, ShieldCheck } from "lucide-react-native";
 import { useAuthStore, type SeniorGender } from "../../src/stores/authStore";
 import * as authApi from "../../src/api/auth";
 
@@ -43,8 +43,9 @@ export default function ElderClaimPage() {
   const setOnboardingBirthDate = useAuthStore((s) => s.setOnboardingBirthDate);
   const setOnboardingGender = useAuthStore((s) => s.setOnboardingGender);
 
-  // 이전 화면(동의)에서 넘어온 동의 의사. 클레임 성공 직후 함께 제출한다.
-  const consented = params.consented === "1";
+  // 음성 데이터 동의는 이 화면에서 함께 받는다. (이전 동의 화면이 선택 허브로 바뀌어 여기로 통합)
+  // 혹시 외부에서 consented=1 로 들어오면 기본 체크 상태로 시작한다.
+  const [agreed, setAgreed] = useState(params.consented === "1");
 
   const [code, setCode] = useState(params.inviteToken ?? "");
   const [birthDate, setBirthDate] = useState("");
@@ -62,6 +63,7 @@ export default function ElderClaimPage() {
       return setError("전화번호를 010-1234-5678 형식으로 입력해 주세요.");
     }
     if (!gender) return setError("성별을 선택해 주세요.");
+    if (!agreed) return setError("음성 데이터 활용에 동의해 주세요.");
 
     setSubmitting(true);
     try {
@@ -71,7 +73,7 @@ export default function ElderClaimPage() {
         token: code,
         birth_date: birthDate,
         phone,
-        consent: consented,
+        consent: agreed,
       });
       const { user, refreshToken, consentDone, familyGroup, links, guardianMembers } = res.data;
 
@@ -175,6 +177,29 @@ export default function ElderClaimPage() {
           />
         </View>
 
+        <View style={styles.consentBox}>
+          <View style={styles.consentHead}>
+            <ShieldCheck size={20} color="#FF7955" strokeWidth={2.4} />
+            <Text style={styles.consentTitle}>음성 데이터 활용 동의</Text>
+          </View>
+          <Text style={styles.consentItem}>목소리 변화 패턴을 참고용으로 기록하고 살펴봐요.</Text>
+          <Text style={styles.consentItem}>녹음 파일은 분석이 끝나면 바로 지우고 기기에 저장하지 않아요.</Text>
+          <Text style={styles.consentItem}>의료 행위가 아닌, 일상 변화를 살펴보는 참고 서비스예요.</Text>
+          <TouchableOpacity
+            style={styles.agreeRow}
+            onPress={() => setAgreed((v) => !v)}
+            activeOpacity={0.8}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreed }}
+            accessibilityLabel="음성 데이터 활용에 동의"
+          >
+            <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
+              {agreed ? <Text style={styles.checkboxTick}>✓</Text> : null}
+            </View>
+            <Text style={styles.agreeText}>위 내용을 확인했고 동의합니다</Text>
+          </TouchableOpacity>
+        </View>
+
         {error ? (
           <View style={styles.errorRow}>
             <AlertCircle size={20} color="#E8943A" strokeWidth={2.4} />
@@ -183,10 +208,10 @@ export default function ElderClaimPage() {
         ) : null}
 
         <TouchableOpacity
-          style={[styles.primaryBtn, submitting && styles.primaryBtnDisabled]}
+          style={[styles.primaryBtn, (submitting || !agreed) && styles.primaryBtnDisabled]}
           onPress={handleClaim}
           activeOpacity={0.85}
-          disabled={submitting}
+          disabled={submitting || !agreed}
         >
           <Text style={styles.primaryBtnText}>{submitting ? "연결 중…" : "연결하기"}</Text>
         </TouchableOpacity>
@@ -254,6 +279,40 @@ const styles = StyleSheet.create({
   choiceSelected: { backgroundColor: "#FDECDD", borderWidth: 2, borderColor: "#FF7955" },
   choiceText: { fontSize: 20, fontWeight: "800", color: "#5a4d46" },
   choiceTextSelected: { color: "#FF7955" },
+  consentBox: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#f0e8e2",
+    padding: 18,
+    gap: 10,
+  },
+  consentHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
+  consentTitle: { fontSize: 18, fontWeight: "800", color: "#342C28" },
+  consentItem: { fontSize: 16, lineHeight: 24, color: "#5a4d46" },
+  agreeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 56,
+    marginTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: "#f0e8e2",
+    paddingTop: 10,
+  },
+  checkbox: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#E6D9D2",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "white",
+  },
+  checkboxOn: { backgroundColor: "#FF7955", borderColor: "#FF7955" },
+  checkboxTick: { fontSize: 17, fontWeight: "900", color: "white", lineHeight: 20 },
+  agreeText: { flex: 1, fontSize: 17, fontWeight: "700", color: "#4d403b" },
   errorRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   errorText: { flex: 1, fontSize: 17, lineHeight: 24, fontWeight: "700", color: "#E8943A" },
   primaryBtn: {

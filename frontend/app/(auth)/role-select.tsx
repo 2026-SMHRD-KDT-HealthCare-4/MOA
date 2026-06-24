@@ -1,7 +1,7 @@
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Image, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { HeartHandshake, User } from "lucide-react-native";
+import { HeartHandshake, User, ChevronRight } from "lucide-react-native";
 
 export default function RoleSelectPage() {
   const router = useRouter();
@@ -19,105 +19,226 @@ export default function RoleSelectPage() {
     router.push("/(auth)/login");
   }
 
-  function handleGuardianInvite() {
-    router.push("/(auth)/guardian-invite");
-  }
-
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-      <View style={styles.header}>
-        <Text style={styles.logo}>moa</Text>
-        <Text style={styles.title}>어떻게 사용하실까요?</Text>
-        <Text style={styles.subtitle}>역할을 선택해 주세요</Text>
-      </View>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8 },
+      ]}
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
+      <View style={styles.panel}>
+        <Image
+          source={require("../../assets/images/moa-logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
 
-      <View style={styles.cards}>
-        <TouchableOpacity
-          style={[styles.card, styles.cardElder]}
-          onPress={handleElder}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="본인 사용으로 시작하기"
-        >
-          <View style={[styles.iconWrap, styles.iconWrapElder]}>
-            <User size={34} color="#4F5A60" strokeWidth={2.2} />
-          </View>
-          <View style={styles.cardTextWrap}>
-            <Text style={styles.cardTitle}>직접 사용</Text>
-            <Text style={styles.cardDesc}>초대 코드를 입력해 가족과 연결해요</Text>
-          </View>
-        </TouchableOpacity>
+        <Text style={styles.title}>역할을 선택해 주세요</Text>
+        <Text style={styles.subtitle}>당신의 목소리가 의미가 됩니다</Text>
 
-        <TouchableOpacity
-          style={[styles.card, styles.cardGuardian]}
-          onPress={handleGuardian}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="보호자로 시작하기"
-        >
-          <View style={[styles.iconWrap, styles.iconWrapGuardian]}>
-            <HeartHandshake size={34} color="#667178" strokeWidth={2.2} />
-          </View>
-          <View style={styles.cardTextWrap}>
-            <Text style={styles.cardTitle}>보호자</Text>
-            <Text style={styles.cardDesc}>부모님을 등록하고 함께 돌봐요</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.cards}>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={handleElder}
+            activeOpacity={0.86}
+            accessibilityRole="button"
+            accessibilityLabel="본인 사용으로 시작하기"
+          >
+            <View style={[styles.iconWrap, styles.iconElder]}>
+              <User size={36} color="#FF7D68" strokeWidth={2.2} />
+            </View>
+            <View style={styles.cardTextWrap}>
+              <Text style={styles.cardTitle}>직접 사용</Text>
+              <Text style={styles.cardDesc}>목소리로 건강을{"\n"}기록해요</Text>
+            </View>
+            <ChevronRight size={26} color="#FF7D68" strokeWidth={2.2} />
+          </TouchableOpacity>
 
-      <View style={styles.footerLinks}>
-        <TouchableOpacity onPress={handleLogin} activeOpacity={0.7}>
-          <Text style={styles.loginLink}>
-            이미 계정이 있으신가요? <Text style={styles.loginLinkHighlight}>로그인</Text>
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleGuardianInvite} activeOpacity={0.7}>
-          <Text style={styles.inviteLink}>보호자 초대 코드를 받았어요</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={handleGuardian}
+            activeOpacity={0.86}
+            accessibilityRole="button"
+            accessibilityLabel="보호자로 시작하기"
+          >
+            <View style={[styles.iconWrap, styles.iconGuardian]}>
+              <HeartHandshake size={36} color="#E8943A" strokeWidth={2.2} />
+            </View>
+            <View style={styles.cardTextWrap}>
+              <Text style={styles.cardTitle}>보호자</Text>
+              <Text style={styles.cardDesc}>부모님을 함께{"\n"}돌봐요</Text>
+            </View>
+            <ChevronRight size={26} color="#E8943A" strokeWidth={2.2} />
+          </TouchableOpacity>
+        </View>
+
+        <Image
+          source={require("../../assets/images/role-select-bg.png")}
+          style={styles.waveBg}
+          resizeMode="stretch"
+        />
+
+        <Image
+          source={require("../../assets/images/mascot-wave.png")}
+          style={styles.mascot}
+          resizeMode="contain"
+        />
+
+        <View style={styles.footer}>
+          <View style={styles.footerDivider} />
+          <Text style={styles.footerHint}>이미 계정이 있으신가요?</Text>
+          <TouchableOpacity onPress={handleLogin} activeOpacity={0.7} accessibilityRole="button">
+            <Text style={styles.loginLink}>보호자 로그인</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: "#FFF9F2",
-    paddingHorizontal: 24,
-    justifyContent: "space-between",
+    backgroundColor: "#FFF6ED",
   },
-  header: { alignItems: "center", gap: 8, marginTop: 8 },
-  logo: { fontSize: 20, fontWeight: "800", color: "#4F5A60", letterSpacing: 4, marginBottom: 8 },
-  title: { fontSize: 26, fontWeight: "800", color: "#342C28" },
-  subtitle: { fontSize: 18, color: "#765E52" },
-  cards: { gap: 18 },
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  panel: {
+    width: "100%",
+    maxWidth: 390,
+    minHeight: "100%",
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#FAD9CC",
+    backgroundColor: "#FFF8F3",
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 24,
+    alignSelf: "center",
+  },
+  logo: {
+    width: 420,
+    height: 280,
+    alignSelf: "center",
+    marginHorizontal: -37,
+    marginTop: -44,
+    marginBottom: -30,
+  },
+  title: {
+    fontSize: 24,
+    lineHeight: 31,
+    fontWeight: "800",
+    color: "#3A2E2A",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#6B5D57",
+    textAlign: "center",
+    marginBottom: 28,
+  },
+  cards: {
+    zIndex: 3,
+    gap: 15,
+  },
   card: {
+    height: 116,
     flexDirection: "row",
     alignItems: "center",
-    gap: 18,
-    minHeight: 104,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    backgroundColor: "white",
+    gap: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#F8DED2",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 18,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  cardElder: { borderColor: "#CBD5DC", backgroundColor: "#F8FAFC" },
-  cardGuardian: { borderColor: "#D8DEE3", backgroundColor: "#FFFFFF" },
   iconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
+    width: 70,
+    height: 70,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  iconWrapElder: { backgroundColor: "#EEF1F3" },
-  iconWrapGuardian: { backgroundColor: "#F3F5F6" },
-  cardTextWrap: { flex: 1, gap: 4 },
-  cardTitle: { fontSize: 22, fontWeight: "800", color: "#342C28" },
-  cardDesc: { fontSize: 16, color: "#765E52", lineHeight: 22 },
-  footerLinks: { gap: 10 },
-  loginLink: { textAlign: "center", fontSize: 16, color: "#765E52" },
-  loginLinkHighlight: { color: "#4F5A60", fontWeight: "700" },
-  inviteLink: { textAlign: "center", fontSize: 15, color: "#765E52", fontWeight: "700" },
+  iconElder: {
+    backgroundColor: "#FFE9E4",
+  },
+  iconGuardian: {
+    backgroundColor: "#FFF3E2",
+  },
+  cardTextWrap: {
+    flex: 1,
+    gap: 5,
+  },
+  cardTitle: {
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: "800",
+    color: "#3A2E2A",
+  },
+  cardDesc: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: "#6B5D57",
+  },
+  waveBg: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 132,
+    width: "100%",
+    height: 176,
+    zIndex: 1,
+  },
+  mascot: {
+    position: "absolute",
+    right: -12,
+    bottom: 26,
+    width: 270,
+    height: 405,
+    zIndex: 2,
+  },
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 43,
+    alignItems: "center",
+    gap: 7,
+    zIndex: 4,
+  },
+  footerDivider: {
+    width: "80%",
+    height: 1,
+    backgroundColor: "#F1D9CF",
+    opacity: 0.8,
+    marginBottom: 2,
+  },
+  footerHint: {
+    fontSize: 17,
+    lineHeight: 24,
+    color: "#9A8B84",
+  },
+  loginLink: {
+    fontSize: 19,
+    lineHeight: 27,
+    fontWeight: "700",
+    color: "#FF7D68",
+    textDecorationLine: "underline",
+  },
 });

@@ -283,7 +283,7 @@ function seniorPairingCodeMatches(a: string, b: string): boolean {
 }
 
 function toSession(acc: MockAccount): SessionUser {
-  return { id: acc.id, name: acc.name, role: acc.role, token: makeToken(acc.id) };
+  return { id: acc.id, name: acc.name, email: acc.email, role: acc.role, token: makeToken(acc.id) };
 }
 
 export function generateSeniorCredential(): { email: string; password: string } {
@@ -345,7 +345,7 @@ function familyStateForUser(user: SessionUser) {
   return membersForFamily(link.familyGroupId);
 }
 
-function parseJwtSub(token: string): string | null {
+function parseJwtPayload(token: string): { sub?: string; email?: string } | null {
   try {
     const payload = token.split(".")[1];
     if (!payload) return null;
@@ -353,10 +353,18 @@ function parseJwtSub(token: string): string | null {
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
     if (!globalThis.atob) return null;
     const json = globalThis.atob(padded);
-    return (JSON.parse(json) as { sub?: string }).sub ?? null;
+    return JSON.parse(json) as { sub?: string; email?: string };
   } catch {
     return null;
   }
+}
+
+function parseJwtSub(token: string): string | null {
+  return parseJwtPayload(token)?.sub ?? null;
+}
+
+function parseJwtEmail(token: string): string | undefined {
+  return parseJwtPayload(token)?.email;
 }
 
 export async function apiFetch<T>(
@@ -515,14 +523,16 @@ async function loginMock({ email, password }: LoginPayload): Promise<SessionUser
 }
 
 async function loginReal({ email, password }: LoginPayload): Promise<SessionUser> {
+  const normalizedEmail = email.trim().toLowerCase();
   const res = await apiFetch<BackendLoginResponse>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+    body: JSON.stringify({ email: normalizedEmail, password }),
   });
   const token = res.data.access_token;
   const user: SessionUser = {
-    id: parseJwtSub(token) ?? email.trim().toLowerCase(),
+    id: parseJwtSub(token) ?? normalizedEmail,
     name: res.data.name,
+    email: normalizedEmail,
     role: toUserRole(res.data.role),
     token,
   };
@@ -913,6 +923,80 @@ export async function updateLinkStatus({
   return { success: true, data: link };
 }
 
+// 기기 재연결 코드 — 직접사용자 기기가 분실·초기화됐을 때 보호자가 발급해
+// 부모님 기기에서 입력하면 다시 연결된다. 코드 유효기간 24시간.
+export interface RelinkCodeData {
+  code: string;
+  expired_at: string;
+}
+
+const RELINK_EXPIRE_HOURS = 24;
+
+async function requestRelinkMock(_seniorId: string): Promise<ApiEnvelope<RelinkCodeData>> {
+  // mock 모드: 고정 코드로 모달 동작을 확인한다.
+  return {
+    success: true,
+    data: {
+      code: "A3K-9PX",
+      expired_at: new Date(Date.now() + RELINK_EXPIRE_HOURS * 60 * 60 * 1000).toISOString(),
+    },
+  };
+}
+
+async function requestRelinkReal(seniorId: string): Promise<ApiEnvelope<RelinkCodeData>> {
+  // 백엔드: POST /auth/senior/{senior_id}/reconnect-code (보호자 인증, body 없음)
+  // → { code, expired_at }. ACTIVE 연동 관계가 있어야만 발급된다.
+  const res = await apiFetch<{ code: string; expired_at: string }>(
+    `/auth/senior/${encodeURIComponent(seniorId)}/reconnect-code`,
+    { method: "POST", auth: true },
+  );
+  return { success: true, data: { code: res.code, expired_at: res.expired_at } };
+}
+
+export async function requestRelinkCode(seniorId: string): Promise<ApiEnvelope<RelinkCodeData>> {
+  return AUTH_API_MODE === "real" ? requestRelinkReal(seniorId) : requestRelinkMock(seniorId);
+}
+
+// 직접사용자(고령층)가 새 기기에서 재연결 코드를 입력해 기존 계정 세션을 복원한다.
+// 인증 불필요(로그아웃 상태에서 호출). 성공 시 토큰을 저장하고 전체 세션을 복원해 반환.
+const RECONNECT_FIXED_CODE = "A3K-9PX";
+
+async function reconnectSeniorReal(code: string): Promise<RestoredSession> {
+  const res = await apiFetch<{
+    access_token: string;
+    refresh_token: string;
+    role: BackendRole;
+    name: string;
+  }>("/auth/senior/reconnect", {
+    method: "POST",
+    body: JSON.stringify({ code: code.trim().toUpperCase() }),
+  });
+  await saveToken(res.access_token);
+  if (res.refresh_token) await saveRefreshToken(res.refresh_token);
+  const restored = await restoreSession();
+  if (!restored) throw new Error("재연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
+  return restored;
+}
+
+async function reconnectSeniorMock(code: string): Promise<RestoredSession> {
+  if (normalizeSeniorPairingCode(code) !== RECONNECT_FIXED_CODE) {
+    throw new Error("재연결 코드를 찾을 수 없어요. 보호자에게 받은 코드를 확인해 주세요.");
+  }
+  const senior = mockDb.accounts.find((a) => a.role === "elder");
+  if (!senior) {
+    throw new Error("복원할 직접사용자 계정이 없어요. 먼저 보호자 초대 코드로 연결해 주세요.");
+  }
+  await saveToken(makeToken(senior.id));
+  await saveRefreshToken(makeRefreshToken(senior.id));
+  const restored = await restoreSession();
+  if (!restored) throw new Error("재연결에 실패했어요. 잠시 후 다시 시도해 주세요.");
+  return restored;
+}
+
+export async function reconnectSenior(code: string): Promise<RestoredSession> {
+  return AUTH_API_MODE === "real" ? reconnectSeniorReal(code) : reconnectSeniorMock(code);
+}
+
 export interface PendingInvite {
   token: string;
   seniorName?: string;
@@ -1127,6 +1211,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     const user: SessionUser = {
       id: me.user_id,
       name: me.name,
+      email: parseJwtEmail(token),
       role: toUserRole(me.role),
       token,
     };

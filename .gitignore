@@ -45,6 +45,7 @@ frontend/expo-web.pid
 backend/dev-chat-proxy.mjs
 backend/run-dev-chat-proxy.cmd
 
+
 ml/mldels/
 ml/checkpoints/
 /__pycache__/
@@ -52,3 +53,5 @@ ml/checkpoints/
 *.pkl
 
 team-moa-firebase-adminsdk.json
+
+
