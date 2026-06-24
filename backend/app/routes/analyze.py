@@ -14,8 +14,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_senior
-from app.models.models import RiskPrediction, Senior, VoiceFeature
+from uuid import UUID
+
+from app.core.security import get_current_user_id
+from app.models.models import RiskPrediction, VoiceFeature
 from app.schemas.voice import AnalyzeResponseData
 from app.services.feature_extraction import extract_features
 from app.services.notification_service import create_risk_notifications_for_active_guardians
@@ -30,12 +32,13 @@ async def analyze_voice(
     collect_type: str = Form(..., description="SCRIPT 또는 CHATBOT"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    senior: Senior = Depends(get_current_senior),
+    user_id: UUID = Depends(get_current_user_id),
 ):
+    """로그인한 사용자(고령층·보호자 공통) 음성 분석. senior_id 컬럼에 user_id 저장."""
     if collect_type not in ("SCRIPT", "CHATBOT"):
         raise HTTPException(status_code=400, detail="collect_type은 SCRIPT 또는 CHATBOT 이어야 합니다.")
 
-    senior_id = senior.senior_id
+    senior_id = user_id  # guardian·senior 공통 actor ID
 
     # 1. 음성 데이터를 메모리로만 읽음 (디스크 저장 X)
     audio_bytes = await file.read()
