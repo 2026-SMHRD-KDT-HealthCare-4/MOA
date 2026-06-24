@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_guardian, get_current_senior, get_current_user_id, verify_senior_access
-from app.models.models import ChatSession, Guardian, GuardianSenior, LinkStatus, Senior, UrgentAlert
+from app.core.security import get_current_guardian, get_current_user_id, verify_senior_access
+from app.models.models import ChatSession, Guardian, GuardianSenior, LinkStatus, UrgentAlert
 from app.schemas.chat import (
     ChatMessageRequest,
     ChatMessageResponseData,
@@ -73,9 +73,9 @@ def send_dev_message(req: DevChatRequest):
 def send_message(
     req: ChatMessageRequest,
     db: Session = Depends(get_db),
-    senior: Senior = Depends(get_current_senior),
+    user_id: UUID = Depends(get_current_user_id),
 ):
-    senior_id = senior.senior_id  # 토큰의 본인 ID 사용 (req.senior_id는 신뢰하지 않음)
+    senior_id = user_id  # 토큰의 본인 ID 사용 (guardian·senior 공통, req.senior_id는 신뢰하지 않음)
 
     if req.session_id is not None:
         session = (
@@ -143,12 +143,12 @@ def send_message(
 def end_session(
     req: ChatSessionEndRequest,
     db: Session = Depends(get_db),
-    senior: Senior = Depends(get_current_senior),
+    user_id: UUID = Depends(get_current_user_id),
 ):
     session = db.query(ChatSession).filter(ChatSession.session_id == req.session_id).first()
     if session is None:
         raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
-    if session.senior_id != senior.senior_id:
+    if session.senior_id != user_id:
         raise HTTPException(status_code=403, detail="본인의 대화 세션만 종료할 수 있습니다.")
 
     session.ended_at = datetime.utcnow()
