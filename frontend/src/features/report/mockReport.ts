@@ -2,18 +2,6 @@
 // 금지 표현("진단/처방/치료/병명") 절대 사용 금지. "감지/변화/패턴/참고용"만 사용.
 import { type WeatherStatus } from "../../constants/weatherIcons";
 
-// 칩 셀렉터 항목: 연동된 직접사용자 + "내 리포트"
-export interface ReportChip {
-  id: string;
-  name: string;
-}
-
-export const reportChips: ReportChip[] = [
-  { id: "1", name: "김순자" },
-  { id: "2", name: "김철수" },
-  { id: "me", name: "내 리포트" },
-];
-
 // 음성 영역별 관찰 상태 — 'normal'(정상) | 'caution'(변화 감지)
 // 레드 금지: caution 은 앰버(#E8943A) 로만 표현한다.
 export type VoiceStatus = "normal" | "caution";

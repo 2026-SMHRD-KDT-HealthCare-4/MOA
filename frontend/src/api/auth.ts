@@ -283,7 +283,7 @@ function seniorPairingCodeMatches(a: string, b: string): boolean {
 }
 
 function toSession(acc: MockAccount): SessionUser {
-  return { id: acc.id, name: acc.name, role: acc.role, token: makeToken(acc.id) };
+  return { id: acc.id, name: acc.name, email: acc.email, role: acc.role, token: makeToken(acc.id) };
 }
 
 export function generateSeniorCredential(): { email: string; password: string } {
@@ -345,7 +345,7 @@ function familyStateForUser(user: SessionUser) {
   return membersForFamily(link.familyGroupId);
 }
 
-function parseJwtSub(token: string): string | null {
+function parseJwtPayload(token: string): { sub?: string; email?: string } | null {
   try {
     const payload = token.split(".")[1];
     if (!payload) return null;
@@ -353,10 +353,18 @@ function parseJwtSub(token: string): string | null {
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
     if (!globalThis.atob) return null;
     const json = globalThis.atob(padded);
-    return (JSON.parse(json) as { sub?: string }).sub ?? null;
+    return JSON.parse(json) as { sub?: string; email?: string };
   } catch {
     return null;
   }
+}
+
+function parseJwtSub(token: string): string | null {
+  return parseJwtPayload(token)?.sub ?? null;
+}
+
+function parseJwtEmail(token: string): string | undefined {
+  return parseJwtPayload(token)?.email;
 }
 
 export async function apiFetch<T>(
@@ -515,14 +523,16 @@ async function loginMock({ email, password }: LoginPayload): Promise<SessionUser
 }
 
 async function loginReal({ email, password }: LoginPayload): Promise<SessionUser> {
+  const normalizedEmail = email.trim().toLowerCase();
   const res = await apiFetch<BackendLoginResponse>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+    body: JSON.stringify({ email: normalizedEmail, password }),
   });
   const token = res.data.access_token;
   const user: SessionUser = {
-    id: parseJwtSub(token) ?? email.trim().toLowerCase(),
+    id: parseJwtSub(token) ?? normalizedEmail,
     name: res.data.name,
+    email: normalizedEmail,
     role: toUserRole(res.data.role),
     token,
   };
@@ -1201,6 +1211,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     const user: SessionUser = {
       id: me.user_id,
       name: me.name,
+      email: parseJwtEmail(token),
       role: toUserRole(me.role),
       token,
     };

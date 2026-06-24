@@ -3,13 +3,13 @@ import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
 import { useRouter } from "expo-router";
-import { Bell, LogOut, Info, ChevronRight, ShieldCheck, UserRound } from "lucide-react-native";
+import { Bell, LogOut, Info, ChevronRight, ShieldCheck, UserRound, Mail } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
 import { colors } from "../styles/tokens";
 
 export default function SettingsPage() {
   const insets = useSafeAreaInsets();
-  const { role, logout } = useAuthStore();
+  const { user, role, logout } = useAuthStore();
   const router = useRouter();
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
@@ -66,6 +66,8 @@ export default function SettingsPage() {
   }
 
   const isElder = role === "elder";
+  const accountName = user?.name || "사용자";
+  const accountEmail = user?.email || "이메일 정보 없음";
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -79,6 +81,53 @@ export default function SettingsPage() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
       >
+        {/* 계정 섹션 */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>계정</Text>
+
+          <View style={styles.card}>
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <View style={styles.rowIcon}>
+                  <UserRound size={22} color={C.blue} strokeWidth={2.2} />
+                </View>
+                <View style={styles.rowTextWrap}>
+                  <Text style={styles.accountName}>{accountName}</Text>
+                  <Text style={styles.rowSub}>로그인된 계정</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <View style={styles.rowIcon}>
+                  <Mail size={22} color={C.blue} strokeWidth={2.2} />
+                </View>
+                <View style={styles.rowTextWrap}>
+                  <Text style={styles.rowTitle}>이메일</Text>
+                  <Text style={styles.accountEmail}>{accountEmail}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.row}>
+              <View style={styles.rowLeft}>
+                <View style={styles.rowIcon}>
+                  <UserRound size={22} color={C.blue} strokeWidth={2.2} />
+                </View>
+                <View style={styles.rowTextWrap}>
+                  <Text style={styles.rowTitle}>현재 역할</Text>
+                  <Text style={styles.roleValue}>{isElder ? "본인" : "보호자"}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+
         {/* 알림 설정 섹션 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>알림</Text>
@@ -137,25 +186,6 @@ export default function SettingsPage() {
               </View>
               <ChevronRight size={20} color={C.blue} strokeWidth={2.4} />
             </Pressable>
-          </View>
-        </View>
-
-        {/* 계정 섹션 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>계정</Text>
-
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <View style={styles.rowIcon}>
-                  <UserRound size={22} color={C.blue} strokeWidth={2.2} />
-                </View>
-                <View style={styles.rowTextWrap}>
-                  <Text style={styles.rowTitle}>현재 역할</Text>
-                  <Text style={styles.roleValue}>{isElder ? "본인" : "보호자"}</Text>
-                </View>
-              </View>
-            </View>
           </View>
         </View>
 
@@ -275,6 +305,8 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 17, fontWeight: "800", color: C.mainText },
   rowSub: { fontSize: 13, color: C.subText, fontWeight: "600", lineHeight: 18 },
   rowValue: { fontSize: 16, color: C.blue, fontWeight: "700" },
+  accountName: { fontSize: 20, lineHeight: 26, fontWeight: "900", color: C.mainText },
+  accountEmail: { fontSize: 14, lineHeight: 19, color: C.subText, fontWeight: "700" },
   roleValue: { fontSize: 16, color: C.blueDark, fontWeight: "700" },
   divider: { height: 1, backgroundColor: C.cardBorder, marginHorizontal: 16 },
   logoutBtn: {
