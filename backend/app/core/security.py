@@ -165,27 +165,73 @@ def get_current_senior(
     return senior
 
 
+def _pick_best_family_group_id(guardian_id: UUID, db: Session) -> UUID | None:
+    """guardian_id의 ACTIVE 멤버십 중 우선순위에 따라 family_group_id를 선택한다.
+
+    우선순위:
+    1. ACTIVE guardian_senior(부모님)가 연동된 그룹.
+    2. 동점이면 joined_at 최신(공동보호자 합류가 본인 그룹보다 최신).
+    그룹이 없으면 None 반환.
+    """
+    from app.models.models import GuardianMember, GuardianSenior, LinkStatus
+
+    entries = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.guardian_id == guardian_id,
+            GuardianMember.status == "ACTIVE",
+        )
+        .all()
+    )
+    if not entries:
+        return None
+    if len(entries) == 1:
+        return entries[0].family_group_id
+
+    def _member_ids_for(fg_id: UUID) -> list[UUID]:
+        rows = (
+            db.query(GuardianMember.guardian_id)
+            .filter(
+                GuardianMember.family_group_id == fg_id,
+                GuardianMember.status == "ACTIVE",
+                GuardianMember.guardian_id.isnot(None),
+            )
+            .all()
+        )
+        return [r.guardian_id for r in rows]
+
+    def _has_active_senior(fg_id: UUID) -> bool:
+        gids = _member_ids_for(fg_id)
+        return (
+            db.query(GuardianSenior)
+            .filter(
+                GuardianSenior.guardian_id.in_(gids),
+                GuardianSenior.link_status == LinkStatus.ACTIVE.value,
+            )
+            .first()
+        ) is not None
+
+    from datetime import datetime
+    with_seniors = [e for e in entries if _has_active_senior(e.family_group_id)]
+    candidates = with_seniors if with_seniors else entries
+    best = max(candidates, key=lambda e: e.joined_at or datetime.min)
+    return best.family_group_id
+
+
 def _get_family_guardian_ids_for(guardian_id: UUID, db: Session) -> list[UUID]:
     """guardian_id가 속한 가족 그룹의 ACTIVE 보호자 UUID 목록을 반환한다.
     가족 그룹이 없으면 [guardian_id] 만 반환 (직접 링크 폴백).
     """
     from app.models.models import GuardianMember
 
-    my_member = (
-        db.query(GuardianMember)
-        .filter(
-            GuardianMember.guardian_id == guardian_id,
-            GuardianMember.status == "ACTIVE",
-        )
-        .first()
-    )
-    if my_member is None:
+    fg_id = _pick_best_family_group_id(guardian_id, db)
+    if fg_id is None:
         return [guardian_id]
 
     rows = (
         db.query(GuardianMember.guardian_id)
         .filter(
-            GuardianMember.family_group_id == my_member.family_group_id,
+            GuardianMember.family_group_id == fg_id,
             GuardianMember.status == "ACTIVE",
             GuardianMember.guardian_id.isnot(None),
         )
