@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   StyleSheet,
   ActivityIndicator,
@@ -10,7 +11,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as Location from "expo-location";
 import { ChevronLeft, MapPin, Phone, Info } from "lucide-react-native";
 import { colors } from "../../styles/tokens";
 
@@ -20,6 +20,7 @@ const C = {
   card: colors.guardian.cardPeach, // 카드 배경: 따뜻한 아이보리 #FDECDD
   primary: colors.guardianNavy.primary,
   border: colors.guardianNavy.border,
+  inputBg: colors.guardianNavy.card,
   text: colors.guardianNavy.textMain,
   sub: colors.guardianNavy.textSub,
   muted: colors.guardianNavy.textMuted,
@@ -30,6 +31,7 @@ const C = {
 // 카카오 로컬 REST 키는 환경변수로만 주입 (하드코딩 절대 금지).
 const KAKAO_REST_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_KEY ?? "";
 
+const KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json";
 const KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json";
 const SEARCH_RADIUS = 2000; // 반경 2km
 
@@ -41,7 +43,7 @@ function isDepartment(value: unknown): value is Department {
 }
 
 type Coords = { lat: number; lng: number };
-type Phase = "noKey" | "loading" | "denied" | "error" | "empty" | "ready";
+type Phase = "noKey" | "idle" | "loading" | "addressNotFound" | "error" | "empty" | "ready";
 
 interface Hospital {
   id: string;
@@ -52,7 +54,6 @@ interface Hospital {
   url?: string;
 }
 
-// 카카오 키워드 검색 응답 document 중 사용하는 필드만 정의.
 interface KakaoDocument {
   id: string;
   place_name: string;
@@ -61,6 +62,35 @@ interface KakaoDocument {
   phone?: string;
   distance?: string;
   place_url?: string;
+}
+
+// === 주소 → 좌표 변환 (카카오 지오코딩) =====================================
+// 분리된 단일 책임 함수. 나중에 직접사용자 주소를 DB/API 에서 불러오게 되면,
+// 이 함수 '호출 전에' 주소를 불러오는 코드만 추가하면 되고 이 함수와 이후 로직은
+// 그대로 재사용한다. 좌표를 찾으면 {lat,lng}, 못 찾으면 null.
+async function getCoordsByAddress(address: string): Promise<Coords | null> {
+  const url = `${KAKAO_ADDRESS_URL}?query=${encodeURIComponent(address)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { documents?: { x: string; y: string }[] };
+  const doc = json.documents?.[0];
+  if (!doc) return null;
+  return { lat: Number(doc.y), lng: Number(doc.x) };
+}
+
+// === 좌표 기준 병원 검색 (카카오 키워드 검색) ===============================
+async function searchHospitals(dept: Department, coords: Coords): Promise<Hospital[]> {
+  const url =
+    `${KAKAO_KEYWORD_URL}?query=${encodeURIComponent(dept)}` +
+    `&x=${coords.lng}&y=${coords.lat}&radius=${SEARCH_RADIUS}&sort=distance`;
+  const res = await fetch(url, {
+    headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+  });
+  if (!res.ok) throw new Error("hospital search failed");
+  const json = (await res.json()) as { documents?: KakaoDocument[] };
+  return (json.documents ?? []).map(toHospital);
 }
 
 function formatDistance(meters: number): string {
@@ -78,8 +108,8 @@ function toHospital(doc: KakaoDocument): Hospital {
   };
 }
 
-// 근처 전문의 찾기 — 리포트에서 진료과 버튼을 누르면 진입. 이 화면이 마운트될 때만
-// 위치 권한을 요청하므로(= 버튼 트리거), 앱 시작 시 권한을 묻지 않는다.
+// 근처 전문의 찾기 — 부모님(직접사용자) 주소를 기준으로 병원을 찾는다.
+// 보호자 기기 GPS 가 아니라 입력한 주소 위치를 쓰므로 위치 권한은 사용하지 않는다.
 export default function NearbyHospitalsPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -88,69 +118,65 @@ export default function NearbyHospitalsPage() {
   const [dept, setDept] = useState<Department>(
     isDepartment(params.dept) ? params.dept : "신경과"
   );
-  const [phase, setPhase] = useState<Phase>(KAKAO_REST_KEY ? "loading" : "noKey");
+  const [address, setAddress] = useState("");
   const [coords, setCoords] = useState<Coords | null>(null);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [phase, setPhase] = useState<Phase>(KAKAO_REST_KEY ? "idle" : "noKey");
 
-  // 현재 위치 확보(권한 요청 포함). 거부 시 denied 로 전환하고 null 반환.
-  const ensureCoords = useCallback(async (): Promise<Coords | null> => {
-    if (coords) return coords;
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      setPhase("denied");
-      return null;
+  // 좌표가 정해진 뒤 진료과로 병원 목록을 갱신한다(지오코딩 재호출 없음).
+  const loadHospitals = useCallback(async (targetDept: Department, c: Coords) => {
+    setPhase("loading");
+    try {
+      const list = await searchHospitals(targetDept, c);
+      setHospitals(list);
+      setPhase(list.length ? "ready" : "empty");
+    } catch {
+      setPhase("error");
     }
-    const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
-    const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-    setCoords(next);
-    return next;
-  }, [coords]);
+  }, []);
 
-  // 카카오 로컬 키워드 검색으로 진료과 병원 목록을 가져온다.
-  const load = useCallback(
-    async (targetDept: Department) => {
+  // 주소 → 좌표 변환 후 병원 검색까지 수행하는 메인 흐름.
+  //
+  // ▼▼ 나중에 자동화할 지점 ▼▼
+  //   지금은 보호자가 입력한 `address` 를 그대로 사용한다.
+  //   직접사용자 주소가 DB 에 저장되면, 아래 runSearch 를 호출하기 전에
+  //     const addr = await fetchSeniorAddress(seniorId);  // API 추가
+  //   로 주소를 불러와 runSearch(addr) 로 넘기기만 하면 된다. 이하 로직 동일.
+  // ▲▲
+  const runSearch = useCallback(
+    async (addr: string, targetDept: Department) => {
       if (!KAKAO_REST_KEY) {
         setPhase("noKey");
         return;
       }
+      if (!addr.trim()) {
+        setPhase("idle");
+        return;
+      }
       setPhase("loading");
       try {
-        const c = await ensureCoords();
-        if (!c) return; // 권한 거부 → ensureCoords 가 denied 설정
-
-        const url =
-          `${KAKAO_KEYWORD_URL}?query=${encodeURIComponent(targetDept)}` +
-          `&x=${c.lng}&y=${c.lat}&radius=${SEARCH_RADIUS}&sort=distance`;
-        const res = await fetch(url, {
-          headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
-        });
-        if (!res.ok) {
-          setPhase("error");
+        const c = await getCoordsByAddress(addr.trim());
+        if (!c) {
+          setPhase("addressNotFound");
           return;
         }
-        const json = (await res.json()) as { documents?: KakaoDocument[] };
-        const list = (json.documents ?? []).map(toHospital);
-        setHospitals(list);
-        setPhase(list.length ? "ready" : "empty");
+        setCoords(c);
+        await loadHospitals(targetDept, c);
       } catch {
         setPhase("error");
       }
     },
-    [ensureCoords]
+    [loadHospitals]
   );
 
-  // 최초 진입(= 버튼으로 들어온 시점)에 1회 로드. 이후 칩 탭은 onSelectDept 가 처리.
-  useEffect(() => {
-    void load(dept);
-    // 마운트 시 1회만 실행
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  function handleSearch() {
+    void runSearch(address, dept);
+  }
 
   function onSelectDept(d: Department) {
     setDept(d);
-    void load(d);
+    // 이미 좌표가 있으면 재지오코딩 없이 병원만 다시 검색
+    if (coords) void loadHospitals(d, coords);
   }
 
   return (
@@ -178,6 +204,31 @@ export default function NearbyHospitalsPage() {
         </Text>
       </View>
 
+      {/* 주소 입력 */}
+      <View style={styles.searchSection}>
+        <Text style={styles.searchLabel}>부모님 주소를 입력해주세요</Text>
+        <View style={styles.searchRow}>
+          <TextInput
+            style={styles.addressInput}
+            value={address}
+            onChangeText={setAddress}
+            placeholder="예: 광주광역시 서구 치평동"
+            placeholderTextColor={C.muted}
+            returnKeyType="search"
+            onSubmitEditing={handleSearch}
+            accessibilityLabel="부모님 주소 입력"
+          />
+          <Pressable
+            style={({ pressed }) => [styles.searchButton, pressed && styles.pressed]}
+            onPress={handleSearch}
+            accessibilityRole="button"
+            accessibilityLabel="주소로 병원 검색"
+          >
+            <Text style={styles.searchButtonText}>검색</Text>
+          </Pressable>
+        </View>
+      </View>
+
       {/* 진료과 선택 칩 */}
       <View style={styles.deptRow}>
         {DEPARTMENTS.map((d) => {
@@ -198,6 +249,13 @@ export default function NearbyHospitalsPage() {
           );
         })}
       </View>
+
+      {/* 디버그용 현재 좌표 표시 */}
+      {coords ? (
+        <Text style={styles.debugCoords}>
+          {`위도: ${coords.lat.toFixed(4)} / 경도: ${coords.lng.toFixed(4)}`}
+        </Text>
+      ) : null}
 
       {/* 결과 영역 */}
       <View style={styles.content}>{renderContent()}</View>
@@ -220,19 +278,23 @@ export default function NearbyHospitalsPage() {
       return (
         <View style={styles.center}>
           <ActivityIndicator color={C.primary} />
-          <Text style={styles.loadingText}>근처 병원을 불러오는 중이에요…</Text>
+          <Text style={styles.loadingText}>병원을 찾는 중이에요…</Text>
         </View>
       );
     }
-    if (phase === "denied") {
+    if (phase === "idle") {
       return (
         <StateMessage
-          title="위치 권한이 필요해요"
-          body="근처 병원을 보려면 위치 접근을 허용해 주세요."
-          primaryLabel="다시 시도"
-          onPrimary={() => load(dept)}
-          secondaryLabel="설정에서 권한 켜기"
-          onSecondary={() => Linking.openSettings()}
+          title="부모님 주소로 검색해요"
+          body="부모님이 계신 주소를 입력하고 검색을 누르면 그 주변 병원을 보여드려요."
+        />
+      );
+    }
+    if (phase === "addressNotFound") {
+      return (
+        <StateMessage
+          title="주소를 찾지 못했어요"
+          body="동·도로명까지 포함해 다시 입력해 주세요. (예: 광주광역시 서구 치평동)"
         />
       );
     }
@@ -257,7 +319,7 @@ export default function NearbyHospitalsPage() {
         title="병원 정보를 불러오지 못했어요"
         body="잠시 후 다시 시도해 주세요."
         primaryLabel="다시 시도"
-        onPrimary={() => load(dept)}
+        onPrimary={handleSearch}
       />
     );
   }
@@ -315,15 +377,11 @@ function StateMessage({
   body,
   primaryLabel,
   onPrimary,
-  secondaryLabel,
-  onSecondary,
 }: {
   title: string;
   body: string;
   primaryLabel?: string;
   onPrimary?: () => void;
-  secondaryLabel?: string;
-  onSecondary?: () => void;
 }) {
   return (
     <View style={styles.center}>
@@ -338,16 +396,6 @@ function StateMessage({
           accessibilityLabel={primaryLabel}
         >
           <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
-        </Pressable>
-      ) : null}
-      {secondaryLabel && onSecondary ? (
-        <Pressable
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-          onPress={onSecondary}
-          accessibilityRole="button"
-          accessibilityLabel={secondaryLabel}
-        >
-          <Text style={styles.secondaryButtonText}>{secondaryLabel}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -388,6 +436,41 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: C.text,
   },
+
+  // 주소 입력
+  searchSection: { paddingHorizontal: 20, marginBottom: 12, gap: 8 },
+  searchLabel: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 14,
+    color: C.text,
+  },
+  searchRow: { flexDirection: "row", gap: 8 },
+  addressInput: {
+    flex: 1,
+    height: 48,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: C.inputBg,
+    borderWidth: 1,
+    borderColor: C.border,
+    fontFamily: "Pretendard-Medium",
+    fontSize: 15,
+    color: C.text,
+  },
+  searchButton: {
+    height: 48,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.primary,
+  },
+  searchButtonText: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 15,
+    color: "#FFFFFF",
+  },
+
   deptRow: {
     flexDirection: "row",
     gap: 8,
@@ -400,7 +483,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 11,
     borderRadius: 12,
-    backgroundColor: colors.guardianNavy.card,
+    backgroundColor: C.inputBg,
     borderWidth: 1,
     borderColor: C.border,
   },
@@ -411,6 +494,13 @@ const styles = StyleSheet.create({
     color: C.sub,
   },
   deptChipTextActive: { color: "#FFFFFF" },
+  debugCoords: {
+    fontFamily: "Pretendard-Medium",
+    fontSize: 12,
+    color: C.muted,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
   content: { flex: 1 },
   listContent: {
     paddingHorizontal: 20,
@@ -498,21 +588,6 @@ const styles = StyleSheet.create({
     fontFamily: "Pretendard-Bold",
     fontSize: 15,
     color: "#FFFFFF",
-  },
-  secondaryButton: {
-    height: 46,
-    paddingHorizontal: 22,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.guardianNavy.card,
-    borderWidth: 1.5,
-    borderColor: C.primary,
-  },
-  secondaryButtonText: {
-    fontFamily: "Pretendard-Bold",
-    fontSize: 14,
-    color: C.primary,
   },
   pressed: { opacity: 0.85 },
 });
