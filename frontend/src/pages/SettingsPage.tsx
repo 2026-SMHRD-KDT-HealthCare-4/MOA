@@ -177,7 +177,11 @@ export default function SettingsPage() {
 
             <View style={styles.divider} />
 
-            <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]} accessibilityRole="button">
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              onPress={() => router.push("/privacy")}
+              accessibilityRole="button"
+            >
               <View style={styles.rowLeft}>
                 <View style={styles.rowIcon}>
                   <ShieldCheck size={22} color={C.blue} strokeWidth={2.2} />

@@ -2,6 +2,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from "reac
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ArrowLeft } from "lucide-react-native";
 import { useAuthStore } from "../../src/stores/authStore";
 import * as authApi from "../../src/api/auth";
 
@@ -45,6 +46,17 @@ export default function LoginPage() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+
+      {/* 뒤로 가기 — 레이아웃(space-between)을 깨지 않도록 절대 위치 */}
+      <TouchableOpacity
+        style={[styles.backBtn, { top: insets.top + 8 }]}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace("/(auth)/role-select"))}
+        accessibilityRole="button"
+        accessibilityLabel="뒤로 가기"
+        hitSlop={8}
+      >
+        <ArrowLeft size={24} color="#756a66" />
+      </TouchableOpacity>
 
       {/* 헤더 */}
       <View style={styles.header}>
@@ -114,6 +126,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF9F2",
     paddingHorizontal: 24,
     justifyContent: "space-between",
+  },
+  backBtn: {
+    position: "absolute",
+    left: 12,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
   },
   header: {
     alignItems: "center",
