@@ -11,7 +11,7 @@ import {
   UIManager,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react-native";
+import { ChevronDown, ChevronUp, ChevronRight, MapPin } from "lucide-react-native";
 import {
   VictoryChart,
   VictoryLine,
@@ -58,7 +58,10 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+const WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"];
+
+// 근처 전문의 찾기 — 진료과 버튼. 진단 표현 금지(정해진 안내 카피만 사용).
+const HOSPITAL_DEPTS = ["신경과", "정신건강의학과", "내과"] as const;
 
 // 월별 체크인 캘린더 (7열 그리드). 맵에 없는 날짜는 오늘 이후로 보고 표시하지 않음.
 function CheckinCalendarGrid({
@@ -69,12 +72,13 @@ function CheckinCalendarGrid({
   calendar: CheckinCalendar;
 }) {
   const [year, mon] = month.split("-").map(Number);
-  const firstWeekday = new Date(year, mon - 1, 1).getDay(); // 0=일
+  // 월요일 시작 그리드: JS getDay()(0=일)를 월=0..일=6 로 보정해 앞쪽 빈 칸 수를 구한다.
+  const leadingBlanks = (new Date(year, mon - 1, 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, mon, 0).getDate();
 
   // 앞쪽 빈 칸 + 1..말일
   const cells: (number | null)[] = [
-    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length: leadingBlanks }, () => null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
 
@@ -401,7 +405,36 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
         )}
       </View>
 
-      {/* 7. 하단 버튼 2개 */}
+      {/* 7. 근처 전문의 찾기 */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>근처 전문의 찾기</Text>
+        <Text style={styles.hospitalLead}>
+          목소리 변화가 감지됐어요. 전문의 상담을 고려해보세요.
+        </Text>
+        <View style={styles.hospitalRow}>
+          {HOSPITAL_DEPTS.map((d) => (
+            <Pressable
+              key={d}
+              style={({ pressed }) => [styles.hospitalChip, pressed && styles.pressed]}
+              onPress={() =>
+                router.push({
+                  pathname: "/(guardian)/nearby-hospitals",
+                  params: { dept: d },
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${d} 근처 병원 찾기`}
+            >
+              <MapPin size={15} color={G.primary} />
+              <Text style={styles.hospitalChipText} numberOfLines={1}>
+                {d}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {/* 8. 하단 버튼 2개 */}
       <View style={styles.actions}>
         <Pressable
           style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
@@ -653,6 +686,33 @@ const styles = StyleSheet.create({
     fontFamily: "Pretendard-Medium",
     fontSize: 14,
     color: G.sub,
+  },
+
+  // 근처 전문의 찾기
+  hospitalLead: {
+    fontFamily: "Pretendard-Medium",
+    fontSize: 14,
+    lineHeight: 20,
+    color: G.sub,
+  },
+  hospitalRow: { flexDirection: "row", gap: 8 },
+  hospitalChip: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    backgroundColor: G.primaryLight,
+    borderWidth: 1,
+    borderColor: G.border,
+  },
+  hospitalChipText: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 13,
+    color: G.primaryDark,
   },
 
   // 하단 버튼

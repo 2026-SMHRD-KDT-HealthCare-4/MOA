@@ -1,4 +1,4 @@
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,7 +48,11 @@ export default function LoginPage() {
 
       {/* 헤더 */}
       <View style={styles.header}>
-        <Text style={styles.logo}>moa</Text>
+        <Image
+          source={require("../../assets/images/moa-logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
         <Text style={styles.title}>다시 만나서 반가워요</Text>
         <Text style={styles.subtitle}>이메일로 로그인해 주세요</Text>
       </View>
@@ -116,11 +120,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   logo: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#FF7955",
-    letterSpacing: 4,
-    marginBottom: 8,
+    width: 400,
+    height: 240,
+    marginBottom: -8,
   },
   title: {
     fontSize: 26,
