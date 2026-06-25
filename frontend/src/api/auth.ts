@@ -434,6 +434,33 @@ function realGuardianMember(user: SessionUser): GuardianMember {
   };
 }
 
+function backendGroupToFamilyGroup(g: BackendFamilyGroupResponse): FamilyGroup {
+  return {
+    id: g.family_group_id,
+    name: g.name,
+    createdByGuardianId: g.created_by_guardian_id,
+    status: g.status,
+    createdAt: g.created_at,
+    updatedAt: g.updated_at,
+  };
+}
+
+function backendMemberToGuardianMember(m: BackendGuardianMemberResponse): GuardianMember {
+  return {
+    id: m.guardian_member_id,
+    familyGroupId: m.family_group_id,
+    guardianId: m.guardian_id ?? undefined,
+    guardianName: m.guardian_name,
+    memberRole: m.member_role,
+    status: m.status,
+    invitedByGuardianId: m.invited_by_guardian_id ?? undefined,
+    inviteCode: m.invite_code ?? undefined,
+    inviteExpiresAt: m.invite_expires_at ?? undefined,
+    joinedAt: m.joined_at ?? undefined,
+    createdAt: m.created_at,
+  };
+}
+
 function loadRealPendingInvites(): PendingInvite[] {
   const raw = storageGet(REAL_PENDING_STORAGE_KEY);
   if (!raw) return [];
@@ -496,6 +523,35 @@ interface BackendGuardianSeniorResponse {
   senior_name?: string | null;
   link_status: "PENDING" | "ACTIVE" | "REVOKED";
   linked_at?: string | null;
+}
+
+interface BackendFamilyGroupResponse {
+  family_group_id: string;
+  name: string;
+  created_by_guardian_id: string;
+  status: "ACTIVE" | "REVOKED";
+  created_at: string;
+  updated_at: string;
+}
+
+interface BackendGuardianMemberResponse {
+  guardian_member_id: string;
+  family_group_id: string;
+  guardian_id?: string | null;
+  guardian_name: string;
+  member_role: "OWNER" | "SUB_GUARDIAN";
+  status: "PENDING" | "ACTIVE" | "REVOKED";
+  invited_by_guardian_id?: string | null;
+  invite_code?: string | null;
+  invite_expires_at?: string | null;
+  joined_at?: string | null;
+  created_at: string;
+}
+
+interface BackendFamilyStateResponse {
+  family_group: BackendFamilyGroupResponse;
+  guardian_members: BackendGuardianMemberResponse[];
+  links: BackendGuardianSeniorResponse[];
 }
 
 export interface LoginPayload {
@@ -1065,7 +1121,20 @@ export async function inviteGuardian({
   name,
 }: InviteGuardianPayload): Promise<ApiEnvelope<InviteGuardianData>> {
   if (AUTH_API_MODE === "real") {
-    throw new Error("공동보호자 초대 API는 아직 백엔드에 없어서 mock 모드에서 테스트해 주세요.");
+    const res = await apiFetch<BackendGuardianMemberResponse>("/auth/guardian/invite/member", {
+      method: "POST",
+      auth: true,
+      body: JSON.stringify({ guardian_name: name.trim() }),
+    });
+    const inviteCode = res.invite_code ?? "";
+    return {
+      success: true,
+      data: {
+        guardianMember: backendMemberToGuardianMember(res),
+        inviteCode,
+        inviteLink: `moa://guardian-invite/${inviteCode}`,
+      },
+    };
   }
 
   const inviter = mockDb.guardianMembers.find(
@@ -1114,7 +1183,17 @@ export async function acceptGuardianInvite({
   inviteCode,
 }: AcceptGuardianInvitePayload): Promise<ApiEnvelope<AcceptGuardianInviteData>> {
   if (AUTH_API_MODE === "real") {
-    throw new Error("공동보호자 수락 API는 아직 백엔드에 없어서 mock 모드에서 테스트해 주세요.");
+    const res = await apiFetch<{ family_group: BackendFamilyGroupResponse; guardian_member: BackendGuardianMemberResponse }>(
+      "/auth/guardian/invite/accept",
+      { method: "POST", auth: true, body: JSON.stringify({ invite_code: inviteCode.trim().toUpperCase() }) },
+    );
+    return {
+      success: true,
+      data: {
+        familyGroup: backendGroupToFamilyGroup(res.family_group),
+        guardianMember: backendMemberToGuardianMember(res.guardian_member),
+      },
+    };
   }
 
   const normalized = inviteCode.trim().toUpperCase();
@@ -1145,7 +1224,11 @@ export async function removeGuardian({
   requesterGuardianId: string;
 }): Promise<ApiEnvelope<{ guardianMemberId: string; status: "REVOKED" }>> {
   if (AUTH_API_MODE === "real") {
-    throw new Error("공동보호자 제거 API는 아직 백엔드에 없어서 mock 모드에서 테스트해 주세요.");
+    await apiFetch(`/auth/guardian/members/${encodeURIComponent(guardianMemberId)}`, {
+      method: "DELETE",
+      auth: true,
+    });
+    return { success: true, data: { guardianMemberId, status: "REVOKED" as const } };
   }
 
   const requester = mockDb.guardianMembers.find(
@@ -1169,14 +1252,22 @@ export async function listFamilyMembers(
   familyGroupId: string,
 ): Promise<ApiEnvelope<{ familyGroup: FamilyGroup | null; links: FamilyLink[]; guardianMembers: GuardianMember[] }>> {
   if (AUTH_API_MODE === "real") {
-    const user = realCurrentUser;
-    const links = user?.role === "guardian" ? (await getGuardianSeniors(user.id)).data : [];
+    const res = await apiFetch<BackendFamilyStateResponse>("/auth/guardian/members", { auth: true });
+    const fg = backendGroupToFamilyGroup(res.family_group);
     return {
       success: true,
       data: {
-        familyGroup: user?.role === "guardian" ? realFamilyGroupForGuardian(user) : null,
-        links,
-        guardianMembers: user?.role === "guardian" ? [realGuardianMember(user)] : [],
+        familyGroup: fg,
+        links: res.links.map((row) => ({
+          linkId: row.link_id,
+          familyGroupId: fg.id,
+          counterpartId: row.senior_id,
+          counterpartName: row.senior_name?.trim() || "직접사용자",
+          relation: "elder" as const,
+          status: row.link_status,
+          linkedAt: row.linked_at ?? undefined,
+        })),
+        guardianMembers: res.guardian_members.map(backendMemberToGuardianMember),
       },
     };
   }
@@ -1220,14 +1311,14 @@ export async function restoreSession(): Promise<RestoredSession | null> {
     const refreshToken = (await getRefreshToken()) ?? "";
     const onboardingDone = await getOnboardingDone(user.id);
     if (user.role === "guardian") {
-      const links = (await getGuardianSeniors(user.id)).data;
+      const familyState = await listFamilyMembers("");
       return {
         user,
         consentDone: true,
         refreshToken,
-        familyGroup: realFamilyGroupForGuardian(user),
-        links,
-        guardianMembers: [realGuardianMember(user)],
+        familyGroup: familyState.data.familyGroup,
+        links: familyState.data.links,
+        guardianMembers: familyState.data.guardianMembers,
         onboardingDone,
       };
     }
