@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Platform } from "react-native";
 import { Audio } from "expo-av";
 
-import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse } from "../../mocks/chatbotResponses";
+import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse, type NextAction } from "../../mocks/chatbotResponses";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
 import { getToken } from "../../api/session";
@@ -132,8 +132,6 @@ export async function playTTS(
     if (Platform.OS === "web") {
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
-      // expo-av의 웹 Blob 재생 대신 브라우저 audio 엘리먼트를 사용한다.
-      // Chrome/Expo Web에서 이 경로가 더 안정적으로 소리를 출력한다.
       const webAudio = new window.Audio(blobUrl);
       const previousWebAudio = webAudioRef.current;
       previousWebAudio?.pause();
@@ -194,7 +192,6 @@ export async function playTTS(
   } catch (error) {
     console.warn("[MOA_TTS_ERROR]", error);
     notifyReady(null);
-    // Text response remains available even when TTS fails.
   }
 }
 
@@ -303,7 +300,6 @@ async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse
     return await callBackendChatbotApi(params);
   } catch (error) {
     console.warn("[MOA_CHATBOT_BACKEND_FALLBACK]", error);
-    // Do not bypass backend rule validation with a browser-side LLM call.
     return mockChatbotApi(params);
   }
 }
@@ -313,6 +309,7 @@ export function useMoaChat() {
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
+  const [nextAction, setNextAction] = useState<NextAction>("continue");
   const [route, setRoute] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -360,6 +357,7 @@ export function useMoaChat() {
 
       const res: ChatbotResponse = await callChatbotApi(params);
       setRoute(res.data.route ?? null);
+      setNextAction(res.data.next_action ?? "continue");
       conversationTurnRef.current += 1;
       validSpeechDurationRef.current += params.acoustic_meta.duration_ms;
       conversationTopicRef.current = res.data.conversation_topic ?? conversationTopicRef.current;
@@ -373,7 +371,6 @@ export function useMoaChat() {
 
       const turnId = `turn_${Date.now()}`;
       const chunks = splitIntoSentenceChunks(res.data.reply);
-      // A short bubble is fully spoken before the next one is displayed.
       const typingDelayMs = 48;
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index];
@@ -410,7 +407,17 @@ export function useMoaChat() {
     }
   }
 
-  return { messages, isBotTyping, isBotSpeaking, botEmotion, route, clearRoute: () => setRoute(null), sendMessage, speakText };
+  return {
+    messages,
+    isBotTyping,
+    isBotSpeaking,
+    botEmotion,
+    nextAction,
+    route,
+    clearRoute: () => setRoute(null),
+    sendMessage,
+    speakText,
+  };
 }
 
 function splitIntoSentenceChunks(text: string): string[] {

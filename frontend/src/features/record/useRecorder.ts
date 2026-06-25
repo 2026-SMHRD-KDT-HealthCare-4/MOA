@@ -150,14 +150,14 @@ export function useRecorder({
         const rms = Math.sqrt(sum / samples.length);
         const now = Date.now();
 
-        if (rms > 0.018) {
+        if (rms > 0.035) {
           heardSpeech = true;
           lastSpeechAt = now;
           lastSpeechAtRef.current = now - startedAt;
         }
 
         // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
-        if (heardSpeech && now - lastSpeechAt >= 900 && now - startedAt >= 700) {
+        if (heardSpeech && now - lastSpeechAt >= 1200 && now - startedAt >= 1000) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;

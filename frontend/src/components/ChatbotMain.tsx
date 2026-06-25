@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet, useWindowDimensions, Share } from "r
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { UserPlus, Clock, Share2, ChevronRight, MessageCircle, Bell } from "lucide-react-native";
+import { Clock, Share2, ChevronRight, MessageCircle, Bell } from "lucide-react-native";
 import Svg, { Path } from "react-native-svg";
 import { CharacterPlayer, type CharacterMood } from "./CharacterPlayer";
 import { MicIcon } from "./icons/MicIcon";
@@ -19,10 +19,18 @@ import { useMoaChat } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
 
-type ChatState = "idle" | "waitingCommand" | "botSpeaking" | "listening" | "thinking" | "completed" | "error";
+type ChatState =
+  | "idle"
+  | "waitingCommand"
+  | "botSpeaking"
+  | "listening"
+  | "thinking"
+  | "completed"
+  | "error";
 type VoiceMode = "wake" | "waitingCommand" | "conversation" | null;
 
-const SHOW_STT_DEBUG = __DEV__ || process.env.EXPO_PUBLIC_SHOW_STT_DEBUG === "true";
+const SHOW_STT_DEBUG =
+  __DEV__ || process.env.EXPO_PUBLIC_SHOW_STT_DEBUG === "true";
 
 type BotEmotion =
   | "default"
@@ -65,7 +73,14 @@ function formatDuration(ms: number) {
 
 export default function ChatbotMain() {
   const router = useRouter();
-  const { fromIntro, voiceText, voiceDurationMs, medicationReminderId, localMedicationId, medicationPrompt } = useLocalSearchParams<{
+  const {
+    fromIntro,
+    voiceText,
+    voiceDurationMs,
+    medicationReminderId,
+    localMedicationId,
+    medicationPrompt,
+  } = useLocalSearchParams<{
     fromIntro?: string;
     voiceText?: string;
     voiceDurationMs?: string;
@@ -78,7 +93,6 @@ export default function ChatbotMain() {
 
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
-  const links = useAuthStore((s) => s.links);
   const wakePrompt = useWakeWordStore((s) => s.wakePrompt);
   const clearWakePrompt = useWakeWordStore((s) => s.clearWakePrompt);
 
@@ -86,14 +100,24 @@ export default function ChatbotMain() {
   const hasUserInteracted = fromIntro === "true" || hasStoredUserInteracted;
   const respondToLocalMedication = useMedicationStore((s) => s.respond);
 
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
 
   const [chatState, setChatState] = useState<ChatState>("idle");
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
   const [isConversationActive, setIsConversationActive] = useState(false);
   const [lastRecognizedText, setLastRecognizedText] = useState("");
-  const { messages, isBotTyping, isBotSpeaking, botEmotion: liveBotEmotion, route, clearRoute, sendMessage, speakText } = useMoaChat();
+  const {
+    messages,
+    isBotTyping,
+    isBotSpeaking,
+    botEmotion: liveBotEmotion,
+    route,
+    clearRoute,
+    sendMessage,
+    speakText,
+    nextAction
+  } = useMoaChat();
   const {
     state: recorderState,
     transcript,
@@ -237,19 +261,29 @@ export default function ChatbotMain() {
     setChatState("thinking");
     if (localMedicationId) {
       const outcome = respondToLocalMedication(localMedicationId, text);
-      const reply = outcome === "completed"
-        ? "잘하셨어요. 체크해둘게요."
-        : outcome === "reminder_scheduled"
-          ? "그럼 약 드시고 말씀해주세요. 10분 뒤에 한 번 더 알려드릴게요."
-          : "드셨는지 아직 못 드셨는지만 말씀해주세요.";
+      const reply =
+        outcome === "completed"
+          ? "잘하셨어요. 체크해둘게요."
+          : outcome === "reminder_scheduled"
+            ? "그럼 약 드시고 말씀해주세요. 10분 뒤에 한 번 더 알려드릴게요."
+            : "드셨는지 아직 못 드셨는지만 말씀해주세요.";
       if (outcome === "reminder_scheduled") {
         await Notifications.scheduleNotificationAsync({
           content: {
             title: "복약 재알림",
             body: "약 드실 시간이에요. 드셨으면 모아에게 말씀해주세요.",
-            data: { localMedicationId, isRetry: true, medicationPrompt: "약 드실 시간이에요. 드셨으면 모아에게 말씀해주세요." },
+            data: {
+              localMedicationId,
+              isRetry: true,
+              medicationPrompt:
+                "약 드실 시간이에요. 드셨으면 모아에게 말씀해주세요.",
+            },
           },
-          trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 600, repeats: false },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: 600,
+            repeats: false,
+          },
         });
       }
       lastPromptRef.current = reply;
@@ -344,7 +378,9 @@ export default function ChatbotMain() {
   useEffect(() => {
     if (!isConversationActive) return;
 
-    const lastBotMessage = [...messages].reverse().find((message) => message.role === "bot");
+    const lastBotMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "bot");
     if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) return;
 
     lastBotMessageIdRef.current = lastBotMessage.id;
@@ -372,42 +408,55 @@ export default function ChatbotMain() {
       isBotSpeaking ||
       greetingInProgressRef.current
     ) return;
-    setChatState("listening");
-    beginConversationListening();
-  }, [chatState, isBotSpeaking, isBotTyping, isConversationActive]);
 
-  const startFirstGreeting = useCallback(async () => {
-    if (conversationRunningRef.current) return;
-
-    conversationRunningRef.current = true;
-    greetingInProgressRef.current = true;
-
-    try {
-      const firstReply = "안녕하세요. 오늘은 어떤 하루였나요?";
-
-      silenceRetryRef.current = 0;
-      lastPromptRef.current = firstReply;
-      setBotReply(firstReply);
-      setBotEmotion("happy");
-      setChatState("botSpeaking");
-
-      // 고정 시간 대신 실제 TTS 재생이 끝난 뒤에만 듣기를 시작한다.
-      await speakText(firstReply);
-
-      greetingInProgressRef.current = false;
-      setChatState("listening");
-      beginConversationListening();
-    } catch {
-      setChatState("error");
-      await wait(1200);
-      setChatState("idle");
+    if (nextAction === "finish") {
+    setChatState("completed");
+    setTimeout(() => {
       conversationActiveRef.current = false;
       setIsConversationActive(false);
-    } finally {
-      greetingInProgressRef.current = false;
-      conversationRunningRef.current = false;
-    }
-  }, [speakText]);
+      setChatState("idle");
+      setBotEmotion("default");
+    }, 2000); // completed 상태 잠깐 보여주고 idle로
+    return;
+  }
+    setChatState("listening");
+    beginConversationListening();
+  }, [chatState, isBotSpeaking, isBotTyping, isConversationActive, nextAction]);
+
+const startFirstGreeting = useCallback(async () => {
+  if (conversationRunningRef.current) return;
+
+  conversationRunningRef.current = true;
+  greetingInProgressRef.current = true;
+
+  try {
+    const firstReply = "안녕하세요. 오늘은 어떤 하루였나요?";
+
+    silenceRetryRef.current = 0;
+    lastPromptRef.current = firstReply;
+    setBotReply(firstReply);
+    setBotEmotion("happy");
+    setChatState("botSpeaking");
+
+    await speakText(firstReply);
+
+    greetingInProgressRef.current = false;
+    // ↓ 여기서 반드시 ref를 true로 재확인하고 시작
+    conversationActiveRef.current = true;
+    setIsConversationActive(true);
+    setChatState("listening");
+    beginConversationListening();
+  } catch {
+    setChatState("error");
+    await wait(1200);
+    setChatState("idle");
+    conversationActiveRef.current = false;
+    setIsConversationActive(false);
+  } finally {
+    greetingInProgressRef.current = false;
+    conversationRunningRef.current = false;
+  }
+}, [speakText]);
 
   const startMedicationReminderConversation = useCallback(async () => {
     const reminderId = typeof medicationReminderId === "string" ? medicationReminderId : undefined;
@@ -478,15 +527,19 @@ export default function ChatbotMain() {
   }
 
   function beginConversationListening() {
-    if (!conversationActiveRef.current) return;
-    if (recorderState === "recording" || recorderState === "processing") return;
+  console.log("[LISTEN] active:", conversationActiveRef.current, "recorder:", recorderState);
+  if (!conversationActiveRef.current) return;
+  if (recorderState === "recording" || recorderState === "processing") return;
 
-    voiceModeRef.current = "conversation";
-    resetRecorder();
-    setBotEmotion("listening");
-    setChatState("listening");
+  voiceModeRef.current = "conversation";
+  resetRecorder();
+  setBotEmotion("listening");
+  setChatState("listening");
+  // 웹에서 reset 직후 바로 start하면 MediaRecorder가 초기화 안 된 채로 시작될 수 있음
+  setTimeout(() => {
     void startRecording();
-  }
+  }, 80);
+}
 
   function handleConversationVoice() {
     // 대화 모드에서는 자동으로 듣기와 전송이 이어진다. 권한 오류 뒤 재시도할 때만 누른다.
@@ -505,8 +558,6 @@ export default function ChatbotMain() {
     router.push(recordHref);
   }
 
-  // ACTIVE 연결이 없을 때는 아직 사용되지 않은 직접사용자 초대 코드를 안내한다.
-  const hasActive = links.some((l) => l.status === "ACTIVE");
   // 챗봇 메인은 보호자·직접사용자 모두 동일한 대화 화면을 사용한다.
   // 초대/연결 관리는 가족 및 설정 화면에서 처리한다.
   const showGuardianNotice = false;
@@ -549,14 +600,16 @@ export default function ChatbotMain() {
     setChatState("listening");
   }, [isConversationActive, recorderError]);
 
-  const W = Math.min(windowWidth, 430);
   const H = windowHeight;
   const v = H / 900;
 
   const headerTop = insets.top + Math.round(42 * v);
   const bubbleTop = insets.top + Math.round(94 * v);
   const characterTop = insets.top + Math.round(184 * v);
-  const navTopGap = Math.max(92 + insets.bottom, Math.round(92 * v) + insets.bottom);
+  const navTopGap = Math.max(
+    92 + insets.bottom,
+    Math.round(92 * v) + insets.bottom,
+  );
   const characterHeight = H - characterTop - navTopGap;
   const recordBottom = Math.max(9, Math.round(9 * v));
   const topFadeHeight = characterTop + Math.round(74 * v);
@@ -594,49 +647,117 @@ export default function ChatbotMain() {
       </View>
 
       {showGuardianNotice ? (
-  <View style={[styles.noticeWrap, { top: bubbleTop }]}>
-    {pendingInvites.map((invite) => {
-      const who = invite.seniorName ?? "부모님";
+        <View style={[styles.noticeWrap, { top: bubbleTop }]}>
+          {pendingInvites.map((invite) => {
+            const who = invite.seniorName ?? "부모님";
 
-      return (
-        <View key={invite.token} style={styles.noticeCard}>
-          <View style={styles.noticeHead}>
-            <Clock size={20} color="#E8943A" strokeWidth={2.4} />
-            <Text style={styles.noticePendTitle}>{`${who} 초대 대기`}</Text>
-          </View>
+            return (
+              <View key={invite.token} style={styles.noticeCard}>
+                <View style={styles.noticeHead}>
+                  <Clock size={20} color="#E8943A" strokeWidth={2.4} />
+                  <Text style={styles.noticePendTitle}>
+                    {`${who} 초대 대기`}
+                  </Text>
+                </View>
 
-          <Text style={styles.noticeCode}>{invite.token}</Text>
+                <Text style={styles.noticeCode}>{invite.token}</Text>
 
-          <Pressable
-            style={styles.noticeReshareBtn}
-            onPress={() => reshareInvite(invite)}
-            accessibilityRole="button"
-          >
-            <Share2 size={18} color="#FF7955" />
-            <Text style={styles.noticeReshareText}>초대 코드 재공유</Text>
-          </Pressable>
+                <Pressable
+                  style={styles.noticeReshareBtn}
+                  onPress={() => reshareInvite(invite)}
+                  accessibilityRole="button"
+                >
+                  <Share2 size={18} color="#FF7955" />
+                  <Text style={styles.noticeReshareText}>
+                    초대 코드 재공유
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })}
         </View>
-      );
-    })}
-  </View>
-) : (
-  <View style={[styles.speechBubbleWrap, { top: bubbleTop }]}>
+      ) : (
+        <View style={[styles.speechBubbleWrap, { top: bubbleTop }]}>
           <Pressable
             style={styles.speechBubble}
             onPress={handleConversationVoice}
-            disabled={!isConversationActive || recorderState === "processing" || chatState === "botSpeaking" || chatState === "thinking"}
+            disabled={
+              !isConversationActive ||
+              recorderState === "processing" ||
+              chatState === "botSpeaking" ||
+              chatState === "thinking"
+            }
             accessibilityRole={isConversationActive ? "button" : undefined}
-            accessibilityLabel={isConversationActive ? "모아가 듣고 있어요. 말씀을 마치면 자동으로 전송됩니다" : undefined}
+            accessibilityLabel={
+              isConversationActive
+                ? "모아가 듣고 있어요. 말씀을 마치면 자동으로 전송됩니다"
+                : undefined
+            }
           >
-            <Svg pointerEvents="none" width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style={styles.speechBubbleShape}>
-              <Path d="M 12 0 H 88 C 94.6 0 100 13.5 100 30 V 64 C 100 79.5 94.6 92 88 92 H 60 C 56 92 55 97 50 97 C 45 97 44 92 40 92 H 12 C 5.4 92 0 79.5 0 64 V 30 C 0 13.5 5.4 0 12 0 Z" fill="#FFFCF8" />
+            <Svg
+              pointerEvents="none"
+              width="100%"
+              height="100%"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              style={styles.speechBubbleShape}
+            >
+              <Path
+                d="M 12 0 H 88 C 94.6 0 100 13.5 100 30 V 64 C 100 79.5 94.6 92 88 92 H 60 C 56 92 55 97 50 97 C 45 97 44 92 40 92 H 12 C 5.4 92 0 79.5 0 64 V 30 C 0 13.5 5.4 0 12 0 Z"
+                fill="#FFFCF8"
+              />
             </Svg>
-            <Svg pointerEvents="none" width={18} height={18} viewBox="0 0 18 18" style={[styles.speechSparkle, styles.speechSparkleLeft]}><Path d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round" /></Svg>
-            <Svg pointerEvents="none" width={18} height={18} viewBox="0 0 18 18" style={[styles.speechSparkle, styles.speechSparkleRight]}><Path d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7" fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="2" strokeLinecap="round" /></Svg>
+
+            <Svg
+              pointerEvents="none"
+              width={18}
+              height={18}
+              viewBox="0 0 18 18"
+              style={[styles.speechSparkle, styles.speechSparkleLeft]}
+            >
+              <Path
+                d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7"
+                fill="none"
+                stroke="rgba(255,255,255,0.85)"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </Svg>
+
+            <Svg
+              pointerEvents="none"
+              width={18}
+              height={18}
+              viewBox="0 0 18 18"
+              style={[styles.speechSparkle, styles.speechSparkleRight]}
+            >
+              <Path
+                d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7"
+                fill="none"
+                stroke="rgba(255,255,255,0.85)"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </Svg>
+
             <Text style={styles.speechText}>{botReply}</Text>
           </Pressable>
-          {recorderState === "recording" && <View style={styles.recordingStatusBar}><Waveform color="#6F9C62" animated /><Text style={styles.recordingTime}>{formatDuration(durationMs)}</Text></View>}
-          {SHOW_STT_DEBUG && lastRecognizedText && <View style={styles.sttDebugBar}><Text style={styles.sttDebugLabel}>인식한 말</Text><Text style={styles.sttDebugText}>{lastRecognizedText}</Text></View>}
+
+          {recorderState === "recording" && (
+            <View style={styles.recordingStatusBar}>
+              <Waveform color="#6F9C62" animated />
+              <Text style={styles.recordingTime}>
+                {formatDuration(durationMs)}
+              </Text>
+            </View>
+          )}
+
+          {SHOW_STT_DEBUG && !!lastRecognizedText && (
+            <View style={styles.sttDebugBar}>
+              <Text style={styles.sttDebugLabel}>인식한 말</Text>
+              <Text style={styles.sttDebugText}>{lastRecognizedText}</Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -689,23 +810,35 @@ export default function ChatbotMain() {
         <View style={styles.recordTextWrap}>
           <Text style={styles.recordTitle}>녹음하러 가기</Text>
         </View>
-        <ChevronRight style={styles.buttonChevron} size={26} color="#5B4636" strokeWidth={2.2} />
+        <ChevronRight
+          style={styles.buttonChevron}
+          size={26}
+          color="#5B4636"
+          strokeWidth={2.2}
+        />
       </Pressable>
 
       <Pressable
-          style={({ pressed }) => [
+        style={({ pressed }) => [
             styles.conversationButton,
             { bottom: recordBottom + 90 },
             pressed && !isConversationActive && styles.pressed,
             isConversationActive && styles.conversationButtonDisabled,
           ]}
-          onPress={handleStartConversation}
-          disabled={isConversationActive}
-          accessibilityRole="button"
-          accessibilityLabel={isConversationActive ? "모아가 듣고 있어요" : "모아와 대화 시작하기"}
-        >
+        onPress={handleStartConversation}
+        disabled={isConversationActive}
+        accessibilityRole="button"
+        accessibilityLabel={
+          isConversationActive ? "모아가 듣고 있어요" : "모아와 대화 시작하기"
+        }
+      >
           <View style={styles.conversationIconWrap}>
-            <MessageCircle size={32} color="#FFFFFF" fill="#FFFFFF" strokeWidth={1.8} />
+            <MessageCircle
+              size={32}
+              color="#FFFFFF"
+              fill="#FFFFFF"
+              strokeWidth={1.8}
+            />
             <View style={styles.conversationIconDots}>
               <View style={styles.conversationIconDot} />
               <View style={styles.conversationIconDot} />
@@ -717,7 +850,12 @@ export default function ChatbotMain() {
               {isConversationActive ? "듣고 있어요..." : "모아와 대화 시작하기"}
             </Text>
           </View>
-          <ChevronRight style={styles.buttonChevron} size={26} color="#FFFFFF" strokeWidth={2.2} />
+          <ChevronRight
+            style={styles.buttonChevron}
+            size={26}
+            color="#FFFFFF"
+            strokeWidth={2.2}
+          />
       </Pressable>
     </View>
   );
