@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     minWidth: 72,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 22,
     borderRadius: 20,
     backgroundColor: "#FFFFFF",
@@ -162,6 +162,7 @@ const styles = StyleSheet.create({
   chipText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 15,
+    lineHeight: 22,
     color: "#765E52",
   },
   chipTextActive: { color: "#FFFFFF" },
