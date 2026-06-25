@@ -48,7 +48,7 @@ export default function IntroScreen() {
       accessibilityRole="button"
       accessibilityLabel="화면을 터치하면 대화를 시작해요"
     >
-      <LinearGradient pointerEvents="none" colors={["#FFF8EE", "#FFFDF9", "#F8E5D2"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={["#FFF8EE", "#FFFDF9", "#F8E5D2"]} style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]} />
 
       <View style={[styles.logoWrap, { paddingTop: logoPaddingTop }]}>
         <Text style={styles.logo}>MOA</Text>

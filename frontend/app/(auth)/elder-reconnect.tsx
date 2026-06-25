@@ -44,7 +44,17 @@ export default function ElderReconnectPage() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel="뒤로 가기">
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(auth)/role-select");
+            }
+          }}
+          accessibilityLabel="뒤로 가기"
+        >
           <ArrowLeft size={24} color="#756a66" />
         </TouchableOpacity>
         <Text style={styles.topTitle}>재연결 코드 입력</Text>
