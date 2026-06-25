@@ -10,7 +10,7 @@
 
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,14 +19,29 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_guardian, get_current_user_id
 from app.core.supabase_client import supabase, supabase_admin
-from app.models.models import Guardian, GuardianSenior, Invite, LinkStatus, ReconnectCode, Senior
+from app.models.models import (
+    FamilyGroup,
+    Guardian,
+    GuardianMember,
+    GuardianSenior,
+    Invite,
+    LinkStatus,
+    ReconnectCode,
+    Senior,
+)
 from app.schemas.auth import (
+    AcceptMemberRequest,
+    AcceptMemberResponse,
+    FamilyGroupResponse,
+    FamilyStateResponse,
+    GuardianMemberResponse,
     GuardianRegisterRequest,
     GuardianResponse,
     GuardianSeniorResponse,
     InviteCreateRequest,
     InviteCreateResponse,
     InviteListItemResponse,
+    InviteMemberRequest,
     InviteVerifyResponse,
     LinkStatusUpdateRequest,
     LoginRequest,
@@ -41,6 +56,7 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 INVITE_EXPIRE_HOURS = 72
+FAM_CODE_EXPIRE_DAYS = 7
 
 # 초대 코드 생성용 문자 집합: 혼동되기 쉬운 0/O, 1/I 는 제외
 INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -82,6 +98,78 @@ def _generate_invite_code_part() -> str:
     return "".join(random.choices(INVITE_CODE_CHARS, k=INVITE_CODE_PART_LEN))
 
 
+def get_my_family_group_id(db: Session, guardian: Guardian) -> UUID:
+    """로그인한 보호자의 family_group_id를 반환한다. ACTIVE 멤버십이 없으면 404."""
+    entry = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.guardian_id == guardian.guardian_id,
+            GuardianMember.status == "ACTIVE",
+        )
+        .first()
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="가족 그룹을 찾을 수 없습니다.")
+    return entry.family_group_id
+
+
+def get_family_guardian_ids(db: Session, family_group_id: UUID) -> list[UUID]:
+    """가족 그룹의 ACTIVE 보호자 UUID 목록을 반환한다 (guardian_id IS NOT NULL)."""
+    rows = (
+        db.query(GuardianMember.guardian_id)
+        .filter(
+            GuardianMember.family_group_id == family_group_id,
+            GuardianMember.status == "ACTIVE",
+            GuardianMember.guardian_id.isnot(None),
+        )
+        .all()
+    )
+    return [row.guardian_id for row in rows]
+
+
+def get_family_senior_links(db: Session, family_group_id: UUID) -> list[GuardianSenior]:
+    """가족 그룹의 모든 ACTIVE 보호자가 연동한 GuardianSenior 목록을 반환한다.
+    같은 senior_id가 여러 보호자에게 연동돼 있어도 한 번만 포함 (senior_id 기준 dedupe).
+    대표 link 선정: ACTIVE 우선, 그중 linked_at 오름차순 (가장 먼저 연동된 것).
+    """
+    guardian_ids = get_family_guardian_ids(db, family_group_id)
+    if not guardian_ids:
+        return []
+
+    all_links = (
+        db.query(GuardianSenior)
+        .filter(GuardianSenior.guardian_id.in_(guardian_ids))
+        .order_by(
+            GuardianSenior.link_status.desc(),  # REVOKED < PENDING < ACTIVE (알파벳 역순)
+            GuardianSenior.linked_at.asc().nullslast(),
+        )
+        .all()
+    )
+
+    # senior_id 기준 dedupe — ACTIVE 우선 정렬 후 첫 번째 행만 채택
+    seen: set[UUID] = set()
+    result: list[GuardianSenior] = []
+    # ACTIVE 먼저, 나머지 나중에 두 패스로 선택
+    for link in all_links:
+        if link.senior_id not in seen and link.link_status == LinkStatus.ACTIVE.value:
+            seen.add(link.senior_id)
+            result.append(link)
+    for link in all_links:
+        if link.senior_id not in seen:
+            seen.add(link.senior_id)
+            result.append(link)
+    return result
+
+
+def _generate_unique_fam_code(db: Session) -> str:
+    """공동보호자 초대 코드 생성. 직접사용자 초대코드와 동일한 'XXX-XXX'
+    형식(앞 3 + 뒤 3, 혼동 문자 제외)을 쓴다. DB 중복 확인."""
+    while True:
+        code = f"{_generate_invite_code_part()}-{_generate_invite_code_part()}"
+        if not db.query(GuardianMember).filter(GuardianMember.invite_code == code).first():
+            return code
+
+
 def generate_unique_invite_code(db: Session) -> str:
     """
     'MOA-DEV' 같은 'XXX-XXX' 형태(영문/숫자 6자리 + 하이픈)의
@@ -115,6 +203,25 @@ def register_guardian(req: GuardianRegisterRequest, db: Session = Depends(get_db
 
     try:
         db.add(guardian)
+        db.flush()  # guardian_id 확정
+
+        family_group = FamilyGroup(
+            name=f"{req.name} 가족",
+            created_by_guardian_id=guardian.guardian_id,
+            status="ACTIVE",
+        )
+        db.add(family_group)
+        db.flush()  # family_group_id 확정
+
+        owner_member = GuardianMember(
+            family_group_id=family_group.family_group_id,
+            guardian_id=guardian.guardian_id,
+            guardian_name=req.name,
+            member_role="OWNER",
+            status="ACTIVE",
+            joined_at=datetime.utcnow(),
+        )
+        db.add(owner_member)
         db.commit()
         db.refresh(guardian)
     except Exception as e:
@@ -327,12 +434,13 @@ def list_seniors_for_guardian(
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
-    """로그인한 보호자가 관리하는 모든 고령층 연동 목록 (PENDING/ACTIVE/REVOKED 전체)."""
-    links = (
-        db.query(GuardianSenior)
-        .filter(GuardianSenior.guardian_id == guardian.guardian_id)
-        .all()
-    )
+    """가족 그룹의 모든 ACTIVE 보호자가 연동한 고령층 목록 (senior_id 기준 dedupe).
+
+    평탄 모델: 공동보호자가 연동한 부모님도 동등하게 조회된다.
+    PENDING/REVOKED 링크도 포함하되, 같은 senior_id는 한 번만 노출 (ACTIVE 우선).
+    """
+    family_group_id = get_my_family_group_id(db, guardian)
+    links = get_family_senior_links(db, family_group_id)
 
     senior_ids = [link.senior_id for link in links]
     seniors = db.query(Senior).filter(Senior.senior_id.in_(senior_ids)).all()
@@ -358,13 +466,15 @@ def update_link_status(
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
-    """연동 상태 변경 (ACTIVE 전환 / REVOKED 처리). 본인 명의의 연동만 수정 가능."""
+    """연동 상태 변경 (ACTIVE 전환 / REVOKED 처리). 같은 가족 그룹의 보호자라면 변경 가능."""
     link = db.query(GuardianSenior).filter(GuardianSenior.link_id == link_id).first()
     if link is None:
         raise HTTPException(status_code=404, detail="연동 정보를 찾을 수 없습니다.")
 
-    if link.guardian_id != guardian.guardian_id:
-        raise HTTPException(status_code=403, detail="본인의 연동 정보만 변경할 수 있습니다.")
+    family_group_id = get_my_family_group_id(db, guardian)
+    family_guardian_ids = get_family_guardian_ids(db, family_group_id)
+    if link.guardian_id not in family_guardian_ids:
+        raise HTTPException(status_code=403, detail="같은 가족 그룹의 보호자만 연동 상태를 변경할 수 있습니다.")
 
     link.link_status = req.link_status
     if req.link_status == LinkStatus.ACTIVE.value:
@@ -397,11 +507,13 @@ def create_reconnect_code(
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
-    """보호자가 담당 고령층의 재연결 코드 발급. ACTIVE 연동 관계가 있어야만 발급 가능."""
+    """보호자가 담당 고령층의 재연결 코드 발급. 가족 그룹의 ACTIVE 연동 관계면 발급 가능."""
+    family_group_id = get_my_family_group_id(db, guardian)
+    family_guardian_ids = get_family_guardian_ids(db, family_group_id)
     link = (
         db.query(GuardianSenior)
         .filter(
-            GuardianSenior.guardian_id == guardian.guardian_id,
+            GuardianSenior.guardian_id.in_(family_guardian_ids),
             GuardianSenior.senior_id == senior_id,
             GuardianSenior.link_status == LinkStatus.ACTIVE.value,
         )
@@ -476,3 +588,179 @@ def reconnect_senior(req: ReconnectRequest, db: Session = Depends(get_db)):
         role="senior",
         name=senior.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# 공동보호자 (가족 그룹) — 평탄 모델: OWNER/SUB_GUARDIAN 권한 동등
+# ---------------------------------------------------------------------------
+
+@router.post("/guardian/invite/member", response_model=GuardianMemberResponse)
+def invite_guardian_member(
+    req: InviteMemberRequest,
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """공동보호자 초대 코드(FAM-XXXX) 발급. 본인이 ACTIVE 멤버인 가족 그룹에 초대."""
+    my_entry = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.guardian_id == guardian.guardian_id,
+            GuardianMember.status == "ACTIVE",
+        )
+        .first()
+    )
+    if my_entry is None:
+        raise HTTPException(status_code=403, detail="가족 그룹에 속한 보호자만 초대할 수 있습니다.")
+
+    code = _generate_unique_fam_code(db)
+    new_member = GuardianMember(
+        family_group_id=my_entry.family_group_id,
+        guardian_name=req.guardian_name.strip(),
+        member_role="SUB_GUARDIAN",
+        status="PENDING",
+        invited_by_guardian_id=guardian.guardian_id,
+        invite_code=code,
+        invite_expires_at=datetime.utcnow() + timedelta(days=FAM_CODE_EXPIRE_DAYS),
+    )
+    db.add(new_member)
+    db.commit()
+    db.refresh(new_member)
+    return new_member
+
+
+@router.post("/guardian/invite/accept", response_model=AcceptMemberResponse)
+def accept_guardian_invite(
+    req: AcceptMemberRequest,
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """공동보호자 초대 수락. PENDING → ACTIVE 전환하고 guardian_id 설정."""
+    normalized = req.invite_code.strip().upper()
+    member = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.invite_code == normalized,
+            GuardianMember.status == "PENDING",
+        )
+        .first()
+    )
+    if member is None:
+        raise HTTPException(status_code=404, detail="초대 코드를 찾을 수 없습니다.")
+    from datetime import timezone   # 파일 상단 import에 timezone 추가
+
+    if member.invite_expires_at and member.invite_expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="만료된 초대 코드입니다.")
+
+    member.guardian_id = guardian.guardian_id
+    member.guardian_name = guardian.name
+    member.status = "ACTIVE"
+    member.joined_at = datetime.utcnow()
+    db.commit()
+    db.refresh(member)
+
+    family_group = (
+        db.query(FamilyGroup)
+        .filter(FamilyGroup.family_group_id == member.family_group_id)
+        .first()
+    )
+    return AcceptMemberResponse(family_group=family_group, guardian_member=member)
+
+
+@router.get("/guardian/members", response_model=FamilyStateResponse)
+def list_guardian_members(
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """로그인한 보호자의 가족 그룹 전체 상태 조회 (가족 그룹 + 보호자 멤버 목록 + 연동된 직접사용자 목록)."""
+    my_entry = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.guardian_id == guardian.guardian_id,
+            GuardianMember.status == "ACTIVE",
+        )
+        .first()
+    )
+    if my_entry is None:
+        raise HTTPException(status_code=404, detail="가족 그룹을 찾을 수 없습니다.")
+
+    family_group = (
+        db.query(FamilyGroup)
+        .filter(FamilyGroup.family_group_id == my_entry.family_group_id)
+        .first()
+    )
+    guardian_members = (
+        db.query(GuardianMember)
+        .filter(GuardianMember.family_group_id == my_entry.family_group_id)
+        .all()
+    )
+
+    family_links = get_family_senior_links(db, my_entry.family_group_id)
+    senior_ids = [lnk.senior_id for lnk in family_links]
+    seniors = db.query(Senior).filter(Senior.senior_id.in_(senior_ids)).all()
+    senior_name_map = {s.senior_id: s.name for s in seniors}
+
+    link_responses = [
+        GuardianSeniorResponse(
+            link_id=lnk.link_id,
+            guardian_id=lnk.guardian_id,
+            senior_id=lnk.senior_id,
+            senior_name=senior_name_map.get(lnk.senior_id),
+            link_status=lnk.link_status,
+            linked_at=lnk.linked_at,
+        )
+        for lnk in family_links
+    ]
+
+    return FamilyStateResponse(
+        family_group=family_group,
+        guardian_members=guardian_members,
+        links=link_responses,
+    )
+
+
+@router.delete("/guardian/members/{guardian_member_id}")
+def remove_guardian_member(
+    guardian_member_id: UUID,
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """공동보호자 제거(REVOKED). 같은 가족 그룹의 ACTIVE 보호자만 요청 가능.
+    마지막 OWNER는 제거 불가(그룹 고아 방지).
+    """
+    requester_entry = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.guardian_id == guardian.guardian_id,
+            GuardianMember.status == "ACTIVE",
+        )
+        .first()
+    )
+    if requester_entry is None:
+        raise HTTPException(status_code=403, detail="가족 그룹에 속한 보호자만 제거할 수 있습니다.")
+
+    target = (
+        db.query(GuardianMember)
+        .filter(
+            GuardianMember.guardian_member_id == guardian_member_id,
+            GuardianMember.family_group_id == requester_entry.family_group_id,
+        )
+        .first()
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="제거할 보호자를 찾을 수 없습니다.")
+
+    if target.member_role == "OWNER":
+        active_count = (
+            db.query(GuardianMember)
+            .filter(
+                GuardianMember.family_group_id == requester_entry.family_group_id,
+                GuardianMember.status == "ACTIVE",
+            )
+            .count()
+        )
+        if active_count <= 1:
+            raise HTTPException(status_code=400, detail="마지막 OWNER는 제거할 수 없습니다.")
+
+    target.status = "REVOKED"
+    db.commit()
+    return {"guardian_member_id": str(guardian_member_id), "status": "REVOKED"}

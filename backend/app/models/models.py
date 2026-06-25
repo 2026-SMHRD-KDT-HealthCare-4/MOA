@@ -449,3 +449,50 @@ class UrgentAlert(Base):
     )
 
     senior = relationship("Senior", backref="urgent_alerts")
+
+
+class FamilyGroup(Base):
+    """가족 그룹 (FAMILY_GROUP) — 공동보호자 기능의 그룹 단위."""
+    __tablename__ = "family_group"
+
+    family_group_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+    created_by_guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)
+    status = Column(String(10), nullable=False, default="ACTIVE")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('ACTIVE','REVOKED')", name="ck_family_group_status"),
+    )
+
+    created_by_guardian = relationship("Guardian", foreign_keys=[created_by_guardian_id], backref="owned_family_groups")
+    members = relationship("GuardianMember", back_populates="family_group")
+
+
+class GuardianMember(Base):
+    """공동보호자 멤버 (GUARDIAN_MEMBER) — 가족 그룹 내 보호자 초대/참여 상태.
+    평탄(flat) 모델: OWNER는 그룹 생성자 라벨일 뿐 모든 ACTIVE 보호자의 권한은 동등하다.
+    """
+    __tablename__ = "guardian_member"
+
+    guardian_member_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    family_group_id = Column(UUID(as_uuid=True), ForeignKey("family_group.family_group_id"), nullable=False)
+    guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=True)
+    guardian_name = Column(String(100), nullable=False)
+    member_role = Column(String(20), nullable=False)  # OWNER | SUB_GUARDIAN
+    status = Column(String(10), nullable=False, default="PENDING")  # PENDING | ACTIVE | REVOKED
+    invited_by_guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=True)
+    invite_code = Column(String(8), unique=True, nullable=True)  # FAM-XXXX, 7일 유효
+    invite_expires_at = Column(DateTime, nullable=True)
+    joined_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("member_role IN ('OWNER','SUB_GUARDIAN')", name="ck_guardian_member_role"),
+        CheckConstraint("status IN ('PENDING','ACTIVE','REVOKED')", name="ck_guardian_member_status"),
+    )
+
+    family_group = relationship("FamilyGroup", back_populates="members")
+    guardian = relationship("Guardian", foreign_keys=[guardian_id], backref="guardian_member_entries")
+    inviter = relationship("Guardian", foreign_keys=[invited_by_guardian_id])

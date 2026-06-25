@@ -10,8 +10,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 
-revision = "e6f7a8b9c0d1"
-down_revision = "d5e6f7a8b9c0"
+revision = "a7b8c9d0e1f2"
+down_revision = "e6f7a8b9c0d1"
 branch_labels = None
 depends_on = None
 

@@ -20,8 +20,11 @@ import numpy as np
 import torch
 try:
     import torchaudio
-    if hasattr(torchaudio, "set_audio_backend"):
-        torchaudio.set_audio_backend("soundfile")
+    try:
+        if hasattr(torchaudio, "set_audio_backend"):
+            torchaudio.set_audio_backend("soundfile")
+    except Exception:
+        pass  # 최신 torchaudio는 이 설정 불필요 (자동 백엔드 선택)
 except Exception:
     pass
 import librosa
@@ -32,7 +35,7 @@ _DEFAULT_CHECKPOINT = os.environ.get(
     "BYOLS_CHECKPOINT_PATH",
     "checkpoints/default2048_BYOLAs64x96-2105311814-e100-bs256-lr0003-rs42.pth",
 )
-_MODEL_NAME = "default"  # serab_byols 패키지 기준 'default' = 2048차원 출력
+_MODEL_NAME = "cvt"  # serab_byols 패키지 기준 'default' = 2048차원 출력
 
 
 def load_byols_model(checkpoint_path: str = None):
@@ -50,7 +53,13 @@ def load_byols_model(checkpoint_path: str = None):
                 f"BYOLS_CHECKPOINT_PATH 환경변수로 경로를 지정하세요."
             )
         print(f"⏳ BYOL-S 모델 로드 중... ({ckpt})")
-        _byols_model = serab_byols.load_model(ckpt, _MODEL_NAME)
+        try:
+            _byols_model = serab_byols.load_model(ckpt, _MODEL_NAME)
+        except Exception as e:
+            import traceback
+            print("❌ BYOL-S 로딩 에러 전체:")
+            traceback.print_exc()
+            raise
         print("✅ BYOL-S 로드 완료 (2048차원 임베딩)")
     return _byols_model
 

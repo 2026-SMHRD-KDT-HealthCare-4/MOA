@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_guardian, get_current_user_id, verify_senior_access
-from app.models.models import ChatSession, Guardian, GuardianSenior, LinkStatus, UrgentAlert
+from app.models.models import ChatSession, Guardian, UrgentAlert
+from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
     ChatMessageRequest,
     ChatMessageResponseData,
@@ -203,11 +204,14 @@ def cancel_urgent_alert(
     if alert is None:
         raise HTTPException(status_code=404, detail="긴급 알림을 찾을 수 없습니다.")
 
-    # 요청 보호자가 해당 senior 와 ACTIVE 연동인지 확인
+    # 가족 그룹의 ACTIVE 보호자 중 누군가가 해당 senior 와 연동돼 있는지 확인
+    from app.models.models import GuardianSenior, LinkStatus
+    family_group_id = get_my_family_group_id(db, guardian)
+    family_guardian_ids = get_family_guardian_ids(db, family_group_id)
     link = (
         db.query(GuardianSenior)
         .filter(
-            GuardianSenior.guardian_id == guardian.guardian_id,
+            GuardianSenior.guardian_id.in_(family_guardian_ids),
             GuardianSenior.senior_id == alert.senior_id,
             GuardianSenior.link_status == LinkStatus.ACTIVE.value,
         )
