@@ -36,7 +36,13 @@
       "expo-notifications",
       "expo-video",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "근처 병원을 찾기 위해 위치 정보를 사용해요."
+        }
+      ]
     ]
   }
 }
