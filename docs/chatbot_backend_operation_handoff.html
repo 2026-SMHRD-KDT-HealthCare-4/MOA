@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>MOA 챗봇 백엔드 운영 전환 상의·인수 문서</title>
+  <style>
+    @page { size: A4; margin: 17mm 16mm; }
+    * { box-sizing: border-box; }
+    body { color: #2e2723; font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; font-size: 10.5pt; line-height: 1.58; }
+    h1 { margin: 0 0 6px; color: #3b2318; font-size: 24pt; letter-spacing: -1px; }
+    h2 { margin: 24px 0 9px; padding-bottom: 6px; border-bottom: 2px solid #f2c187; color: #5b3626; font-size: 15pt; }
+    h3 { margin: 16px 0 6px; color: #6a4431; font-size: 11.5pt; }
+    p { margin: 5px 0; }
+    .subtitle { color: #80675c; font-size: 11pt; }
+    .meta { margin: 16px 0; padding: 12px 14px; border-radius: 10px; background: #fff5e9; color: #765e52; }
+    .notice { margin: 12px 0; padding: 11px 13px; border-left: 4px solid #e8943a; border-radius: 6px; background: #fff8ef; }
+    .decision { margin: 12px 0; padding: 13px 15px; border-radius: 10px; background: #fff1ed; border: 1px solid #ffd6c8; }
+    .decision strong { color: #b84e35; }
+    table { width: 100%; margin: 8px 0 14px; border-collapse: collapse; font-size: 9.3pt; }
+    th, td { padding: 8px; border: 1px solid #eadbd1; text-align: left; vertical-align: top; }
+    th { background: #fff3e5; color: #674334; font-weight: 700; }
+    code { padding: 1px 4px; border-radius: 4px; background: #f5eee8; color: #8c4a33; font-family: Consolas, monospace; font-size: 9pt; }
+    ul { margin: 5px 0; padding-left: 20px; }
+    li { margin: 3px 0; }
+    .tag { display: inline-block; margin-right: 5px; padding: 1px 7px; border-radius: 99px; background: #f6ded0; color: #a75639; font-size: 8.5pt; font-weight: 700; }
+    .footer { margin-top: 22px; color: #987d70; font-size: 8.5pt; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>MOA 챗봇 백엔드 운영 전환 상의·인수 문서</h1>
+  <p class="subtitle">대상: 백엔드 담당자 · 목적: 룰 기반 대화 제어의 운영 전환 전 안전 정책 및 세션 상태 저장 합의</p>
+  <div class="meta">현재 개발용 <code>/chat/dev</code>에는 룰 기반 1차 검사 → LLM → 룰 기반 최종 보정 흐름이 적용되어 있습니다. 운영 전환 시에는 아래 두 항목을 팀 정책으로 확정한 뒤 운영용 <code>/chat</code>와 DB에 반영해야 합니다.</div>
+
+  <h2>1. 결정이 필요한 항목</h2>
+  <div class="decision"><strong>우선 합의 대상 A — urgent_alert 정책</strong><br />긴급 기준, 즉시 동작, 오탐 처리, 사용자 면책 문구는 안전과 직접 연결되므로 프론트 또는 LLM이 임의로 결정하지 않습니다.</div>
+  <div class="decision"><strong>우선 합의 대상 B — ChatSession 상태 필드</strong><br />현재 주제와 질문 순번을 세션에 저장해야 앱 재진입·새로고침 뒤에도 대화 맥락을 안정적으로 이어갈 수 있습니다.</div>
+
+  <h2>2. urgent_alert 운영 정책</h2>
+  <h3>2-1. 권장 분류 기준</h3>
+  <table>
+    <thead><tr><th>등급</th><th>룰 예시</th><th>백엔드 최종 응답</th><th>권장 동작</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag">긴급</span>자살·자해</td><td>“죽고 싶어”, “살기 싫어”, “사라지고 싶어”, “그만 살고 싶어”</td><td><code>user_intent=negative_mood</code><br /><code>bot_emotion=worried</code><br /><code>next_action=urgent_alert</code></td><td>고정 안전 문구 반환, 보호자 알림 후보 생성, 즉시 연락 수단 안내</td></tr>
+      <tr><td><span class="tag">긴급</span>신체 응급</td><td>“쓰러질 것 같아”, “가슴이 답답해”, “숨이 안 쉬어져”, “심하게 어지러워”</td><td><code>user_intent=health_discomfort</code><br /><code>next_action=urgent_alert</code></td><td>고정 안전 문구 반환, 119·주변 도움 요청 안내, 보호자 알림 후보 생성</td></tr>
+      <tr><td><span class="tag">주의</span>일반 불편</td><td>“아파”, “불편하다”, “어지럽다”, “힘들다”</td><td><code>next_action=continue</code></td><td>공감·휴식·가족 알림 권유. 자동 긴급 알림은 보내지 않음</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2-2. 즉시 동작: 팀 합의 필요</h3>
+  <ul>
+    <li><strong>앱 응답:</strong> LLM 문구를 쓰지 않고 백엔드의 고정 안전 문구를 반환한다.</li>
+    <li><strong>보호자 알림:</strong> 활성 보호자 연결 및 알림 동의가 있을 때만 생성할지 결정한다.</li>
+    <li><strong>반복 억제:</strong> 동일 세션·동일 등급 알림은 예: 15분 쿨다운으로 중복 발송을 막는다.</li>
+    <li><strong>기록 범위:</strong> 원본 음성은 저장하지 않고, 발생 시각·등급·규칙 ID만 최소 저장하는지 결정한다.</li>
+  </ul>
+
+  <h3>2-3. 오탐 처리 권장안</h3>
+  <div class="notice">명확한 긴급 키워드가 있으면 확인 질문 때문에 안내·알림을 지연하지 않습니다. 다만 “죽겠다”처럼 문맥이 불명확한 표현은 <strong>안전 확인 문구를 즉시 보여준 뒤</strong> 사용자가 오탐임을 명시적으로 취소할 수 있게 합니다. 취소하더라도 해당 턴의 안전 규칙 적용 사실은 최소 감사 로그로 남기는 방안을 권장합니다.</div>
+  <ul>
+    <li>사용자 취소 UI/음성: “괜찮아요”, “실수예요”, “알림 보내지 마세요”</li>
+    <li>백엔드 상태: <code>alert_status=pending | cancelled | sent</code></li>
+    <li>취소 후에도 대화는 <code>negative_mood</code> 또는 <code>health_discomfort</code> 맥락으로 안전하게 이어간다.</li>
+  </ul>
+
+  <h3>2-4. 고정 면책·안내 문구 권장안</h3>
+  <table>
+    <thead><tr><th>상황</th><th>권장 문구</th></tr></thead>
+    <tbody>
+      <tr><td>자살·자해 위험</td><td>“지금 많이 힘드신 것 같아요. 혼자 계시지 말고 가까운 가족이나 119에 바로 도움을 요청해 주세요. 모아는 의료 진단이나 긴급 구조를 대신할 수 없어요.”</td></tr>
+      <tr><td>신체 응급 위험</td><td>“지금은 바로 주변에 도움을 요청해 주세요. 증상이 심하거나 숨쉬기 어렵다면 119에 연락하는 것이 좋아요. 모아의 안내는 의료 진단을 대신하지 않아요.”</td></tr>
+      <tr><td>일반 불편</td><td>“몸이 불편하셨군요. 무리하지 말고 쉬어 주세요. 불편함이 계속되거나 심해지면 의료진 또는 가족에게 알려주세요.”</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. ChatSession 필드 추가 제안</h2>
+  <p>개발용 API는 프론트가 매 턴 <code>conversation_topic</code>, <code>question_index</code>를 전달합니다. 운영에서는 아래 최소 필드를 세션에 저장하는 방식을 권장합니다.</p>
+  <table>
+    <thead><tr><th>필드</th><th>타입·기본값</th><th>용도</th></tr></thead>
+    <tbody>
+      <tr><td><code>conversation_topic</code></td><td>VARCHAR(20), NULL</td><td><code>meal | sleep | health | mood | family</code> 중 현재 질문 주제. NULL이면 새 대화</td></tr>
+      <tr><td><code>question_index</code></td><td>INTEGER, NOT NULL, DEFAULT 0</td><td>각 주제의 메인/후속 질문 순번. 주제 전환 시 0 또는 1로 초기화</td></tr>
+      <tr><td><code>last_rule_action</code></td><td>VARCHAR(20), NULL</td><td><code>continue | finish | navigate | urgent_alert</code>의 마지막 결정값. 운영 디버깅·안전 감사용</td></tr>
+      <tr><td><code>last_active_at</code></td><td>TIMESTAMP, NULL</td><td>세션 만료·재개 판단. 예: 30분 이상 비활성이면 주제 초기화</td></tr>
+    </tbody>
+  </table>
+  <h3>3-1. 운영 처리 규칙</h3>
+  <ul>
+    <li>현재 주제와 동일한 발화면 <code>question_index</code>를 증가시켜 후속 질문을 선택한다.</li>
+    <li>다른 intent/topic이면 새 주제로 바꾸고 <code>question_index</code>를 초기화한다.</li>
+    <li><code>finish</code>면 <code>ended_at</code>을 기록하고 세션을 종료한다.</li>
+    <li><code>navigate</code>는 주제 상태를 유지할지, 기능 이동 후 새 세션으로 둘지 팀에서 결정한다.</li>
+    <li>음성 원문·원본 음성 저장은 기존 ZDR 정책과 분리해서 검토한다.</li>
+  </ul>
+
+  <h2>4. 운영용 API 전환 체크리스트</h2>
+  <ul>
+    <li><code>/chat</code>도 <code>/chat/dev</code>와 동일한 최종 JSON 규약을 사용한다.</li>
+    <li>응답 필수값: <code>reply</code>, <code>user_intent</code>, <code>bot_emotion</code>, <code>next_action</code>, <code>route</code>, <code>conversation_topic</code>, <code>question_index</code></li>
+    <li>LLM 입력 전·후에 동일한 룰 검증을 적용하고, 위험·종료·기능 이동은 룰 값을 우선한다.</li>
+    <li><code>OPENAI_API_KEY</code>, <code>OPENAI_CHAT_MODEL</code>, 알림 발송 환경변수를 운영 환경에 설정한다.</li>
+    <li>테스트: 긴급 키워드, 오탐 취소, 기능 이동, 주제 전환, 세션 재개, 알림 쿨다운을 각각 검증한다.</li>
+  </ul>
+
+  <div class="footer">MOA · 챗봇 백엔드 운영 전환 상의 문서 · 팀 합의 후 정책값과 DB 마이그레이션 확정</div>
+</body>
+</html>

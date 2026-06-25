@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>MOA 브랜치 비교 및 선별 반영 보고서</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    * { box-sizing: border-box; }
+    body { color: #2f2926; font-family: "Malgun Gothic", "Noto Sans KR", Arial, sans-serif; font-size: 10.2pt; line-height: 1.55; }
+    h1 { color: #513329; font-size: 21pt; margin: 0 0 5px; }
+    h2 { color: #513329; font-size: 14pt; margin: 22px 0 8px; border-bottom: 2px solid #f2c89c; padding-bottom: 4px; }
+    h3 { color: #765e52; font-size: 11.5pt; margin: 15px 0 5px; }
+    p { margin: 5px 0; }
+    .meta { color: #765e52; margin-bottom: 16px; }
+    .summary { background: #fff4e5; border-left: 5px solid #e8943a; border-radius: 6px; padding: 11px 14px; }
+    table { width: 100%; border-collapse: collapse; margin: 9px 0 14px; page-break-inside: avoid; }
+    th { background: #f8e5d2; color: #513329; font-weight: 700; }
+    th, td { border: 1px solid #e5d6cb; padding: 7px 8px; vertical-align: top; }
+    ul { margin: 5px 0; padding-left: 20px; }
+    li { margin: 3px 0; }
+    code { color: #8b4d2e; font-family: Consolas, monospace; font-size: 9pt; }
+    .keep { color: #287255; font-weight: 700; }
+    .hold { color: #a36b20; font-weight: 700; }
+    .exclude { color: #9a4a3c; font-weight: 700; }
+    .footer { color: #8c7b73; font-size: 8.5pt; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <h1>MOA 브랜치 비교 및 선별 반영 보고서</h1>
+  <p class="meta">비교 대상: <code>frontend_bogyeong</code> ↔ <code>origin/backend-Yoonhyun</code> · 기준 공통 커밋: <code>b1a72d4</code> · 작성일: 2026-06-20</p>
+
+  <div class="summary">
+    <strong>결론.</strong> 윤현 브랜치에는 실시간 음성 대화와 실제 API 연결의 초안이 포함되어 있다. 다만 가족 연결·동의 절차를 우회하는 임시 코드와 현재 챗봇 화면을 크게 덮어쓰는 변경도 함께 있어, 전체 병합 대신 안전한 백엔드 기반 세 가지만 선별 반영했다.
+  </div>
+
+  <h2>1. 브랜치별 초점</h2>
+  <table>
+    <thead><tr><th>브랜치</th><th>주요 초점</th><th>현재 상태</th></tr></thead>
+    <tbody>
+      <tr><td><code>frontend_bogyeong</code></td><td>가족 초대 MVP, mock/real 인증 전환, Moa 캐릭터 영상, 인트로 자동 인사와 녹음 진입 흐름</td><td>가족 연결과 고령자 UX를 안정적으로 유지하는 방향</td></tr>
+      <tr><td><code>backend-Yoonhyun</code></td><td>WebSocket 챗봇, VAD, TTS 서버 프록시, 실제 리포트 조회 시도</td><td>기능 실험 폭은 넓지만 임시 우회와 화면/인증 구조 변경이 섞여 있음</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. 윤현 브랜치에서 선별 반영한 항목</h2>
+  <table>
+    <thead><tr><th>반영 항목</th><th>반영 위치</th><th>반영 방식과 이유</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="keep">서버 TTS 프록시</span></td>
+        <td><code>POST /speech/tts</code><br><code>backend/app/routes/speech.py</code></td>
+        <td>프론트가 OpenAI 키를 직접 보유하지 않고, 인증된 사용자가 서버를 통해 MP3 음성을 받도록 했다. 요청 텍스트는 500자로 제한하고 공급자 오류는 일반화했다.</td>
+      </tr>
+      <tr>
+        <td><span class="keep">현재 사용자 조회</span></td>
+        <td><code>GET /auth/me</code><br><code>backend/app/routes/auth.py</code></td>
+        <td>토큰 기준으로 사용자 프로필, 동의 여부, 본인 가족 연결을 반환한다. 앱 재실행 시 실제 서버 상태로 세션을 복원할 기반이다.</td>
+      </tr>
+      <tr>
+        <td><span class="keep">보호자용 추이 조회</span></td>
+        <td><code>GET /report/trend/{senior_id}</code><br><code>backend/app/routes/report.py</code></td>
+        <td>접근 권한을 검사한 뒤 최근 기록을 <code>sunny</code>/<code>cloudy</code>/<code>rainy</code> 메타포로 반환한다. 내부 위험도는 UI 응답에서 제거했다.</td>
+      </tr>
+      <tr>
+        <td><span class="keep">프론트 TTS 우선 경로</span></td>
+        <td><code>frontend/src/features/chatbot/useMoaChat.ts</code></td>
+        <td>챗봇 TTS는 새 서버 API를 먼저 호출한다. 현재 개발 환경 호환성을 위해 서버 미준비 시에만 기존 직접 호출을 fallback으로 유지했다.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. 안전을 위해 다르게 적용한 부분</h2>
+  <table>
+    <thead><tr><th>윤현 브랜치 초안</th><th>선별 반영 결과</th><th>이유</th></tr></thead>
+    <tbody>
+      <tr><td>리포트 API가 질환별 위험도, 점수, dB, 음절 수를 반환</td><td>날씨형 상태와 기록 시각만 반환</td><td>MOA는 웰니스 서비스이며, 수치·질환명 노출은 의료 판단처럼 보일 수 있음</td></tr>
+      <tr><td>TTS API에 인증·길이 제한 없음</td><td>인증 필수, 1~500자 제한</td><td>외부 API 키 사용과 비용을 보호하고 악용 범위를 줄임</td></tr>
+      <tr><td>실제 데이터가 없으면 가짜 가족 연결을 자동 생성</td><td>반영하지 않음</td><td>가족 연결 상태와 초대 완료 여부를 왜곡할 수 있음</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. 이번에 반영하지 않은 항목</h2>
+  <h3><span class="hold">보류: WebSocket 챗봇과 Hybrid VAD</span></h3>
+  <ul>
+    <li>윤현 브랜치는 <code>/chat/ws</code>, 응답 스트리밍, VAD 상태 기계를 추가했다.</li>
+    <li>그러나 현재 프론트 흐름은 녹음 후 STT 텍스트를 보내며, PCM 오디오 청크를 WebSocket으로 전송하지 않는다. 따라서 VAD 경로가 실제로 사용되지 않는다.</li>
+    <li>실시간 음성 전송 규격, 권한, 재연결, 서버 부하, TTS 재생 큐를 함께 설계한 뒤 별도 작업으로 진행하는 것이 안전하다.</li>
+  </ul>
+
+  <h3><span class="exclude">제외: 가족/동의 우회 코드</span></h3>
+  <ul>
+    <li>가족 연결이 없어도 가짜 ACTIVE 연결을 생성하는 코드</li>
+    <li>동의 완료를 강제로 처리하고 보호자 탭을 항상 활성화하는 코드</li>
+    <li><code>MOA-DEV</code> 초대 코드로 실제 초대 검증을 우회하는 서버 로직</li>
+  </ul>
+  <p>위 항목은 발표용 빠른 진입에는 편할 수 있지만, 현재 가족 초대 MVP와 개인정보 동의 흐름을 무너뜨릴 수 있어 반영하지 않았다.</p>
+
+  <h3><span class="exclude">제외: 챗봇 화면 전체 교체</span></h3>
+  <ul>
+    <li>윤현 브랜치는 텍스트 입력을 마이크 중심 화면으로 교체하고 아바타 레이아웃을 크게 변경한다.</li>
+    <li>현재 브랜치의 <code>ChatbotMain</code>은 인트로 자동 인사, 캐릭터 영상 상태 전환, 녹음 화면 이동이 이미 맞물려 있다.</li>
+    <li>따라서 마이크·파형 UI 아이디어는 추후 가져올 수 있으나, 화면 전체 병합은 하지 않았다.</li>
+  </ul>
+
+  <h2>5. 다음 권장 순서</h2>
+  <ol>
+    <li>백엔드 환경 변수에 <code>OPENAI_API_KEY</code>를 설정하고 <code>/speech/tts</code>를 실제 토큰으로 확인한다.</li>
+    <li><code>/auth/me</code>를 프론트 세션 복원 로직에 연결한다.</li>
+    <li><code>/report/trend</code> 응답을 보호자 리포트의 날씨형 그래프에 연결한다.</li>
+    <li>그 다음 WebSocket 실시간 대화를 별도 브랜치에서 설계·검증한다.</li>
+  </ol>
+
+  <p class="footer">비고: 프론트 TypeScript 검사는 통과했다. 이 환경에는 실행 가능한 Python 런타임이 없어 FastAPI 런타임 검증은 별도 백엔드 환경에서 필요하다.</p>
+</body>
+</html>
