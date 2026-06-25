@@ -6,6 +6,7 @@
 """
 
 from datetime import date as date_type, datetime, timedelta
+from typing import List, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -142,32 +143,51 @@ def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[Med
 # 복약정보 (MEDICATION)
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=MedicationResponse)
+@router.post("", response_model=Union[MedicationResponse, List[MedicationResponse]])
 def create_medication(
     req: MedicationCreateRequest,
     db: Session = Depends(get_db),
     guardian: Guardian = Depends(get_current_guardian),
 ):
-    """보호자가 연동된 고령층의 복약 일정을 등록한다."""
+    """보호자가 연동된 고령층의 복약 일정을 등록한다. 다중 복용 시간(intake_times)을 지원한다."""
     # 토큰의 보호자가 해당 고령층에 ACTIVE 연동돼 있는지 검증
     verify_guardian_senior_link(guardian.guardian_id, req.senior_id, db)
 
     if req.end_date is not None and req.end_date < req.start_date:
         raise HTTPException(status_code=400, detail="종료일은 시작일보다 빠를 수 없습니다.")
 
-    medication = Medication(
-        senior_id=req.senior_id,
-        guardian_id=guardian.guardian_id,  # 토큰 본인 ID 사용
-        medicine_name=req.medicine_name,
-        intake_time=req.intake_time,
-        start_date=req.start_date,
-        end_date=req.end_date,
-        is_active=req.is_active,
-    )
-    db.add(medication)
+    times = []
+    if req.intake_time is not None:
+        times.append(req.intake_time)
+    if req.intake_times is not None:
+        for t in req.intake_times:
+            if t not in times:
+                times.append(t)
+
+    if not times:
+        raise HTTPException(status_code=400, detail="복용 시간을 입력해 주세요 (intake_time 또는 intake_times).")
+
+    medications = []
+    for t in times:
+        med = Medication(
+            senior_id=req.senior_id,
+            guardian_id=guardian.guardian_id,  # 토큰 본인 ID 사용
+            medicine_name=req.medicine_name,
+            intake_time=t,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            is_active=req.is_active,
+        )
+        db.add(med)
+        medications.append(med)
+
     db.commit()
-    db.refresh(medication)
-    return medication
+    for med in medications:
+        db.refresh(med)
+
+    if req.intake_times is not None:
+        return medications
+    return medications[0]
 
 
 @router.get("/senior/{senior_id}", response_model=list[MedicationResponse])

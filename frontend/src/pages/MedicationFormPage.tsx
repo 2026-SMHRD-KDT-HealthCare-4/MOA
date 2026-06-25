@@ -6,7 +6,7 @@ import { ArrowLeft, Minus, Plus, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { CycleType, MedicationInput, Weekday, useMedicationStore } from "../stores/medicationStore";
-import * as Notifications from "expo-notifications";
+import { scheduleMedicationNotifications, cancelMedicationNotifications } from "../utils/notificationHelper";
 
 const WEEKDAYS: { key: Weekday; label: string }[] = [
   { key: "MON", label: "월" }, { key: "TUE", label: "화" }, { key: "WED", label: "수" }, { key: "THU", label: "목" }, { key: "FRI", label: "금" }, { key: "SAT", label: "토" }, { key: "SUN", label: "일" },
@@ -77,17 +77,21 @@ export default function MedicationFormPage() {
     if ((cycle === "weekly" || cycle === "custom_days") && !days.length) 
       return Alert.alert("요일 선택", "복용할 요일을 선택해주세요.");
     const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times, startDate, endDate: endDate || null, isActive: enabled };
-    if (item) update(item.id, input);
-     else { const medicationId = add(input); 
-      if (enabled && cycle === "daily") { try { const permission = await Notifications.requestPermissionsAsync(); 
-        if (permission.granted) 
-          { const ids = await Promise.all(times.map((time) => { 
-            const [hour, minute] = time.split(":").map(Number); 
-            return Notifications.scheduleNotificationAsync({ 
-              content: { title: "복약 알림", body: "약 드실 시간이에요.", 
-                data: { localMedicationId: medicationId, medicationPrompt: "약 드셨나요?" } }, 
-                trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute } }); })); 
-                setNotificationId(medicationId, ids[0]); } } catch {} } }
+    
+    let medicationId = item?.id;
+    if (item) {
+      update(item.id, input);
+    } else {
+      medicationId = add(input);
+    }
+
+    if (medicationId) {
+      if (enabled && cycle === "daily") {
+        await scheduleMedicationNotifications(medicationId, name.trim(), times);
+      } else {
+        await cancelMedicationNotifications(medicationId);
+      }
+    }
     router.replace("/health");
   };
   const confirmDeleteMedication = (id: string) => {
@@ -98,6 +102,7 @@ export default function MedicationFormPage() {
 
     if (!ok) return;
 
+    cancelMedicationNotifications(id);
     deleteMedication(id);
     router.replace("/health");
     return;
@@ -112,6 +117,7 @@ export default function MedicationFormPage() {
         text: "삭제",
         style: "destructive",
         onPress: () => {
+          cancelMedicationNotifications(id);
           deleteMedication(id);
           router.replace("/health");
         },

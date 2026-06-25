@@ -19,6 +19,7 @@ import {
 } from "lucide-react-native";
 import { useState } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
+import { cancelMedicationNotifications } from "../utils/notificationHelper";
 
 const timeLabel = (time: string) => {
   const [h, m] = time.split(":").map(Number);
@@ -81,6 +82,7 @@ export default function HealthManagementPage() {
 
       if (!ok) return;
 
+      cancelMedicationNotifications(id);
       deleteMedication(id);
       return;
     }
@@ -94,6 +96,7 @@ export default function HealthManagementPage() {
           text: "삭제",
           style: "destructive",
           onPress: () => {
+            cancelMedicationNotifications(id);
             deleteMedication(id);
           },
         },

@@ -490,6 +490,7 @@ interface BackendMeResponse {
   role: BackendRole;
   name: string;
   user_id: string;
+  fcm_token?: string | null;
 }
 
 interface BackendInviteResponse {
@@ -1305,6 +1306,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
       email: parseJwtEmail(token),
       role: toUserRole(me.role),
       token,
+      fcmToken: me.fcm_token,
     };
     realCurrentUser = user;
 
@@ -1366,3 +1368,14 @@ const DEFAULT_DAILY_SCRIPT: ScriptResponseData = {
 };
 
 
+export async function registerFCMToken(fcmToken: string): Promise<void> {
+  if (AUTH_API_MODE === "mock") {
+    console.log("[FCM MOCK] Registered token:", fcmToken);
+    return;
+  }
+  await apiFetch("/auth/fcm-token", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify({ fcm_token: fcmToken }),
+  });
+}

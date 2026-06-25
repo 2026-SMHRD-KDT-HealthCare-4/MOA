@@ -1,18 +1,26 @@
 import { View, Text, Switch, ScrollView, StyleSheet, Alert, Platform, Pressable, Modal, TouchableOpacity } from "react-native";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
 import { useRouter } from "expo-router";
 import { Bell, LogOut, Info, ChevronRight, ShieldCheck, UserRound, Mail } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
+import { registerFCMToken } from "../api/auth";
 import { colors } from "../styles/tokens";
+import { scheduleAllAlarms, cancelAllAlarms } from "../utils/notificationHelper";
 
 export default function SettingsPage() {
   const insets = useSafeAreaInsets();
-  const { user, role, logout } = useAuthStore();
+  const { user, role, logout, updateFCMToken } = useAuthStore();
   const router = useRouter();
-  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(!!user?.fcmToken);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setNotifEnabled(!!user.fcmToken);
+    }
+  }, [user]);
 
   async function handleNotifToggle(next: boolean) {
     if (next) {
@@ -24,6 +32,24 @@ export default function SettingsPage() {
           [{ text: "확인", style: "default" }]
         );
         return;
+      }
+
+      try {
+        const tokenData = await Notifications.getDevicePushTokenAsync();
+        const token = tokenData.data;
+        await registerFCMToken(token);
+        updateFCMToken(token);
+        await scheduleAllAlarms();
+      } catch (err) {
+        console.error("Failed to register FCM push token:", err);
+      }
+    } else {
+      try {
+        await registerFCMToken("");
+        updateFCMToken(null);
+        await cancelAllAlarms();
+      } catch (err) {
+        console.error("Failed to unregister FCM push token:", err);
       }
     }
     setNotifEnabled(next);

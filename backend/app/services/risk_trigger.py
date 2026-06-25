@@ -172,15 +172,58 @@ def check_yellow_accumulation(db: Session, senior_id: UUID, today: date | None =
     return max_streak >= YELLOW_CONSECUTIVE_DAYS
 
 
+AMBER_CONSECUTIVE_DAYS = 3      # 연속 N일
+AMBER_WINDOW_DAYS = 7           # 최근 N일 중
+AMBER_WINDOW_THRESHOLD = 4      # M일 이상
+
+
+def check_amber_accumulation(db: Session, senior_id: UUID, today: date | None = None) -> bool:
+    """AMBER 날의 누적 패턴이 트리거 조건을 충족하는지 판정.
+
+    조건: 최근 7일 중 AMBER인 날이 4일 이상  또는  연속 3일 이상.
+    """
+    if today is None:
+        today = datetime.utcnow().date()
+
+    window_start = today - timedelta(days=AMBER_WINDOW_DAYS - 1)
+    by_day = _daily_top_levels(db, senior_id, window_start)
+
+    # AMBER인 날짜 집합
+    flagged_days = {
+        d for d, lv in by_day.items() if lv == "AMBER"
+    }
+
+    # (b) 최근 7일 중 4일 이상
+    if len(flagged_days) >= AMBER_WINDOW_THRESHOLD:
+        return True
+
+    # (a) 연속 3일 이상 — today부터 거꾸로 훑으며 최장 연속 길이 확인
+    max_streak = 0
+    streak = 0
+    for offset in range(AMBER_WINDOW_DAYS):
+        d = today - timedelta(days=offset)
+        if d in flagged_days:
+            streak += 1
+            max_streak = max(max_streak, streak)
+        else:
+            streak = 0
+
+    return max_streak >= AMBER_CONSECUTIVE_DAYS
+
+
 def evaluate_risk_trigger(
     db: Session, senior_id: UUID, pred: RiskPrediction
 ) -> dict:
     """이번 예측 결과를 바탕으로 알림 트리거 여부를 종합 판정한다.
 
-    반환 예: {"should_notify": True, "reason": "AMBER"} 또는
+    반환 예: {"should_notify": True, "reason": "AMBER_ACCUMULATION"} 또는
+            {"should_notify": True, "reason": "AMBER"} 또는
             {"should_notify": True, "reason": "YELLOW_ACCUMULATION"} 또는
             {"should_notify": False, "reason": None}
     """
+    if check_amber_accumulation(db, senior_id):
+        return {"should_notify": True, "reason": "AMBER_ACCUMULATION"}
+
     if check_amber(pred):
         return {"should_notify": True, "reason": "AMBER"}
 
@@ -188,3 +231,4 @@ def evaluate_risk_trigger(
         return {"should_notify": True, "reason": "YELLOW_ACCUMULATION"}
 
     return {"should_notify": False, "reason": None}
+

@@ -32,6 +32,7 @@ from app.models.models import (
 from app.schemas.auth import (
     AcceptMemberRequest,
     AcceptMemberResponse,
+    FCMTokenRegisterRequest,
     FamilyGroupResponse,
     FamilyStateResponse,
     GuardianMemberResponse,
@@ -314,11 +315,11 @@ def get_me(
     """
     guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
     if guardian is not None:
-        return MeResponse(role="guardian", name=guardian.name, user_id=user_id)
+        return MeResponse(role="guardian", name=guardian.name, user_id=user_id, fcm_token=guardian.fcm_token)
 
     senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
     if senior is not None:
-        return MeResponse(role="senior", name=senior.name, user_id=user_id)
+        return MeResponse(role="senior", name=senior.name, user_id=user_id, fcm_token=senior.fcm_token)
 
     raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")
 
@@ -825,3 +826,27 @@ def remove_guardian_member(
     target.status = "REVOKED"
     db.commit()
     return {"guardian_member_id": str(guardian_member_id), "status": "REVOKED"}
+
+
+@router.post("/fcm-token")
+def register_fcm_token(
+    req: FCMTokenRegisterRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """현재 로그인한 사용자(보호자 혹은 고령자)의 FCM 토큰을 저장/업데이트/삭제한다."""
+    fcm_token = req.fcm_token if req.fcm_token else None
+
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        guardian.fcm_token = fcm_token
+        db.commit()
+        return {"status": "success", "message": "보호자 FCM 토큰이 업데이트되었습니다."}
+
+    senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+    if senior is not None:
+        senior.fcm_token = fcm_token
+        db.commit()
+        return {"status": "success", "message": "고령자 FCM 토큰이 업데이트되었습니다."}
+
+    raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")

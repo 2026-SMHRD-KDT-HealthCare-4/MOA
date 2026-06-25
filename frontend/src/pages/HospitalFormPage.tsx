@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
+import { scheduleHospitalNotifications, cancelHospitalNotifications } from "../utils/notificationHelper";
 
 export default function HospitalFormPage() {
   const router=useRouter(); 
@@ -36,9 +37,24 @@ export default function HospitalFormPage() {
       setEnabled(true);
     }
   }, [resolvedId, resolvedReset]);
-  const save=()=>{if(!hospitalName.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(visitDate)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(visitTime))
+  const save=async ()=>{if(!hospitalName.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(visitDate)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(visitTime))
     return Alert.alert("입력 확인", "병원명, 방문일, 시간(08:00)을 입력해주세요.");
-    const input={hospitalName:hospitalName.trim(),visitDate,visitTime,memo:memo.trim()||undefined,enabled};if(item)update(item.id,input);else add(input);router.replace("/health")};
+    const input={hospitalName:hospitalName.trim(),visitDate,visitTime,memo:memo.trim()||undefined,enabled};
+    let hospitalId = item?.id;
+    if(item) {
+      update(item.id,input);
+    } else {
+      hospitalId = add(input);
+    }
+
+    if (hospitalId) {
+      if (enabled) {
+        await scheduleHospitalNotifications(hospitalId, hospitalName.trim(), visitDate, visitTime);
+      } else {
+        await cancelHospitalNotifications(hospitalId);
+      }
+    }
+    router.replace("/health")};
   const deleteItem = () => {
   if (!item) return;
 
@@ -49,6 +65,7 @@ export default function HospitalFormPage() {
 
     if (!ok) return;
 
+    cancelHospitalNotifications(item.id);
     remove(item.id);
     router.replace("/health");
     return;
@@ -63,6 +80,7 @@ export default function HospitalFormPage() {
         text: "삭제",
         style: "destructive",
         onPress: () => {
+          cancelHospitalNotifications(item.id);
           remove(item.id);
           router.replace("/health");
         },

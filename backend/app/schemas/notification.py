@@ -15,7 +15,8 @@ class MedicationCreateRequest(BaseModel):
     senior_id: UUID
     guardian_id: UUID  # 등록 주체(보호자)
     medicine_name: str
-    intake_time: time
+    intake_time: Optional[time] = None
+    intake_times: Optional[list[time]] = None
     start_date: date
     end_date: Optional[date] = None  # None이면 무기한
     is_active: bool = True
