@@ -16,8 +16,12 @@ const today = new Date().toISOString().slice(0, 10);
 export default function MedicationFormPage() {
   const router = useRouter(); 
   const insets = useSafeAreaInsets(); 
-  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+  const { id, reset } = useLocalSearchParams<{
+    id?: string | string[];
+    reset?: string | string[];
+  }>();
   const resolvedId = Array.isArray(id) ? id[0] : id;
+  const resolvedReset = Array.isArray(reset) ? reset[0] : reset;
   const item = useMedicationStore((s) => s.medications.find((m) => m.id === resolvedId)); 
   const add = useMedicationStore((s) => s.addMedication); 
   const update = useMedicationStore((s) => s.updateMedication); 
@@ -32,9 +36,37 @@ export default function MedicationFormPage() {
   const [enabled, setEnabled] = useState(item?.isActive ?? true);
   useEffect(() => {
     console.log("medication form", { id: resolvedId, item });
-    if (!item) return;
-    setName(item.medicineName); setCycle(item.scheduleType ?? item.cycleType); setDays(item.daysOfWeek ?? []); setTimes(item.times?.length ? item.times : [item.scheduledTime]); setDoseMode(item.times.length === 1 ? "1" : item.times.length === 2 ? "2" : item.times.length === 3 ? "3" : "custom"); setStartDate(item.startDate); setEndDate(item.endDate ?? ""); setEnabled(item.isActive);
-  }, [resolvedId, item]);
+
+    if (item) {
+      setName(item.medicineName);
+      setCycle(item.scheduleType ?? item.cycleType);
+      setDays(item.daysOfWeek ?? []);
+      setTimes(item.times?.length ? item.times : [item.scheduledTime ?? "08:00"]);
+
+      setDoseMode(
+        item.times?.length === 1
+          ? "1"
+          : item.times?.length === 2
+            ? "2"
+            : item.times?.length === 3
+              ? "3"
+              : "custom"
+      );
+
+      setStartDate(item.startDate ?? today);
+      setEndDate(item.endDate ?? "");
+      setEnabled(item.isActive ?? true);
+    } else {
+      setName("");
+      setCycle("daily");
+      setDays([]);
+      setTimes(["08:00"]);
+      setDoseMode("1");
+      setStartDate(today);
+      setEndDate("");
+      setEnabled(true);
+    }
+  }, [resolvedId, resolvedReset]);
   const setCount = (count: number) => setTimes((current) => Array.from({ length: count }, (_, index) => current[index] ?? (index === 1 ? "13:00" : index === 2 ? "20:00" : "08:00")));
   const chooseDose = (mode: "1" | "2" | "3" | "custom") => { setDoseMode(mode); if (mode !== "custom") setCount(Number(mode)); };
   const setSchedule = (next: CycleType) => { setCycle(next); if (next === "weekly" && days.length !== 1) setDays(["WED"]); if (next === "daily") setDays([]); };
@@ -107,8 +139,15 @@ export default function MedicationFormPage() {
     <Field label="하루 복용 횟수">
       <View style={styles.doseRow}>{([['1','1회'],['2','2회'],['3','3회'],['custom','직접 입력']] as const).map(([value,label])=><TouchableOpacity key={value} onPress={()=>chooseDose(value)} style={[styles.doseButton,doseMode===value&&styles.optionActive]}>
         <Text style={[styles.optionText,doseMode===value&&styles.optionTextActive]}>{label}</Text></TouchableOpacity>)}</View></Field>
-    <Field label="복용 시간">{times.map((time,index)=><View key={`${time}-${index}`} style={styles.timeRow}>
-      <TextInput value={time} onChangeText={(value)=>setTimes(current=>current.map((t,i)=>i===index?value:t))} placeholder="08:00" keyboardType="numbers-and-punctuation" style={[styles.input,styles.timeInput]}/>{doseMode === "custom" ? <TouchableOpacity disabled={times.length===1} onPress={()=>setTimes(current=>current.filter((_,i)=>i!==index))} style={styles.removeTime}><X color={times.length===1?"#CFC2BB":"#A85D46"}/></TouchableOpacity> : null}</View>)}{doseMode === "custom" && <TouchableOpacity onPress={()=>setTimes(current=>[...current,"08:00"])} style={styles.addTime}><Plus color="#795035" size={19}/><Text style={styles.addTimeText}>시간 추가하기</Text></TouchableOpacity>}</Field>
+    <Field label="복용 시간">{times.map((time,index)=><View key={`time-${index}`} style={styles.timeRow}>
+      <TextInput value={time}
+      onChangeText={(value)=>
+      setTimes(current=>
+      current.map((t,i)=>i===index?value:t))}
+      placeholder="08:00"
+      keyboardType="numbers-and-punctuation"
+      style={[styles.input,styles.timeInput]}/>
+      {doseMode === "custom" ? <TouchableOpacity disabled={times.length===1} onPress={()=>setTimes(current=>current.filter((_,i)=>i!==index))} style={styles.removeTime}><X color={times.length===1?"#CFC2BB":"#A85D46"}/></TouchableOpacity> : null}</View>)}{doseMode === "custom" && <TouchableOpacity onPress={()=>setTimes(current=>[...current,"08:00"])} style={styles.addTime}><Plus color="#795035" size={19}/><Text style={styles.addTimeText}>시간 추가하기</Text></TouchableOpacity>}</Field>
     <Field label="복용 시작일">
       <TextInput value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" style={styles.input}/></Field>
     <Field label="복용 종료일 (선택)">
