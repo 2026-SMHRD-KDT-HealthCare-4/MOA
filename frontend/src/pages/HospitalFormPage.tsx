@@ -10,8 +10,9 @@ import { useMedicationStore } from "../stores/medicationStore";
 export default function HospitalFormPage() {
   const router=useRouter(); 
   const insets=useSafeAreaInsets(); 
-  const {id}=useLocalSearchParams<{id?:string | string[]}>(); 
+  const {id,reset}=useLocalSearchParams<{id?:string | string[]; reset?: string | string[]}>();
   const resolvedId = Array.isArray(id) ? id[0] : id;
+  const resolvedReset = Array.isArray(reset) ? reset[0] : reset;
   const item=useMedicationStore(s=>s.hospitalSchedules.find(schedule=>schedule.id===resolvedId)); const add=useMedicationStore(s=>s.addHospitalSchedule); 
   const update=useMedicationStore(s=>s.updateHospitalSchedule); 
   const remove=useMedicationStore(s=>s.removeHospitalSchedule);
@@ -21,10 +22,20 @@ export default function HospitalFormPage() {
   const [memo,setMemo]=useState(item?.memo??""); 
   const [enabled,setEnabled]=useState(item?.enabled??true);
   useEffect(() => {
-    console.log("hospital form", { id: resolvedId, item });
-    if (!item) return;
-    setHospitalName(item.hospitalName); setVisitDate(item.visitDate); setVisitTime(item.visitTime); setMemo(item.memo ?? ""); setEnabled(item.enabled);
-  }, [resolvedId, item]);
+    if (item) {
+      setHospitalName(item.hospitalName);
+      setVisitDate(item.visitDate);
+      setVisitTime(item.visitTime);
+      setMemo(item.memo ?? "");
+      setEnabled(item.enabled);
+    } else {
+      setHospitalName("");
+      setVisitDate("");
+      setVisitTime("");
+      setMemo("");
+      setEnabled(true);
+    }
+  }, [resolvedId, resolvedReset]);
   const save=()=>{if(!hospitalName.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(visitDate)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(visitTime))
     return Alert.alert("입력 확인", "병원명, 방문일, 시간(08:00)을 입력해주세요.");
     const input={hospitalName:hospitalName.trim(),visitDate,visitTime,memo:memo.trim()||undefined,enabled};if(item)update(item.id,input);else add(input);router.replace("/health")};
