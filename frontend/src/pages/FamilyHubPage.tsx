@@ -295,7 +295,11 @@ export default function FamilyHubPage() {
             </View>
 
             {guardianMembers.map((member) => (
-              <GuardianMemberRow key={member.id} member={member} />
+              <GuardianMemberRow
+                key={member.id}
+                member={member}
+                onCopyCode={copyGuardianInvite}
+              />
             ))}
 
             {/* 평탄 모델: 모든 보호자가 동등하게 다른 보호자를 초대할 수 있다. */}
@@ -466,7 +470,13 @@ function formatRelinkValidity(expiresAt: string): string {
   return `약 ${minutes}분 유효`;
 }
 
-function GuardianMemberRow({ member }: { member: GuardianMember }) {
+function GuardianMemberRow({
+  member,
+  onCopyCode,
+}: {
+  member: GuardianMember;
+  onCopyCode?: (code: string) => void;
+}) {
   const active = member.status === "ACTIVE";
   return (
     <View style={styles.guardianRow}>
@@ -478,7 +488,18 @@ function GuardianMemberRow({ member }: { member: GuardianMember }) {
         </Text>
       </View>
       {member.inviteCode && member.status === "PENDING" ? (
-        <Text style={styles.guardianCode}>{member.inviteCode}</Text>
+        <TouchableOpacity
+          style={styles.guardianCodeBtn}
+          onPress={() => onCopyCode?.(member.inviteCode as string)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="초대 코드 복사"
+        >
+          <Text selectable style={styles.guardianCode}>
+            {member.inviteCode}
+          </Text>
+          <Copy size={14} color={C.blue} />
+        </TouchableOpacity>
       ) : null}
     </View>
   );
@@ -712,7 +733,8 @@ const styles = StyleSheet.create({
   guardianCopy: { flex: 1, gap: 2 },
   guardianName: { fontSize: 15, fontWeight: "800", color: C.mainText },
   guardianRole: { fontSize: 12, color: C.subText, fontWeight: "700" },
-  guardianCode: { fontSize: 13, fontWeight: "900", color: C.subText },
+  guardianCodeBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  guardianCode: { fontSize: 13, fontWeight: "900", color: C.subText, letterSpacing: 1 },
   inviteBox: { gap: 8, borderTopWidth: 1, borderTopColor: C.cardBorder, paddingTop: 14 },
   inviteTitle: { fontSize: 14, fontWeight: "800", color: C.subText },
   inviteInput: {
