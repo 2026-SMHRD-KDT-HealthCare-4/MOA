@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,9 @@ import {
   StyleSheet,
   ActivityIndicator,
   useWindowDimensions,
+  BackHandler
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle } from "react-native-svg";
@@ -42,7 +43,6 @@ export default function RecordPage() {
   const { width: windowWidth } = useWindowDimensions();
   const W = Math.min(windowWidth, 430);
 
-  // real 모드에서만 오디오를 보관(/analyze 전송용). mock에선 기존처럼 즉시 폐기.
   const { state, transcript, durationMs, permissionDenied, start, stop, reset, audioUri, clearAudio } =
     useRecorder({ keepAudio: REAL_API });
   const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
@@ -54,13 +54,30 @@ export default function RecordPage() {
       .then((result) => {
         if (mounted) setDailyScript(result.data);
       })
-      .catch(() => {
-        // 문구 조회 실패 — placeholder 유지
+      .catch((error) => {
+        console.log("오늘 지정문구 조회 실패", error);
+
+        if (mounted) {
+          setDailyScript({
+            script_id: "local-fallback",
+            content: "오늘 하루는 어땠나요? 천천히 편하게 말씀해주세요.",
+          });
+        }
       });
     return () => {
       mounted = false;
     };
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        router.replace("/");
+        return true;
+      });
+      return () => sub.remove();
+    }, [router])
+  );
 
   const isRecording  = state === "recording";
   const isProcessing = state === "processing";
@@ -79,22 +96,19 @@ export default function RecordPage() {
 
   async function handleSave() {
     if (saving) return;
-    // 낭독 기록 저장은 직접사용자 본인만 (보호자 자가 체크인은 저장 대상 아님).
-    // 저장에 실패해도 흐름은 막지 않는다.
     if (REAL_API && role === "elder" && dailyScript?.script_id && user) {
       setSaving(true);
       try {
-        // 1) 음성 특징 분석·저장 (서버가 특징/위험도 적재). 2) 낭독 이력 저장.
         if (audioUri) await analyzeVoice(audioUri, "SCRIPT");
         await saveScriptRecord(dailyScript.script_id, user.id);
       } catch {
         // 저장 실패 — 다음 동기화에서 보완 (흐름 유지)
       } finally {
-        await clearAudio(); // ZDR: 업로드 후 오디오 즉시 해제
+        await clearAudio();
         setSaving(false);
       }
     } else if (REAL_API) {
-      await clearAudio(); // 저장 대상이 아니어도 보관된 오디오는 해제
+      await clearAudio();
     }
     router.replace("/done");
   }
@@ -103,11 +117,10 @@ export default function RecordPage() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#F7D6AC"]} style={StyleSheet.absoluteFill} />
 
-      {/* 상단 바 */}
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={() => router.back()}
+          onPress={() => router.replace("/")}
           accessibilityLabel="뒤로 가기"
         >
           <ArrowLeft size={22} color="#39302C" />
@@ -120,7 +133,6 @@ export default function RecordPage() {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* 캐릭터 */}
         <View style={styles.avatarWrap}>
           <CharacterPlayer mood={mood} size={Math.round(W * 0.55)} circular />
           <Text style={styles.avatarHint}>
@@ -134,26 +146,23 @@ export default function RecordPage() {
           </Text>
         </View>
 
-        {/* 가이드 + 문장 카드 */}
         {!isDone && !isProcessing && (
           <View style={styles.copyWrap}>
             <Text style={styles.recordingGuide}>다음 문장을{"\n"}소리 내어 읽어주세요.</Text>
             <View style={styles.sentenceCard}>
               <Text style={styles.sentence}>
-                {dailyScript?.content ?? "오늘의 지정문구를 불러오고 있어요."}
+                {dailyScript?.content ?? "오늘 하루는 어땠나요? 천천히 편하게 말씀해주세요."}
               </Text>
             </View>
           </View>
         )}
 
-        {/* 타이머 */}
         {isRecording && (
           <Text style={styles.timer}>
             {formatDuration(durationMs)} / 00:{String(RECORD_SECONDS).padStart(2, "0")}
           </Text>
         )}
 
-        {/* 분석 중 */}
         {isProcessing && (
           <View style={styles.processingRow}>
             <ActivityIndicator size="large" color="#FF7955" />
@@ -161,7 +170,6 @@ export default function RecordPage() {
           </View>
         )}
 
-        {/* 마이크 권한 거부 */}
         {permissionDenied && (
           <View style={styles.permDenied}>
             <Text style={styles.permDeniedText}>
@@ -170,7 +178,6 @@ export default function RecordPage() {
           </View>
         )}
 
-        {/* STT 결과 카드 */}
         {isDone && transcript && (
           <View style={styles.transcriptCard}>
             <Text style={styles.transcriptLabel}>📝  말씀하신 내용</Text>
@@ -178,18 +185,15 @@ export default function RecordPage() {
           </View>
         )}
 
-        {/* 핵심 액션 버튼 */}
         <View style={styles.actions}>
           {!isDone ? (
             <View style={styles.recordButtonOuter}>
-              {/* 회전하지 않는 30초 SVG 진행 링 */}
               {showProgressRing && (
                 <Svg
                   width={RING_SIZE}
                   height={RING_SIZE}
                   viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
-                  style={styles.recordProgress}
-                  pointerEvents="none"
+                  style={[styles.recordProgress, { pointerEvents: 'none' }]}
                 >
                   <Circle
                     cx={RING_SIZE / 2}
@@ -256,7 +260,6 @@ export default function RecordPage() {
           )}
         </View>
 
-        {/* 웨이브폼 */}
         {isRecording && <Waveform color="#76A96C" large />}
 
         {isRecording && (
@@ -279,7 +282,6 @@ const styles = StyleSheet.create({
   },
   iconBtn: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
   topTitle: { fontSize: 17, fontWeight: "800", color: "#39302C" },
-
   scroll: {
     paddingHorizontal: 24,
     paddingTop: 16,
@@ -293,7 +295,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 28,
   },
-
   copyWrap: { alignItems: "center" },
   recordingGuide: {
     color: "#403631",
@@ -321,16 +322,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
   },
-
   timer: {
     color: "#433A35",
     fontSize: 18,
     fontWeight: "700",
   },
-
   processingRow: { alignItems: "center", gap: 12 },
   processingText: { fontSize: 18, color: "#765E52" },
-
   permDenied: {
     width: "100%",
     padding: 16,
@@ -345,7 +343,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 28,
   },
-
   transcriptCard: {
     width: "100%",
     padding: 20,
@@ -360,9 +357,7 @@ const styles = StyleSheet.create({
   },
   transcriptLabel: { fontSize: 16, fontWeight: "700", color: "#8b7871" },
   transcriptText: { fontSize: 20, color: "#342C28", lineHeight: 32 },
-
   actions: { width: "100%", alignItems: "center" },
-
   recordButtonOuter: {
     width: 102, height: 102,
     borderRadius: 51,
@@ -389,7 +384,6 @@ const styles = StyleSheet.create({
   },
   recordButtonActive: { backgroundColor: "#F06D4D" },
   recordBtnText: { fontSize: 11, fontWeight: "700", color: "white" },
-
   doneActions: { flexDirection: "row", gap: 12, width: "100%" },
   resetBtn: {
     flex: 1, height: 64,
@@ -418,6 +412,5 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   saveBtnText: { fontSize: 18, fontWeight: "700", color: "white" },
-
   finishHint: { marginTop: -12, color: "#9A887D", fontSize: 13, fontWeight: "600" },
 });
