@@ -17,7 +17,7 @@ class MOAInferenceEngine:
     def load_all_models(self):
         print(f"🔄 모델 로딩 시작 (경로: {self.ml_root})...")
 
-        # 1. 치매 모델 — acoustic_cols, hubert_scaler, hubert_pca, hubert_cols 포함
+        # 1. 치매 모델
         dem_dir = os.path.join(self.ml_root, "dementia")
         for task in ["CTD", "PFT", "SFT"]:
             try:
@@ -138,45 +138,34 @@ class MOAInferenceEngine:
     # ──────────────────────────────────────────────────────────────
     def _predict_dementia(self, task_feat: dict, hubert_raw=None) -> float:
         """
-        task_feat      : {"CTD": acoustic_dict, "PFT": ..., "SFT": ...}
-        hubert_raw     : HuBERT 원시 임베딩 배열 (ml_inference.py 에서 추출해서 넘김)
-                         None 이면 음향지표만으로 추론 (정확도 낮음)
+        task_feat  : {"CTD": acoustic_list, ...}
+        hubert_raw : HuBERT 원시 임베딩 배열 (ml_inference.py 에서 추출해서 넘김)
         """
         if not task_feat:
-            print("⚠️ 치매: task_feat 비어있음")
             return 0.0
 
         probs = []
         for task, feat in task_feat.items():
             if task not in self.models["dementia"]:
-                print(f"⚠️ 치매: {task} 모델 없음")
                 continue
             info = self.models["dementia"][task]
 
-            # ── 음향지표 벡터 ──
+            # 음향지표 벡터
             if isinstance(feat, dict):
                 acoustic_cols = info.get("acoustic_cols", [])
                 if acoustic_cols:
-                    missing = [c for c in acoustic_cols if c not in feat]
-                    print(f"=== 치매 {task} 누락 컬럼: {missing} ===")
-        # 학습 때와 동일한 컬럼 순서로 정렬 (NaN → 0.0)
                     acoustic_vec = [
                         float(feat.get(c, 0.0)) if feat.get(c) is not None else 0.0
                         for c in acoustic_cols
                     ]
-                    print(f"=== 치매 {task} acoustic_cols 매칭: {sum(1 for c in acoustic_cols if c in feat)}/{len(acoustic_cols)} ===")
                 else:
                     acoustic_vec = list(feat.values())
-                    print(f"⚠️ 치매 {task}: acoustic_cols 없음 — feat.values() 사용")
             else:
                 acoustic_vec = list(feat)
 
             X_acoustic = np.array(acoustic_vec, dtype=float).reshape(1, -1)
 
-            # ── HuBERT-PCA 벡터 ──
-            # ── HuBERT-PCA 벡터 ──
-            # ── HuBERT-PCA 벡터 ──
-            # chi2_len을 try 블록 밖에서 먼저 선언
+            # HuBERT-PCA 벡터
             chi2_len = len(info["chi2mask"])
 
             if hubert_raw is not None:
@@ -190,10 +179,6 @@ class MOAInferenceEngine:
                         H = H[:, :len(hubert_cols)]
 
                     X = np.hstack([X_acoustic, H])
-                    print(f"=== 치매 {task} X_acoustic shape: {X_acoustic.shape} ===")
-                    print(f"=== 치매 {task} H(PCA) shape: {H.shape} ===")
-                    print(f"=== 치매 {task} 합친 X shape: {X.shape} ===")
-                    print(f"=== 치매 {task} chi2mask 길이: {chi2_len} ===")
                 except Exception as e:
                     print(f"⚠️ 치매 {task} HuBERT 처리 실패: {e} — 음향지표만 사용")
                     X = X_acoustic
@@ -201,8 +186,7 @@ class MOAInferenceEngine:
                 print(f"⚠️ 치매 {task}: HuBERT 임베딩 없음 — 음향지표만 사용")
                 X = X_acoustic
 
-            # ── chi2mask → rfemask → scaler → model ──
-            # (chi2_len은 위에서 이미 선언됨)
+            # chi2mask → rfemask → scaler → model
             if X.shape[1] < chi2_len:
                 X = np.hstack([X, np.zeros((1, chi2_len - X.shape[1]))])
             elif X.shape[1] > chi2_len:
@@ -210,12 +194,9 @@ class MOAInferenceEngine:
 
             X = X[:, info["chi2mask"]]
             X = X[:, info["rfemask"]]
-            print(f"=== chi2mask 후 shape: {X.shape} ===")
-            print(f"=== rfemask 후 shape: {X.shape} ===")  # 이건 위랑 같은 X라 두 번째 출력
-            X_s = info["scaler"].transform(X)
-            print(f"=== X_s 첫 5개 값: {X_s[0][:5]} ===")
+
+            X_s  = info["scaler"].transform(X)
             prob = float(info["model"].predict_proba(X_s)[0, 1])
-            print(f"=== 치매 {task} prob: {prob} ===")
             probs.append(prob)
 
         return float(np.mean(probs)) if probs else 0.0
