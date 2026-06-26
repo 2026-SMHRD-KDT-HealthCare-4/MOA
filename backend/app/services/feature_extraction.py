@@ -12,20 +12,77 @@
 import numpy as np
 import tempfile
 import os
+import shutil
+import subprocess
+
+
+def _decode_to_wav(audio_bytes: bytes) -> str:
+    """
+    입력 오디오(webm/m4a/wav/ogg 등 무엇이든)를 표준 16kHz mono PCM WAV로
+    디코딩해 임시파일 경로를 반환한다.
+
+    웹 챗봇은 webm(Opus), 모바일은 m4a, 낭독은 wav를 보내는데
+    parselmouth(Praat)/opensmile은 진짜 PCM WAV만 읽을 수 있으므로
+    여기서 한 번 정규화해 세 추출기 모두 동일한 WAV를 쓰게 한다.
+
+    1순위: ffmpeg(설치돼 있으면) — 가장 폭넓은 포맷 지원
+    2순위: librosa(audioread/soundfile) — ffmpeg 없을 때의 폴백
+    호출부(extract_features)가 반환된 경로를 finally에서 삭제한다(ZDR).
+    """
+    # 원본 바이트를 확장자 없는 임시파일로 저장 (포맷 자동 감지에 맡김)
+    raw_fd, raw_path = tempfile.mkstemp(suffix=".bin")
+    os.close(raw_fd)
+    with open(raw_path, "wb") as f:
+        f.write(audio_bytes)
+
+    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(wav_fd)
+
+    try:
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            # ffmpeg로 16kHz mono PCM(s16le) WAV로 변환
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-i", raw_path,
+                 "-ac", "1", "-ar", "16000", "-f", "wav", "-acodec", "pcm_s16le",
+                 wav_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            if proc.returncode == 0 and os.path.getsize(wav_path) > 0:
+                return wav_path
+            # ffmpeg 실패 시 librosa 폴백으로 진행
+            err = proc.stderr.decode("utf-8", errors="replace")[-300:]
+            print(f"⚠️ ffmpeg 변환 실패, librosa 폴백 시도: {err}")
+
+        # 폴백: librosa로 디코딩 후 soundfile로 WAV 기록
+        import librosa
+        import soundfile as sf
+
+        y, _ = librosa.load(raw_path, sr=16000, mono=True)
+        sf.write(wav_path, y, 16000, subtype="PCM_16")
+        return wav_path
+
+    except Exception:
+        # 변환 자체가 실패하면 wav 임시파일을 정리하고 예외를 올린다
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        raise
+    finally:
+        # 원본(.bin)은 더 이상 필요 없으므로 즉시 삭제 (ZDR)
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
 
 
 def extract_features(audio_bytes: bytes) -> dict:
     """
     음성 바이트 데이터를 받아 15개 특징점을 추출한다.
+    입력 포맷(webm/m4a/wav)에 상관없이 먼저 표준 WAV로 디코딩한 뒤 처리한다.
     임시 파일은 처리 직후 반드시 삭제한다 (ZDR).
     """
     tmp_path = None
     try:
-        # parselmouth/librosa는 파일 경로를 요구하므로
-        # 임시 파일을 만들되, finally에서 즉시 삭제 (디스크 잔존 X)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
+        # 어떤 포맷이 들어와도 표준 16kHz PCM WAV로 정규화
+        tmp_path = _decode_to_wav(audio_bytes)
 
         features = {}
         features.update(_extract_praat_features(tmp_path))
