@@ -20,7 +20,7 @@ from app.core.security import (
     verify_guardian_senior_link,
     verify_senior_access,
 )
-from app.models.models import Guardian, Medication, MedicationCheck, MedicationReminder, Senior
+from app.models.models import Guardian, Medication, MedicationCheck, MedicationReminder, Senior, GuardianSenior, LinkStatus
 from app.schemas.notification import (
     MedicationCheckRequest,
     MedicationCheckResponse,
@@ -147,11 +147,41 @@ def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[Med
 def create_medication(
     req: MedicationCreateRequest,
     db: Session = Depends(get_db),
-    guardian: Guardian = Depends(get_current_guardian),
+    user_id: UUID = Depends(get_current_user_id),
 ):
-    """보호자가 연동된 고령층의 복약 일정을 등록한다. 다중 복용 시간(intake_times)을 지원한다."""
-    # 토큰의 보호자가 해당 고령층에 ACTIVE 연동돼 있는지 검증
-    verify_guardian_senior_link(guardian.guardian_id, req.senior_id, db)
+    """보호자 또는 고령층 본인이 복약 일정을 등록한다. 다중 복용 시간(intake_times)을 지원한다."""
+    # 1. 보호자가 등록하는 경우
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        verify_guardian_senior_link(guardian.guardian_id, req.senior_id, db)
+        creator_guardian_id = guardian.guardian_id
+    else:
+        # 2. 고령층 본인이 등록하는 경우
+        senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+        if senior is not None:
+            if senior.senior_id != req.senior_id:
+                raise HTTPException(status_code=403, detail="본인의 복약 일정만 등록할 수 있습니다.")
+            
+            # 고령층이 등록할 경우, FK 제약을 위해 연동된 보호자의 ID를 가져온다.
+            link = db.query(GuardianSenior).filter(
+                GuardianSenior.senior_id == senior.senior_id,
+                GuardianSenior.link_status == LinkStatus.ACTIVE.value
+            ).first()
+            
+            if link is not None:
+                creator_guardian_id = link.guardian_id
+            else:
+                # 연동된 보호자가 없으면 DB 내 첫 번째 보호자를 디폴트로 매핑하여 FK 제약 우회
+                default_guardian = db.query(Guardian).first()
+                if default_guardian is not None:
+                    creator_guardian_id = default_guardian.guardian_id
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="시스템에 가입된 보호자가 없어 복약 일정을 등록할 수 없습니다."
+                    )
+        else:
+            raise HTTPException(status_code=404, detail="사용자 정보를 찾을 수 없습니다.")
 
     if req.end_date is not None and req.end_date < req.start_date:
         raise HTTPException(status_code=400, detail="종료일은 시작일보다 빠를 수 없습니다.")
@@ -171,7 +201,7 @@ def create_medication(
     for t in times:
         med = Medication(
             senior_id=req.senior_id,
-            guardian_id=guardian.guardian_id,  # 토큰 본인 ID 사용
+            guardian_id=creator_guardian_id,
             medicine_name=req.medicine_name,
             intake_time=t,
             start_date=req.start_date,
@@ -210,15 +240,26 @@ def update_medication(
     medication_id: UUID,
     req: MedicationUpdateRequest,
     db: Session = Depends(get_db),
-    guardian: Guardian = Depends(get_current_guardian),
+    user_id: UUID = Depends(get_current_user_id),
 ):
-    """복약 일정 수정. 등록한 보호자 본인만 가능."""
+    """복약 일정 수정. 등록한 보호자 본인 또는 고령층 본인만 가능."""
     medication = db.query(Medication).filter(Medication.medication_id == medication_id).first()
     if medication is None:
         raise HTTPException(status_code=404, detail="복약 정보를 찾을 수 없습니다.")
 
-    if medication.guardian_id != guardian.guardian_id:
-        raise HTTPException(status_code=403, detail="본인이 등록한 복약 일정만 수정할 수 있습니다.")
+    is_authorized = False
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        if medication.guardian_id == guardian.guardian_id:
+            is_authorized = True
+    else:
+        senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+        if senior is not None:
+            if medication.senior_id == senior.senior_id:
+                is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="복약 일정을 수정할 권한이 없습니다.")
 
     update_data = req.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -392,15 +433,26 @@ def reply_to_medication_reminder(
 def delete_medication(
     medication_id: UUID,
     db: Session = Depends(get_db),
-    guardian: Guardian = Depends(get_current_guardian),
+    user_id: UUID = Depends(get_current_user_id),
 ):
-    """복약 일정 삭제. 등록한 보호자 본인만 가능."""
+    """복약 일정 삭제. 등록한 보호자 본인 또는 고령층 본인만 가능."""
     medication = db.query(Medication).filter(Medication.medication_id == medication_id).first()
     if medication is None:
         raise HTTPException(status_code=404, detail="복약 정보를 찾을 수 없습니다.")
 
-    if medication.guardian_id != guardian.guardian_id:
-        raise HTTPException(status_code=403, detail="본인이 등록한 복약 일정만 삭제할 수 있습니다.")
+    is_authorized = False
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        if medication.guardian_id == guardian.guardian_id:
+            is_authorized = True
+    else:
+        senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+        if senior is not None:
+            if medication.senior_id == senior.senior_id:
+                is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="복약 일정을 삭제할 권한이 없습니다.")
 
     db.delete(medication)
     db.commit()

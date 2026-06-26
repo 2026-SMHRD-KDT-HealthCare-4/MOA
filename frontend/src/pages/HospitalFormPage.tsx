@@ -47,8 +47,13 @@ export default function HospitalFormPage() {
       return Alert.alert("입력 확인", "병원명, 방문일, 시간(08:00)을 입력해주세요.");
     
     // senior_id 조회
-    const authUser = useAuthStore.getState().user;
-    const seniorId = authUser?.seniorId || authUser?.uid || "";
+    const authStore = useAuthStore.getState();
+    const authUser = authStore.user;
+    const role = authStore.role;
+    const links = authStore.links;
+    const seniorId = role === "elder"
+      ? (authUser?.id || "")
+      : (links.find((l) => l.status === "ACTIVE")?.counterpartId || "");
     if (!seniorId) {
       return Alert.alert("오류", "고령층 정보를 확인할 수 없습니다.");
     }

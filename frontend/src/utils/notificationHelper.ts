@@ -86,7 +86,7 @@ export async function scheduleHospitalNotifications(
           body: `3일 뒤 ${hospitalName} 방문 일정이 있습니다 (${visitTime}).`,
           data: { localHospitalScheduleId: hospitalId },
         },
-        trigger: threeDaysBefore,
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: threeDaysBefore },
       });
     }
 
@@ -97,7 +97,7 @@ export async function scheduleHospitalNotifications(
           body: `내일 ${hospitalName} 방문 일정이 있습니다 (${visitTime}).`,
           data: { localHospitalScheduleId: hospitalId },
         },
-        trigger: oneDayBefore,
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: oneDayBefore },
       });
     }
   } catch (err) {

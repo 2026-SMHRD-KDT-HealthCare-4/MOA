@@ -27,8 +27,11 @@ def test_create_medication_single_time():
     guardian_mock = MagicMock()
     guardian_mock.guardian_id = guardian_id
     
+    # Mock db query path for Guardian
+    db_mock.query.return_value.filter.return_value.first.return_value = guardian_mock
+    
     with patch("app.routes.medication.verify_guardian_senior_link") as mock_verify:
-        res = create_medication(req=req, db=db_mock, guardian=guardian_mock)
+        res = create_medication(req=req, db=db_mock, user_id=guardian_id)
         
         # Verify senior-guardian link verification is called
         mock_verify.assert_called_once_with(guardian_id, senior_id, db_mock)
@@ -68,8 +71,11 @@ def test_create_medication_multiple_times():
     guardian_mock = MagicMock()
     guardian_mock.guardian_id = guardian_id
     
+    # Mock db query path for Guardian
+    db_mock.query.return_value.filter.return_value.first.return_value = guardian_mock
+    
     with patch("app.routes.medication.verify_guardian_senior_link") as mock_verify:
-        res = create_medication(req=req, db=db_mock, guardian=guardian_mock)
+        res = create_medication(req=req, db=db_mock, user_id=guardian_id)
         
         # Verify verification call
         mock_verify.assert_called_once_with(guardian_id, senior_id, db_mock)
@@ -110,9 +116,12 @@ def test_create_medication_invalid_date_range():
     guardian_mock = MagicMock()
     guardian_mock.guardian_id = req.guardian_id
     
+    # Mock db query path for Guardian
+    db_mock.query.return_value.filter.return_value.first.return_value = guardian_mock
+    
     with patch("app.routes.medication.verify_guardian_senior_link"), \
          pytest.raises(HTTPException) as exc_info:
-        create_medication(req=req, db=db_mock, guardian=guardian_mock)
+        create_medication(req=req, db=db_mock, user_id=req.guardian_id)
         
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "종료일은 시작일보다 빠를 수 없습니다."
@@ -134,9 +143,12 @@ def test_create_medication_no_times_provided():
     guardian_mock = MagicMock()
     guardian_mock.guardian_id = req.guardian_id
     
+    # Mock db query path for Guardian
+    db_mock.query.return_value.filter.return_value.first.return_value = guardian_mock
+    
     with patch("app.routes.medication.verify_guardian_senior_link"), \
          pytest.raises(HTTPException) as exc_info:
-        create_medication(req=req, db=db_mock, guardian=guardian_mock)
+        create_medication(req=req, db=db_mock, user_id=req.guardian_id)
         
     assert exc_info.value.status_code == 400
     assert "복용 시간을 입력해 주세요" in exc_info.value.detail

@@ -7,7 +7,7 @@ import {
   View,
   Platform,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -17,12 +17,13 @@ import {
   Plus,
   Trash2,
 } from "lucide-react-native";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
 import { cancelMedicationNotifications } from "../utils/notificationHelper";
 import { useAuthStore } from "../stores/authStore";
 import { listMedications, deleteMedication as deleteMedicationApi, MedicationResponse } from "../api/medication";
 import { listHospitalVisits, HospitalVisitResponse } from "../api/hospital";
+
 
 const timeLabel = (time: string) => {
   const [h, m] = time.split(":").map(Number);
@@ -67,7 +68,11 @@ export default function HealthManagementPage() {
   );
 
   const authUser = useAuthStore((s) => s.user);
-  const seniorId = authUser?.seniorId || authUser?.uid || "";
+  const role = useAuthStore((s) => s.role);
+  const links = useAuthStore((s) => s.links);
+  const seniorId = role === "elder"
+    ? (authUser?.id || "")
+    : (links.find((l) => l.status === "ACTIVE")?.counterpartId || "");
 
   const [medicationList, setMedicationList] = useState<MedicationResponse[]>([]);
   const [hospitalList, setHospitalList] = useState<HospitalVisitResponse[]>([]);
@@ -88,9 +93,11 @@ export default function HealthManagementPage() {
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, [seniorId]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [seniorId])
+  );
 
   // Medication Grouping
   const getGroupedMedications = (list: MedicationResponse[]): GroupedMedication[] => {
@@ -122,7 +129,9 @@ export default function HealthManagementPage() {
     visitDate: visit.visit_date,
     visitTime: visit.visit_time.slice(0, 5),
     memo: visit.memo || undefined,
-    enabled: visit.is_active
+    enabled: visit.is_active,
+    createdAt: visit.created_at || new Date().toISOString(),
+    updatedAt: visit.created_at || new Date().toISOString()
   }));
 
   const upcoming = mappedSchedules.filter(
