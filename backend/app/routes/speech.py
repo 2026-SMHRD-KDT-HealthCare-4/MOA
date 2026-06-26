@@ -7,6 +7,7 @@ this route to synthesize short Moa responses and receive an MP3 stream.
 import base64
 import json
 import os
+import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import UUID
@@ -34,6 +35,33 @@ class TTSRequest(BaseModel):
 
 class TranscriptionResponse(BaseModel):
     text: str
+
+
+# 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
+# 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
+# "시청해주셔서 감사합니다" 등). 발화가 없는데 이런 문장이 잡히면 빈 문자열로 처리한다.
+_HALLUCINATION_PATTERNS = [
+    re.compile(p)
+    for p in (
+        r"(MBC|KBS|SBS|YTN|JTBC|TV\s*조선|채널\s*A|연합뉴스)",
+        r"뉴스\s*(입니다|였습니다|데스크|룸)",
+        r"기자\s*(입니다|였습니다)",
+        r"앵커",
+        r"시청\s*(해|해주|해 주)",
+        r"구독|좋아요|알림\s*설정",
+        r"(자막|번역)\s*(제공|제작)",
+        r"한글\s*자막",
+        r"다음\s*(영상|시간)에서\s*(만나|뵙)",
+        r"오늘도\s*(함께|시청)",
+    )
+]
+
+
+def _is_whisper_hallucination(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    return any(p.search(t) for p in _HALLUCINATION_PATTERNS)
 
 
 def synthesize_with_typecast(text: str) -> bytes:
@@ -140,8 +168,20 @@ async def transcribe_audio(
             model="whisper-1",
             file=(file.filename or "recording.m4a", audio_bytes, file.content_type or "audio/m4a"),
             language="ko",
+            response_format="verbose_json",  # 세그먼트별 no_speech_prob 확보
+            temperature=0,
         )
-        return TranscriptionResponse(text=result.text)
+        # 모든 세그먼트가 "무음 확률 높음 + 낮은 신뢰도"면 실제 발화가 없는 것으로 본다.
+        segments = getattr(result, "segments", None) or []
+        looks_silent = bool(segments) and all(
+            (getattr(s, "no_speech_prob", 0) or 0) > 0.6
+            and (getattr(s, "avg_logprob", 0) or 0) < -0.8
+            for s in segments
+        )
+        text = (result.text or "").strip()
+        if looks_silent or _is_whisper_hallucination(text):
+            text = ""
+        return TranscriptionResponse(text=text)
     except Exception:
         raise HTTPException(status_code=502, detail="음성 인식 요청을 처리하지 못했습니다.")
     finally:
