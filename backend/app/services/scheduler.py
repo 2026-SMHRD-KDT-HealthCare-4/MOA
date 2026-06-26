@@ -1,4 +1,6 @@
 import logging
+# APScheduler가 매분 잡 실행 때마다 남기는 INFO 로그를 끈다 (WARNING 이상만 표시).
+logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 import datetime
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
