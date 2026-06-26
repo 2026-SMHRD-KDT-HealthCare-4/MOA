@@ -19,27 +19,36 @@
 
 ---
 
+## 어느 폴더에서 실행하나 (중요)
+
+- **venv 활성화는 cwd와 무관** — 한 번 켜면 어느 폴더에서 `pip`을 하든 `backend/venv`에 설치된다.
+- **1~3단계(git pull · 체크포인트 · pip)는 "프로젝트 루트"에서** 실행한다. `pip install -e ml/serab-byols`,
+  `cp ml/...` 의 `ml/...` 경로가 **루트 기준**이기 때문. `cd backend` 안에서 하면 `backend/ml/...`을 찾아 실패한다.
+- **4단계(uvicorn)만 `backend/`에서** 실행한다 (`main.py`가 거기 있음).
+
+> 정리: `ml/` 과 `backend/` 는 **형제 폴더**다. pip 경로 명령은 둘을 다 볼 수 있는 **루트**에서.
+
 ## 설치 순서
 
-### 0. 백엔드 venv 활성화 (모든 pip은 이 환경에서)
+### 0. 프로젝트 루트에서 백엔드 venv 활성화
 ```bash
-cd backend
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # mac / Linux
+# 프로젝트 루트(MOA-RN/)에서 실행 — 활성화 후에도 루트에 머문다
+backend\venv\Scripts\activate          # Windows
+# source backend/venv/bin/activate     # mac / Linux
 ```
 
-### 1. 코드 받기 (serab-byols 폴더 + 체크포인트 `.pth` 포함)
+### 1. 코드 받기 (루트에서) — serab-byols 폴더 + 체크포인트 `.pth` 포함
 ```bash
 git pull origin model_yehoon
 ```
 
-### 2. 체크포인트 확인
+### 2. 체크포인트 확인 (루트에서)
 `ml/checkpoints/`에 `cvt_...rs42.pth`가 있으면 OK (repo에 포함되어 보통 자동). 없으면 복사:
 ```bash
 cp ml/serab-byols/checkpoints/cvt_*.pth ml/checkpoints/
 ```
 
-### 3. 패키지 설치 (← `backend/venv` 활성화 상태에서)
+### 3. 패키지 설치 (루트에서, venv 활성화 상태)
 ```bash
 # (a) ML 의존성 한 번에 — scikit-learn은 반드시 1.6.1 고정
 pip install openai-whisper transformers catboost xgboost imbalanced-learn \
@@ -52,8 +61,9 @@ pip install -e ml/serab-byols
 pip uninstall -y pathlib
 ```
 
-### 4. 백엔드 재기동
+### 4. 백엔드 재기동 (← 여기서만 `backend/`로 이동)
 ```bash
+cd backend
 uvicorn main:app --reload
 ```
 
