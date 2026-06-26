@@ -162,7 +162,9 @@ const styles = StyleSheet.create({
   chipText: {
     fontFamily: "Pretendard-Bold",
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 24,
+    includeFontPadding: false,
+    textAlignVertical: "center",
     color: "#765E52",
   },
   chipTextActive: { color: "#FFFFFF" },

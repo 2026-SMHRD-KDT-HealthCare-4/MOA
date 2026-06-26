@@ -28,6 +28,29 @@ const MOCK_TRANSCRIPT =
 const MAX_RECORDING_DURATION_MS = 30_000;
 const NO_SPEECH_TIMEOUT_MS = 8_000;
 
+// 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
+// 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
+// "시청해주셔서 감사합니다", "구독과 좋아요" 등). 사용자가 말하지 않았는데 이런
+// 문장이 잡히면 발화로 처리하지 않고 무발화(no-speech)로 돌린다.
+const HALLUCINATION_PATTERNS: RegExp[] = [
+  /(MBC|KBS|SBS|YTN|JTBC|TV\s*조선|채널\s*A|연합뉴스)/i,
+  /뉴스\s*(입니다|였습니다|데스크|룸)/,
+  /기자\s*(입니다|였습니다)/,
+  /앵커/,
+  /시청\s*(해|해주|해 주)/,
+  /구독|좋아요|알림\s*설정/,
+  /(자막|번역)\s*(제공|제작|by)/i,
+  /한글\s*자막/,
+  /다음\s*(영상|시간)에서\s*(만나|뵙)/,
+  /오늘도\s*(함께|시청)/,
+];
+
+function isWhisperHallucination(raw: string): boolean {
+  const text = raw.trim();
+  if (!text) return false;
+  return HALLUCINATION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 async function whisperSTT(uri: string): Promise<string> {
   async function createFormData() {
     const form = new FormData();
@@ -71,6 +94,9 @@ async function whisperSTT(uri: string): Promise<string> {
   const form = await createFormData();
   form.append("model", "whisper-1");
   form.append("language", "ko");
+  // verbose_json으로 세그먼트별 무음 확률(no_speech_prob)을 받아 환각을 걸러낸다.
+  form.append("response_format", "verbose_json");
+  form.append("temperature", "0");
 
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -80,7 +106,21 @@ async function whisperSTT(uri: string): Promise<string> {
 
   if (!response.ok) throw new Error("STT_FAILED");
 
-  const data = (await response.json()) as { text?: string };
+  const data = (await response.json()) as {
+    text?: string;
+    segments?: Array<{ no_speech_prob?: number; avg_logprob?: number }>;
+  };
+
+  // 모든 세그먼트가 "무음 확률 높음 + 낮은 신뢰도"면 실제 발화가 없는 것으로 보고 버린다.
+  const segments = data.segments ?? [];
+  const looksLikeSilence =
+    segments.length > 0 &&
+    segments.every(
+      (segment) =>
+        (segment.no_speech_prob ?? 0) > 0.6 && (segment.avg_logprob ?? 0) < -0.8,
+    );
+  if (looksLikeSilence) return "";
+
   return data.text ?? "";
 }
 
@@ -187,7 +227,19 @@ export function useRecorder({
 
   async function completeTranscription(uri: string, isWeb = false) {
     try {
-      const text = await whisperSTT(uri);
+      const text = (await whisperSTT(uri)).trim();
+
+      // 무음/잡음 구간의 Whisper 환각이나 빈 결과는 발화로 처리하지 않고
+      // 무발화(no-speech) 경로로 보낸다 → ChatbotMain이 재안내/종료를 담당한다.
+      if (!text || isWhisperHallucination(text)) {
+        if (!isWeb) await FileSystem.deleteAsync(uri, { idempotent: true });
+        setTranscript(null);
+        setNoSpeechDetected(true);
+        setState("idle");
+        if (manageWakeWord) enableWakeWord();
+        return;
+      }
+
       if (keepAudio) {
         // 폐기하지 않고 보관 → audioUri로 노출 (해제는 clearAudio가 담당)
         keptAudioRef.current = { uri, isWeb };

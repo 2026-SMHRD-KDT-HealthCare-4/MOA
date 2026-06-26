@@ -1384,6 +1384,9 @@ export type NotificationSettings = {
   push_enabled: boolean;
   medication_push_enabled: boolean;
   hospital_push_enabled: boolean;
+  // 보호자 전용 "가족 상태 알림". 백엔드 미구현이라 optional이며, 현재는 mock 응답에서만 채워진다.
+  // TODO(BE 연동): /auth/notification-settings 응답·요청에 family_alert_enabled 추가되면 real 분기로 이관.
+  family_alert_enabled?: boolean;
 };
 
 export async function getNotificationSettings(): Promise<NotificationSettings> {
@@ -1392,6 +1395,7 @@ export async function getNotificationSettings(): Promise<NotificationSettings> {
       push_enabled: true,
       medication_push_enabled: true,
       hospital_push_enabled: true,
+      family_alert_enabled: true,
     };
   }
   return await apiFetch<NotificationSettings>("/auth/notification-settings", {
@@ -1408,6 +1412,7 @@ export async function updateNotificationSettings(
       push_enabled: settings.push_enabled ?? true,
       medication_push_enabled: settings.medication_push_enabled ?? true,
       hospital_push_enabled: settings.hospital_push_enabled ?? true,
+      family_alert_enabled: settings.family_alert_enabled ?? true,
     };
   }
   return await apiFetch<NotificationSettings>("/auth/notification-settings", {
