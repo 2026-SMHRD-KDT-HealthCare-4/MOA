@@ -116,3 +116,19 @@ class MedicationReminderResponse(BaseModel):
 
 class MedicationReminderReplyResponse(MedicationReminderResponse):
     reply: str
+
+
+class NotificationSettingsResponse(BaseModel):
+    push_enabled: bool
+    medication_push_enabled: bool
+    hospital_push_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationSettingsUpdateRequest(BaseModel):
+    push_enabled: Optional[bool] = None
+    medication_push_enabled: Optional[bool] = None
+    hospital_push_enabled: Optional[bool] = None
+

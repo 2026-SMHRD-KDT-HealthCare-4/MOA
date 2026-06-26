@@ -50,12 +50,18 @@ def create_risk_notifications_for_active_guardians(
     notifications: list[Notification] = []
     for link in active_links:
         guardian = db.query(Guardian).filter(Guardian.guardian_id == link.guardian_id).first()
+        if not guardian:
+            continue
         
+        # 보호자의 알림 수신 설정 체크 (전체 알림 push_enabled)
+        if not guardian.push_enabled:
+            continue
+            
         success = False
         title = "[이상 징후 알림] 가족 건강 변화 감지"
         body = f"{senior_name}님의 목소리 분석 결과 지속적인 건강 상태 변화 패턴이 감지되었습니다. 상세 리포트를 확인해 주세요."
         
-        if guardian and guardian.fcm_token:
+        if guardian.fcm_token:
             success = send_fcm_push(
                 token=guardian.fcm_token,
                 title=title,
@@ -157,6 +163,9 @@ def create_urgent_alert_with_notifications(
     )
 
     for guardian in notifiable_guardians:
+        if not guardian.push_enabled:
+            continue
+
         notification = Notification(
             guardian_id=guardian.guardian_id,
             senior_id=senior_id,

@@ -53,6 +53,7 @@ from app.schemas.auth import (
     SeniorRegisterRequest,
     SeniorResponse,
 )
+from app.schemas.notification import NotificationSettingsResponse, NotificationSettingsUpdateRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -848,5 +849,72 @@ def register_fcm_token(
         senior.fcm_token = fcm_token
         db.commit()
         return {"status": "success", "message": "고령자 FCM 토큰이 업데이트되었습니다."}
+
+    raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")
+
+
+@router.get("/notification-settings", response_model=NotificationSettingsResponse)
+def get_notification_settings(
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """현재 로그인한 사용자(보호자 혹은 고령자)의 알림 설정을 조회한다."""
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        return NotificationSettingsResponse(
+            push_enabled=guardian.push_enabled,
+            medication_push_enabled=guardian.medication_push_enabled,
+            hospital_push_enabled=guardian.hospital_push_enabled,
+        )
+
+    senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+    if senior is not None:
+        return NotificationSettingsResponse(
+            push_enabled=senior.push_enabled,
+            medication_push_enabled=senior.medication_push_enabled,
+            hospital_push_enabled=senior.hospital_push_enabled,
+        )
+
+    raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")
+
+
+@router.patch("/notification-settings", response_model=NotificationSettingsResponse)
+def update_notification_settings(
+    req: NotificationSettingsUpdateRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """현재 로그인한 사용자(보호자 혹은 고령자)의 알림 설정을 업데이트한다."""
+    guardian = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian is not None:
+        if req.push_enabled is not None:
+            guardian.push_enabled = req.push_enabled
+        if req.medication_push_enabled is not None:
+            guardian.medication_push_enabled = req.medication_push_enabled
+        if req.hospital_push_enabled is not None:
+            guardian.hospital_push_enabled = req.hospital_push_enabled
+        db.commit()
+        db.refresh(guardian)
+        return NotificationSettingsResponse(
+            push_enabled=guardian.push_enabled,
+            medication_push_enabled=guardian.medication_push_enabled,
+            hospital_push_enabled=guardian.hospital_push_enabled,
+        )
+
+    senior = db.query(Senior).filter(Senior.senior_id == user_id).first()
+    if senior is not None:
+        if req.push_enabled is not None:
+            senior.push_enabled = req.push_enabled
+        if req.medication_push_enabled is not None:
+            senior.medication_push_enabled = req.medication_push_enabled
+        if req.hospital_push_enabled is not None:
+            senior.hospital_push_enabled = req.hospital_push_enabled
+        db.commit()
+        db.refresh(senior)
+        return NotificationSettingsResponse(
+            push_enabled=senior.push_enabled,
+            medication_push_enabled=senior.medication_push_enabled,
+            hospital_push_enabled=senior.hospital_push_enabled,
+        )
 
     raise HTTPException(status_code=404, detail="가입된 프로필을 찾을 수 없습니다.")

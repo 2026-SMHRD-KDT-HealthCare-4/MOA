@@ -143,7 +143,7 @@ def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[Med
 # 복약정보 (MEDICATION)
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=Union[MedicationResponse, List[MedicationResponse]])
+@router.post("", response_model=Union[List[MedicationResponse], MedicationResponse])
 def create_medication(
     req: MedicationCreateRequest,
     db: Session = Depends(get_db),
@@ -386,3 +386,23 @@ def reply_to_medication_reminder(
         return _reminder_response(reminder, "약을 드신 뒤에 말씀해주세요. 복약 확인이 필요해요.")
 
     return _reminder_response(reminder, "드셨는지 아직 못 드셨는지만 말씀해주세요.")
+
+
+@router.delete("/{medication_id}")
+def delete_medication(
+    medication_id: UUID,
+    db: Session = Depends(get_db),
+    guardian: Guardian = Depends(get_current_guardian),
+):
+    """복약 일정 삭제. 등록한 보호자 본인만 가능."""
+    medication = db.query(Medication).filter(Medication.medication_id == medication_id).first()
+    if medication is None:
+        raise HTTPException(status_code=404, detail="복약 정보를 찾을 수 없습니다.")
+
+    if medication.guardian_id != guardian.guardian_id:
+        raise HTTPException(status_code=403, detail="본인이 등록한 복약 일정만 삭제할 수 있습니다.")
+
+    db.delete(medication)
+    db.commit()
+    return {"status": "success", "message": "복약 일정이 삭제되었습니다."}
+

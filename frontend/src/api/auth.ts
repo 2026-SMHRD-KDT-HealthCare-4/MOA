@@ -1379,3 +1379,41 @@ export async function registerFCMToken(fcmToken: string): Promise<void> {
     body: JSON.stringify({ fcm_token: fcmToken }),
   });
 }
+
+export type NotificationSettings = {
+  push_enabled: boolean;
+  medication_push_enabled: boolean;
+  hospital_push_enabled: boolean;
+};
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  if (AUTH_API_MODE === "mock") {
+    return {
+      push_enabled: true,
+      medication_push_enabled: true,
+      hospital_push_enabled: true,
+    };
+  }
+  return await apiFetch<NotificationSettings>("/auth/notification-settings", {
+    method: "GET",
+    auth: true,
+  });
+}
+
+export async function updateNotificationSettings(
+  settings: Partial<NotificationSettings>
+): Promise<NotificationSettings> {
+  if (AUTH_API_MODE === "mock") {
+    return {
+      push_enabled: settings.push_enabled ?? true,
+      medication_push_enabled: settings.medication_push_enabled ?? true,
+      hospital_push_enabled: settings.hospital_push_enabled ?? true,
+    };
+  }
+  return await apiFetch<NotificationSettings>("/auth/notification-settings", {
+    method: "PATCH",
+    auth: true,
+    body: JSON.stringify(settings),
+  });
+}
+

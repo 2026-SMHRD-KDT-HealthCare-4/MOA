@@ -6,6 +6,8 @@ import { ArrowLeft, Minus, Plus, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { CycleType, MedicationInput, Weekday, useMedicationStore } from "../stores/medicationStore";
+import { createMedication, updateMedication, deleteMedication } from "../api/medication";
+import { useAuthStore } from "../stores/authStore";
 import { scheduleMedicationNotifications, cancelMedicationNotifications } from "../utils/notificationHelper";
 
 const WEEKDAYS: { key: Weekday; label: string }[] = [
@@ -72,59 +74,91 @@ export default function MedicationFormPage() {
   const setSchedule = (next: CycleType) => { setCycle(next); if (next === "weekly" && days.length !== 1) setDays(["WED"]); if (next === "daily") setDays([]); };
   const toggleDay = (day: Weekday) => setDays((current) => cycle === "weekly" ? [day] : current.includes(day) ? current.filter((value) => value !== day) : [...current, day]);
   const save = async () => {
-    if (!name.trim() || !times.length || times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) 
+    const formattedTimes = times.map((t) => {
+      const trimmed = t.trim();
+      if (/^\d:[0-5]\d$/.test(trimmed)) {
+        return "0" + trimmed;
+      }
+      return trimmed;
+    });
+
+    if (!name.trim() || !formattedTimes.length || formattedTimes.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) 
       return Alert.alert("입력 확인", "약 이름과 시간을 08:00 형식으로 입력해주세요.");
     if ((cycle === "weekly" || cycle === "custom_days") && !days.length) 
       return Alert.alert("요일 선택", "복용할 요일을 선택해주세요.");
-    const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times, startDate, endDate: endDate || null, isActive: enabled };
     
-    let medicationId = item?.id;
-    if (item) {
-      update(item.id, input);
-    } else {
-      medicationId = add(input);
+    // senior_id 조회
+    const authUser = useAuthStore.getState().user;
+    const seniorId = authUser?.seniorId || authUser?.uid || "";
+    if (!seniorId) {
+      return Alert.alert("오류", "고령층 정보를 확인할 수 없습니다.");
     }
 
-    if (medicationId) {
-      if (enabled && cycle === "daily") {
-        await scheduleMedicationNotifications(medicationId, name.trim(), times);
+    try {
+      if (item) {
+        // 기존 약 수정 (Zustand store 키 id 매핑)
+        await updateMedication(item.id, {
+          medicine_name: name.trim(),
+          intake_time: formattedTimes[0],
+          start_date: startDate,
+          end_date: endDate || null,
+          is_active: enabled,
+        });
+        
+        // Zustand 로컬 동기화 (기존 코드 호환용)
+        const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times: formattedTimes, startDate, endDate: endDate || null, isActive: enabled };
+        update(item.id, input);
       } else {
-        await cancelMedicationNotifications(medicationId);
+        // 신규 등록
+        const res = await createMedication(seniorId, name.trim(), formattedTimes, startDate, endDate || null, enabled);
+        
+        // Zustand 로컬 동기화
+        const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times: formattedTimes, startDate, endDate: endDate || null, isActive: enabled };
+        add(input);
       }
+
+      router.replace("/health");
+    } catch (err) {
+      console.error("Failed to save medication:", err);
+      Alert.alert("저장 실패", "약 정보를 저장하지 못했습니다.");
     }
-    router.replace("/health");
   };
+
   const confirmDeleteMedication = (id: string) => {
-  if (Platform.OS === "web") {
-    const ok = window.confirm(
-      "정말 삭제할까요?\n이 약 정보를 삭제하면 되돌릴 수 없어요."
-    );
+    const performDelete = async () => {
+      try {
+        await deleteMedication(id);
+        deleteMedication(id); // Zustand 로컬 동기화
+        router.replace("/health");
+      } catch (err) {
+        console.error("Failed to delete medication:", err);
+        Alert.alert("삭제 실패", "약 정보를 삭제하지 못했습니다.");
+      }
+    };
 
-    if (!ok) return;
+    if (Platform.OS === "web") {
+      const ok = window.confirm(
+        "정말 삭제할까요?\n이 약 정보를 삭제하면 되돌릴 수 없어요."
+      );
+      if (ok) void performDelete();
+      return;
+    }
 
-    cancelMedicationNotifications(id);
-    deleteMedication(id);
-    router.replace("/health");
-    return;
-  }
-
-  Alert.alert(
-    "정말 삭제할까요?",
-    "이 약 정보를 삭제하면 되돌릴 수 없어요.",
-    [
-      { text: "취소", style: "cancel" },
-      {
-        text: "삭제",
-        style: "destructive",
-        onPress: () => {
-          cancelMedicationNotifications(id);
-          deleteMedication(id);
-          router.replace("/health");
+    Alert.alert(
+      "정말 삭제할까요?",
+      "이 약 정보를 삭제하면 되돌릴 수 없어요.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "삭제",
+          style: "destructive",
+          onPress: () => {
+            void performDelete();
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
   return <View style={[styles.fill,{paddingTop:insets.top}]}>
     <LinearGradient colors={["#F7D6AC","#FFF2DE","#F7D6AC"]} style={StyleSheet.absoluteFill}/>
     <View style={styles.header}>
