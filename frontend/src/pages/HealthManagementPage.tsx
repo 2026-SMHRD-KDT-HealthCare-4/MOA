@@ -7,7 +7,7 @@ import {
   View,
   Platform,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -17,8 +17,13 @@ import {
   Plus,
   Trash2,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
+import { cancelMedicationNotifications } from "../utils/notificationHelper";
+import { useAuthStore } from "../stores/authStore";
+import { listMedications, deleteMedication as deleteMedicationApi, MedicationResponse } from "../api/medication";
+import { listHospitalVisits, HospitalVisitResponse } from "../api/hospital";
+
 
 const timeLabel = (time: string) => {
   const [h, m] = time.split(":").map(Number);
@@ -44,6 +49,14 @@ const medicationTimes = (medication: {
       ? [medication.scheduledTime]
       : [];
 
+type GroupedMedication = {
+  id: string;
+  medicineName: string;
+  times: string[];
+  cycleType: string;
+  isActive: boolean;
+};
+
 export default function HealthManagementPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -54,15 +67,78 @@ export default function HealthManagementPage() {
     params.section === "hospital" ? "hospital" : "medication"
   );
 
-  const medications = useMedicationStore((s) => s.medications);
-  const deleteMedication = useMedicationStore((s) => s.deleteMedication);
-  const schedules = useMedicationStore((s) => s.hospitalSchedules);
+  const authUser = useAuthStore((s) => s.user);
+  const role = useAuthStore((s) => s.role);
+  const links = useAuthStore((s) => s.links);
+  const seniorId = role === "elder"
+    ? (authUser?.id || "")
+    : (links.find((l) => l.status === "ACTIVE")?.counterpartId || "");
 
-  const upcoming = schedules.filter(
+  const [medicationList, setMedicationList] = useState<MedicationResponse[]>([]);
+  const [hospitalList, setHospitalList] = useState<HospitalVisitResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadData = async () => {
+    if (!seniorId) return;
+    setLoading(true);
+    try {
+      const meds = await listMedications(seniorId);
+      const visits = await listHospitalVisits(seniorId);
+      setMedicationList(meds);
+      setHospitalList(visits);
+    } catch (err) {
+      console.error("Failed to load health data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [seniorId])
+  );
+
+  // Medication Grouping
+  const getGroupedMedications = (list: MedicationResponse[]): GroupedMedication[] => {
+    const groups: { [key: string]: GroupedMedication } = {};
+    list.forEach((item) => {
+      const timeStr = item.intake_time.slice(0, 5); 
+      if (!groups[item.medicine_name]) {
+        groups[item.medicine_name] = {
+          id: item.medication_id,
+          medicineName: item.medicine_name,
+          times: [timeStr],
+          cycleType: "daily",
+          isActive: item.is_active,
+        };
+      } else {
+        if (!groups[item.medicine_name].times.includes(timeStr)) {
+          groups[item.medicine_name].times.push(timeStr);
+        }
+      }
+    });
+    return Object.values(groups);
+  };
+
+  const medications = getGroupedMedications(medicationList);
+
+  const mappedSchedules = hospitalList.map(visit => ({
+    id: visit.visit_id,
+    hospitalName: visit.hospital_name,
+    visitDate: visit.visit_date,
+    visitTime: visit.visit_time.slice(0, 5),
+    memo: visit.memo || undefined,
+    enabled: visit.is_active,
+    createdAt: visit.created_at || new Date().toISOString(),
+    updatedAt: visit.created_at || new Date().toISOString()
+  }));
+
+  const upcoming = mappedSchedules.filter(
     (item) => new Date(`${item.visitDate}T23:59:59`) >= new Date()
   );
 
-  const past = schedules.filter(
+  const past = mappedSchedules.filter(
     (item) => new Date(`${item.visitDate}T23:59:59`) < new Date()
   );
 
@@ -74,14 +150,25 @@ export default function HealthManagementPage() {
     );
 
   const confirmDeleteMedication = (id: string) => {
+    const performDelete = async () => {
+      try {
+        await deleteMedicationApi(id);
+        // 로컬 상태 동기화
+        setMedicationList(prev => prev.filter(m => m.medication_id !== id));
+        
+        // 기존 Zustand 스토어도 지워줌 (캐싱 대응)
+        useMedicationStore.getState().deleteMedication(id);
+      } catch (err) {
+        console.error("Failed to delete medication:", err);
+        Alert.alert("삭제 실패", "약 정보를 삭제하지 못했습니다.");
+      }
+    };
+
     if (Platform.OS === "web") {
       const ok = window.confirm(
         "정말 삭제할까요?\n이 약 정보를 삭제하면 되돌릴 수 없어요."
       );
-
-      if (!ok) return;
-
-      deleteMedication(id);
+      if (ok) void performDelete();
       return;
     }
 
@@ -94,7 +181,7 @@ export default function HealthManagementPage() {
           text: "삭제",
           style: "destructive",
           onPress: () => {
-            deleteMedication(id);
+            void performDelete();
           },
         },
       ]

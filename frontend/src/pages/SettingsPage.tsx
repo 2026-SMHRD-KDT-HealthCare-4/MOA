@@ -1,33 +1,74 @@
 import { View, Text, Switch, ScrollView, StyleSheet, Alert, Platform, Pressable, Modal, TouchableOpacity } from "react-native";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
 import { useRouter } from "expo-router";
 import { Bell, LogOut, Info, ChevronRight, ShieldCheck, UserRound, Mail } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
+import { registerFCMToken, getNotificationSettings, updateNotificationSettings } from "../api/auth";
 import { colors } from "../styles/tokens";
+import { scheduleAllAlarms, cancelAllAlarms } from "../utils/notificationHelper";
 
 export default function SettingsPage() {
   const insets = useSafeAreaInsets();
-  const { user, role, logout } = useAuthStore();
+  const { user, role, logout, updateFCMToken } = useAuthStore();
   const router = useRouter();
-  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(true);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
-  async function handleNotifToggle(next: boolean) {
-    if (next) {
-      const { status } = await Notifications.requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "알림 권한 필요",
-          "기기 설정에서 알림을 허용해 주세요.",
-          [{ text: "확인", style: "default" }]
-        );
-        return;
+  useEffect(() => {
+    async function loadSettings() {
+      try {
+        const settings = await getNotificationSettings();
+        setPushEnabled(settings.push_enabled);
+      } catch (err) {
+        console.error("Failed to load notification settings:", err);
       }
     }
-    setNotifEnabled(next);
+    if (user) {
+      loadSettings();
+    }
+  }, [user]);
+
+  async function handlePushToggle(next: boolean) {
+    try {
+      await updateNotificationSettings({ push_enabled: next });
+      setPushEnabled(next);
+      
+      if (next) {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== "granted") {
+          Alert.alert(
+            "알림 권한 필요",
+            "기기 설정에서 알림을 허용해 주세요.",
+            [{ text: "확인", style: "default" }]
+          );
+          return;
+        }
+        try {
+          const tokenData = await Notifications.getDevicePushTokenAsync();
+          const token = tokenData.data;
+          await registerFCMToken(token);
+          updateFCMToken(token);
+          await scheduleAllAlarms();
+        } catch (err) {
+          console.error("Failed to register FCM push token:", err);
+        }
+      } else {
+        try {
+          await registerFCMToken("");
+          updateFCMToken(null);
+          await cancelAllAlarms();
+        } catch (err) {
+          console.error("Failed to unregister FCM push token:", err);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to update push setting:", err);
+    }
   }
+
+
 
   async function performLogout() {
     await logout();
@@ -35,8 +76,6 @@ export default function SettingsPage() {
   }
 
   function handleLogout() {
-    // 직접사용자(고령층)는 재로그인이 어려우므로(랜덤 credential) 바텀시트 모달로 더 신중히 확인한다.
-    // (Alert 와 달리 RN Web 에서도 동작하므로 플랫폼 분기 없이 모달 하나로 처리)
     if (isElder) {
       setLogoutModalVisible(true);
       return;
@@ -130,34 +169,30 @@ export default function SettingsPage() {
 
         {/* 알림 설정 섹션 */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>알림</Text>
+          <Text style={styles.sectionTitle}>알림 설정</Text>
 
           <View style={styles.card}>
+            {/* 전체 알림 */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <View style={styles.rowIcon}>
                   <Bell size={22} color={C.blue} strokeWidth={2.2} />
                 </View>
                 <View style={styles.rowTextWrap}>
-                  <Text style={styles.rowTitle}>
-                    {isElder ? "건강 기록 알림" : "가족 상태 알림"}
-                  </Text>
-                  <Text style={styles.rowSub}>
-                    {isElder
-                      ? "매일 오전 기록을 도와드려요"
-                      : "가족의 변화가 감지되면 알려드려요"}
-                  </Text>
+                  <Text style={styles.rowTitle}>전체 알림 설정</Text>
+                  <Text style={styles.rowSub}>모든 푸시 알림 수신을 통제합니다</Text>
                 </View>
               </View>
               <Switch
-                value={notifEnabled}
-                onValueChange={handleNotifToggle}
+                value={pushEnabled}
+                onValueChange={handlePushToggle}
                 trackColor={{ false: "#E7EAF0", true: C.blue }}
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E7EAF0"
               />
             </View>
-          </View>
+
+            </View>
         </View>
 
         {/* 앱 정보 섹션 */}

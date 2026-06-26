@@ -15,7 +15,8 @@ class MedicationCreateRequest(BaseModel):
     senior_id: UUID
     guardian_id: UUID  # 등록 주체(보호자)
     medicine_name: str
-    intake_time: time
+    intake_time: Optional[time] = None
+    intake_times: Optional[list[time]] = None
     start_date: date
     end_date: Optional[date] = None  # None이면 무기한
     is_active: bool = True
@@ -115,3 +116,19 @@ class MedicationReminderResponse(BaseModel):
 
 class MedicationReminderReplyResponse(MedicationReminderResponse):
     reply: str
+
+
+class NotificationSettingsResponse(BaseModel):
+    push_enabled: bool
+    medication_push_enabled: bool
+    hospital_push_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationSettingsUpdateRequest(BaseModel):
+    push_enabled: Optional[bool] = None
+    medication_push_enabled: Optional[bool] = None
+    hospital_push_enabled: Optional[bool] = None
+
