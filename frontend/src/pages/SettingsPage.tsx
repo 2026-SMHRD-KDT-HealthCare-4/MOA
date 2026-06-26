@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
 import { useRouter } from "expo-router";
-import { Bell, LogOut, Info, ChevronRight, ShieldCheck, UserRound, Mail } from "lucide-react-native";
+import { Bell, BellRing, LogOut, Info, ChevronRight, ShieldCheck, UserRound, Mail } from "lucide-react-native";
 import * as Notifications from "expo-notifications";
 import { registerFCMToken, getNotificationSettings, updateNotificationSettings } from "../api/auth";
 import { colors } from "../styles/tokens";
@@ -14,6 +14,8 @@ export default function SettingsPage() {
   const { user, role, logout, updateFCMToken } = useAuthStore();
   const router = useRouter();
   const [pushEnabled, setPushEnabled] = useState(true);
+  // 보호자 전용 "가족 상태 알림". 백엔드 family_alert_enabled 미구현이라 로컬 상태로만 동작(mock).
+  const [familyAlertEnabled, setFamilyAlertEnabled] = useState(true);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   useEffect(() => {
@@ -21,6 +23,8 @@ export default function SettingsPage() {
       try {
         const settings = await getNotificationSettings();
         setPushEnabled(settings.push_enabled);
+        // real 모드 응답엔 아직 필드가 없으므로(optional) 기본값 true로 폴백한다.
+        setFamilyAlertEnabled(settings.family_alert_enabled ?? true);
       } catch (err) {
         console.error("Failed to load notification settings:", err);
       }
@@ -68,7 +72,12 @@ export default function SettingsPage() {
     }
   }
 
-
+  function handleFamilyAlertToggle(next: boolean) {
+    // 백엔드 family_alert_enabled 필드 미구현 → 현재는 로컬 상태로만 동작(mock).
+    // TODO(BE 연동): /auth/notification-settings 에 필드가 추가되면
+    //   updateNotificationSettings({ family_alert_enabled: next }) 로 영속화한다.
+    setFamilyAlertEnabled(next);
+  }
 
   async function performLogout() {
     await logout();
@@ -192,6 +201,30 @@ export default function SettingsPage() {
               />
             </View>
 
+            {/* 가족 상태 알림 — 보호자 전용. 직접사용자(elder)에게는 노출하지 않는다. */}
+            {!isElder && (
+              <>
+                <View style={styles.divider} />
+                <View style={styles.row}>
+                  <View style={styles.rowLeft}>
+                    <View style={styles.rowIcon}>
+                      <BellRing size={22} color={C.blue} strokeWidth={2.2} />
+                    </View>
+                    <View style={styles.rowTextWrap}>
+                      <Text style={styles.rowTitle}>가족 상태 알림</Text>
+                      <Text style={styles.rowSub}>가족의 변화가 감지되면 알려드려요</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={familyAlertEnabled}
+                    onValueChange={handleFamilyAlertToggle}
+                    trackColor={{ false: "#E7EAF0", true: C.blue }}
+                    thumbColor="#FFFFFF"
+                    ios_backgroundColor="#E7EAF0"
+                  />
+                </View>
+              </>
+            )}
             </View>
         </View>
 
