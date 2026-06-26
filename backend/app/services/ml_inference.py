@@ -102,12 +102,7 @@ def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
 
         if dem_acoustic_cols:
             dem_feat_list = _fe.extract_dementia_features(tmp_path, dem_acoustic_cols)
-            print(f"=== dem_feat_list 첫 5개: {dem_feat_list[:5]} ===")
-            print(f"=== dem_feat_list f0_mean(index 1): {dem_feat_list[1]} ===")
             raw_features  = {"CTD": dem_feat_list}
-            print(f"=== dem_acoustic_cols 길이: {len(dem_acoustic_cols)} ===")
-            print(f"=== dem_feat_list 타입: {type(dem_feat_list)}, 길이: {len(dem_feat_list)} ===")
-            print(f"=== dem_feat_list 마지막 6개(언어피처): {dem_feat_list[-6:]} ===")
         else:
             print("⚠️ acoustic_cols 없음 — acoustic dict fallback")
             raw_features = {"CTD": acoustic}
