@@ -5,11 +5,6 @@ import time
 
 
 class MOAInferenceEngine:
-    """
-    MOA 통합 추론 엔진
-    위치: MOA/MOA/ml/inference/total_engine.py
-    """
-
     def __init__(self):
         self.ml_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         self.models = {
@@ -22,41 +17,23 @@ class MOAInferenceEngine:
     def load_all_models(self):
         print(f"🔄 모델 로딩 시작 (경로: {self.ml_root})...")
 
-        # 1. 치매 모델
+        # 1. 치매 모델 — acoustic_cols, hubert_scaler, hubert_pca, hubert_cols 포함
         dem_dir = os.path.join(self.ml_root, "dementia")
         for task in ["CTD", "PFT", "SFT"]:
             try:
                 self.models["dementia"][task] = {
-                    "model":    joblib.load(os.path.join(dem_dir, f"model_{task}.pkl")),
-                    "scaler":   joblib.load(os.path.join(dem_dir, f"scaler_{task}.pkl")),
-                    "chi2mask": joblib.load(os.path.join(dem_dir, f"chi2mask_{task}.pkl")),
-                    "rfemask":  joblib.load(os.path.join(dem_dir, f"rfemask_{task}.pkl")),
+                    "model":         joblib.load(os.path.join(dem_dir, f"model_{task}.pkl")),
+                    "scaler":        joblib.load(os.path.join(dem_dir, f"scaler_{task}.pkl")),
+                    "chi2mask":      joblib.load(os.path.join(dem_dir, f"chi2mask_{task}.pkl")),
+                    "rfemask":       joblib.load(os.path.join(dem_dir, f"rfemask_{task}.pkl")),
+                    "acoustic_cols": joblib.load(os.path.join(dem_dir, "acoustic_cols.pkl")),
+                    "hubert_scaler": joblib.load(os.path.join(dem_dir, "hubert_scaler.pkl")),
+                    "hubert_pca":    joblib.load(os.path.join(dem_dir, "hubert_pca.pkl")),
+                    "hubert_cols":   joblib.load(os.path.join(dem_dir, "hubert_cols.pkl")),
                 }
                 print(f"  ✅ 치매 {task} 로드 완료")
             except Exception as e:
                 print(f"  ⚠️ 치매 {task} 로드 실패: {e}")
-
-        # 치매 특징 합치기에 필요한 부가 파일
-        try:
-            self._dem_acoustic_cols = joblib.load(os.path.join(dem_dir, "acoustic_cols.pkl"))
-            self._dem_task_weights  = joblib.load(os.path.join(dem_dir, "task_weights.pkl"))
-        except Exception as e:
-            print(f"⚠️ 치매 보조 파일 로드 실패: {e}")
-            self._dem_acoustic_cols = None
-            self._dem_task_weights  = {}
-
-        # HuBERT PCA 관련 (없으면 음향지표만 사용)
-        try:
-            self._dem_hubert_scaler = joblib.load(os.path.join(dem_dir, "hubert_scaler.pkl"))
-            self._dem_hubert_pca    = joblib.load(os.path.join(dem_dir, "hubert_pca.pkl"))
-            self._dem_hubert_cols   = joblib.load(os.path.join(dem_dir, "hubert_cols.pkl"))
-            self._use_hubert = True
-        except Exception:
-            self._dem_hubert_scaler = None
-            self._dem_hubert_pca    = None
-            self._dem_hubert_cols   = None
-            self._use_hubert = False
-            print("⚠️ HuBERT 관련 파일 없음 — 음향지표만 사용")
 
         # 2. 당뇨 모델
         diab_dir = os.path.join(self.ml_root, "diabetes")
@@ -78,10 +55,12 @@ class MOAInferenceEngine:
         pkn_dir   = os.path.join(self.ml_root, "parkinson")
         sel_path  = os.path.join(pkn_dir, "selector.pkl")
         feat_path = os.path.join(pkn_dir, "feature_names.pkl")
+        mm_path   = os.path.join(pkn_dir, "mm_scaler.pkl")
         try:
             self.models["parkinson"] = {
                 "model":         joblib.load(os.path.join(pkn_dir, "model.pkl")),
                 "scaler":        joblib.load(os.path.join(pkn_dir, "scaler.pkl")),
+                "mm_scaler":     joblib.load(mm_path) if os.path.exists(mm_path) else None,
                 "selector":      joblib.load(sel_path)  if os.path.exists(sel_path)  else None,
                 "feature_names": joblib.load(feat_path) if os.path.exists(feat_path) else None,
             }
@@ -91,15 +70,16 @@ class MOAInferenceEngine:
 
         print("✅ 모든 모델 로드 완료")
 
+    # ──────────────────────────────────────────────────────────────
     def predict_all(self, features: dict, user_info: dict) -> dict:
         start_time = time.time()
 
         score_pkn = self._predict_parkinson(features.get("acoustic"))
-        score_dem = self._predict_dementia(
-            wav_paths_by_task    = features.get("wav_paths", {}),
-            raw_features_by_task = features.get("raw_features", {}),
+        score_dem = 1.0 - self._predict_dementia(
+            features.get("raw_features", {}),
+            features.get("hubert_embedding"),
         )
-        score_dm  = self._predict_diabetes(features.get("diabetes_wav"), user_info)
+        score_dm  = self._predict_diabetes(features.get("byols_embedding"), user_info)
 
         max_score    = max(score_pkn, score_dem, score_dm)
         inference_ms = int((time.time() - start_time) * 1000)
@@ -128,18 +108,25 @@ class MOAInferenceEngine:
             },
         }
 
+    # ──────────────────────────────────────────────────────────────
     def _predict_parkinson(self, acoustic_dict: dict) -> float:
         info = self.models.get("parkinson")
         if not info or not acoustic_dict:
             return 0.0
 
-        # feature_names 22개 키 순서대로 정확히 추출
-        if info["feature_names"]:
-            ordered = [float(acoustic_dict.get(k, 0.0)) for k in info["feature_names"]]
-        else:
-            ordered = list(acoustic_dict.values())
+        ordered = list(acoustic_dict.values())
+
+        if info["selector"] is not None:
+            expected = info["selector"].n_features_in_
+            if len(ordered) > expected:
+                ordered = ordered[:expected]
+            elif len(ordered) < expected:
+                ordered = ordered + [0.0] * (expected - len(ordered))
 
         X = np.array(ordered, dtype=float).reshape(1, -1)
+
+        if info["mm_scaler"] is not None:
+            X = info["mm_scaler"].transform(X)
 
         if info["selector"] is not None:
             X = info["selector"].transform(X)
@@ -148,73 +135,108 @@ class MOAInferenceEngine:
         prob = float(info["model"].predict_proba(X_s)[0, 1])
         return prob
 
-    def _build_dementia_feature_vector(self, raw_features: dict, wav_path: str) -> np.ndarray:
-        """음향지표 + HuBERT-PCA를 acoustic_cols 순서로 결합"""
-        acoustic_vec = np.array(
-            [raw_features.get(col, np.nan) for col in self._dem_acoustic_cols]
-        )
-        acoustic_vec = np.nan_to_num(acoustic_vec, nan=0.0)
-
-        if self._use_hubert and self._dem_hubert_pca is not None:
-            from inference.hubert_extraction import extract_hubert_embedding
-            hub_f          = extract_hubert_embedding(wav_path)
-            hubert_vec_raw = np.array(
-                [[hub_f.get(col, np.nan) for col in self._dem_hubert_cols]]
-            )
-            hubert_vec_raw    = np.nan_to_num(hubert_vec_raw, nan=0.0)
-            hubert_vec_scaled = self._dem_hubert_scaler.transform(hubert_vec_raw)
-            hubert_vec_pca    = self._dem_hubert_pca.transform(hubert_vec_scaled)[0]
-            return np.concatenate([acoustic_vec, hubert_vec_pca]).reshape(1, -1)
-
-        return acoustic_vec.reshape(1, -1)
-
-    def _predict_dementia(self, wav_paths_by_task: dict, raw_features_by_task: dict) -> float:
-        if not wav_paths_by_task or self._dem_acoustic_cols is None:
+    # ──────────────────────────────────────────────────────────────
+    def _predict_dementia(self, task_feat: dict, hubert_raw=None) -> float:
+        """
+        task_feat      : {"CTD": acoustic_dict, "PFT": ..., "SFT": ...}
+        hubert_raw     : HuBERT 원시 임베딩 배열 (ml_inference.py 에서 추출해서 넘김)
+                         None 이면 음향지표만으로 추론 (정확도 낮음)
+        """
+        if not task_feat:
+            print("⚠️ 치매: task_feat 비어있음")
             return 0.0
 
-        entries = []
-        for task, wav_path in wav_paths_by_task.items():
+        probs = []
+        for task, feat in task_feat.items():
             if task not in self.models["dementia"]:
+                print(f"⚠️ 치매: {task} 모델 없음")
                 continue
+            info = self.models["dementia"][task]
 
-            info     = self.models["dementia"][task]
-            full_vec = self._build_dementia_feature_vector(
-                raw_features_by_task.get(task, {}), wav_path
-            )
-            vec_sel    = full_vec[:, info["chi2mask"]][:, info["rfemask"]]
-            vec_scaled = info["scaler"].transform(vec_sel)
-            prob       = float(info["model"].predict_proba(vec_scaled)[0][1])
-            weight     = self._dem_task_weights.get(task, 1.0)
-            entries.append((task, prob, weight))
+            # ── 음향지표 벡터 ──
+            if isinstance(feat, dict):
+                acoustic_cols = info.get("acoustic_cols", [])
+                if acoustic_cols:
+                    missing = [c for c in acoustic_cols if c not in feat]
+                    print(f"=== 치매 {task} 누락 컬럼: {missing} ===")
+        # 학습 때와 동일한 컬럼 순서로 정렬 (NaN → 0.0)
+                    acoustic_vec = [
+                        float(feat.get(c, 0.0)) if feat.get(c) is not None else 0.0
+                        for c in acoustic_cols
+                    ]
+                    print(f"=== 치매 {task} acoustic_cols 매칭: {sum(1 for c in acoustic_cols if c in feat)}/{len(acoustic_cols)} ===")
+                else:
+                    acoustic_vec = list(feat.values())
+                    print(f"⚠️ 치매 {task}: acoustic_cols 없음 — feat.values() 사용")
+            else:
+                acoustic_vec = list(feat)
 
-        if not entries:
+            X_acoustic = np.array(acoustic_vec, dtype=float).reshape(1, -1)
+
+            # ── HuBERT-PCA 벡터 ──
+            # ── HuBERT-PCA 벡터 ──
+            # ── HuBERT-PCA 벡터 ──
+            # chi2_len을 try 블록 밖에서 먼저 선언
+            chi2_len = len(info["chi2mask"])
+
+            if hubert_raw is not None:
+                try:
+                    H = np.array(hubert_raw, dtype=float).reshape(1, -1)
+                    H = info["hubert_scaler"].transform(H)
+                    H = info["hubert_pca"].transform(H)
+
+                    hubert_cols = info.get("hubert_cols", [])
+                    if len(hubert_cols) > 0 and H.shape[1] > len(hubert_cols):
+                        H = H[:, :len(hubert_cols)]
+
+                    X = np.hstack([X_acoustic, H])
+                    print(f"=== 치매 {task} X_acoustic shape: {X_acoustic.shape} ===")
+                    print(f"=== 치매 {task} H(PCA) shape: {H.shape} ===")
+                    print(f"=== 치매 {task} 합친 X shape: {X.shape} ===")
+                    print(f"=== 치매 {task} chi2mask 길이: {chi2_len} ===")
+                except Exception as e:
+                    print(f"⚠️ 치매 {task} HuBERT 처리 실패: {e} — 음향지표만 사용")
+                    X = X_acoustic
+            else:
+                print(f"⚠️ 치매 {task}: HuBERT 임베딩 없음 — 음향지표만 사용")
+                X = X_acoustic
+
+            # ── chi2mask → rfemask → scaler → model ──
+            # (chi2_len은 위에서 이미 선언됨)
+            if X.shape[1] < chi2_len:
+                X = np.hstack([X, np.zeros((1, chi2_len - X.shape[1]))])
+            elif X.shape[1] > chi2_len:
+                X = X[:, :chi2_len]
+
+            X = X[:, info["chi2mask"]]
+            X = X[:, info["rfemask"]]
+            print(f"=== chi2mask 후 shape: {X.shape} ===")
+            print(f"=== rfemask 후 shape: {X.shape} ===")  # 이건 위랑 같은 X라 두 번째 출력
+            X_s = info["scaler"].transform(X)
+            print(f"=== X_s 첫 5개 값: {X_s[0][:5]} ===")
+            prob = float(info["model"].predict_proba(X_s)[0, 1])
+            print(f"=== 치매 {task} prob: {prob} ===")
+            probs.append(prob)
+
+        return float(np.mean(probs)) if probs else 0.0
+
+    # ──────────────────────────────────────────────────────────────
+    def _predict_diabetes(self, emb, user: dict) -> float:
+        gender = "male" if user.get("gender") == "M" else "female"
+        info   = self.models["diabetes"].get(gender)
+        if not info or emb is None:
             return 0.0
 
-        total_w    = sum(w for _, _, w in entries)
-        final_prob = (
-            sum(p * w for _, p, w in entries) / total_w
-            if total_w > 0
-            else np.mean([p for _, p, _ in entries])
-        )
-        return float(final_prob)
+        X = np.array(emb, dtype=float).reshape(1, -1)
+        X = info["emb_scaler"].transform(X)
+        X = info["pca"].transform(X)
 
-    def _predict_diabetes(self, wav_path: str, user: dict) -> float:
-        g = "male" if user.get("gender") == "M" else "female"
-        if not self.models["diabetes"].get(g) or not wav_path:
-            return 0.0
+        if info["aux_scaler"] is not None:
+            age = user.get("age", 0)
+            bmi = user.get("bmi", 0)
+            aux = info["aux_scaler"].transform([[age, bmi]])
+            X   = np.hstack([X, aux])
 
-        from inference.byols_extraction import extract_byols_embedding
-        emb = extract_byols_embedding(wav_path)
-        if emb is None:
-            return 0.0
-
-        info  = self.models["diabetes"][g]
-        X     = info["pca"].transform(
-                    info["emb_scaler"].transform(emb.reshape(1, -1))
-                )
-        if info["aux_scaler"]:
-            X = np.hstack([
-                X,
-                info["aux_scaler"].transform([[user.get("age", 0), user.get("bmi", 0)]])
-            ])
-        return float(info["model"].predict_proba(info["scaler"].transform(X))[0, 1])
+        X_s  = info["scaler"].transform(X)
+        prob = float(info["model"].predict_proba(X_s)[0, 1])
+        return prob

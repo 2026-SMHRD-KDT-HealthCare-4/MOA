@@ -13,22 +13,38 @@ import numpy as np
 import torch
 try:
     import torchaudio
-    if hasattr(torchaudio, "set_audio_backend"):
-        torchaudio.set_audio_backend("soundfile")
 except Exception:
     pass
 import librosa
 
 _byols_model = None
 
-_DEFAULT_CHECKPOINT = os.environ.get(
-    "BYOLS_CHECKPOINT_PATH",
-    "checkpoints/cvt_s1-d1-e64_s2-d1-e256_s3-d1-e512_BYOLAs64x96-"
-    "osandbyolaloss6373-e100-bs256-lr0003-rs42.pth",
-)
-_MODEL_NAME  = "cvt"
-_CONFIG_PATH = "serab-byols/serab_byols/config.yaml"
+# 절대경로 기반 — 백엔드/ML 어느 쪽에서 실행해도 동일하게 동작
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))  # ml/inference/
+_ML_DIR   = os.path.dirname(_THIS_DIR)                  # ml/
 
+_ckpt_filename = (
+    "cvt_s1-d1-e64_s2-d1-e256_s3-d1-e512_BYOLAs64x96-"
+    "osandbyolaloss6373-e100-bs256-lr0003-rs42.pth"
+)
+
+# 가능한 체크포인트 경로 후보 (폴더 구조 차이 대응)
+_ckpt_candidates = [
+    os.path.join(_ML_DIR, "checkpoints", _ckpt_filename),
+    os.path.join(_ML_DIR, "serab-byols", "checkpoints", _ckpt_filename),
+]
+
+_DEFAULT_CHECKPOINT = os.environ.get("BYOLS_CHECKPOINT_PATH", None)
+if _DEFAULT_CHECKPOINT is None:
+    for candidate in _ckpt_candidates:
+        if os.path.exists(candidate):
+            _DEFAULT_CHECKPOINT = candidate
+            break
+    if _DEFAULT_CHECKPOINT is None:
+        _DEFAULT_CHECKPOINT = _ckpt_candidates[0]  # fallback
+
+_MODEL_NAME  = "cvt"
+_CONFIG_PATH = os.path.join(_ML_DIR, "serab-byols", "serab_byols", "config.yaml")
 
 def load_byols_model(checkpoint_path: str = None):
     """서버 시작 시 1회 호출 — main.py의 lifespan에서 로드"""

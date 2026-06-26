@@ -216,24 +216,78 @@ def extract_all_acoustic_features(wav_path: str) -> dict:
     return feats
 
 
-def extract_dementia_features(wav_path: str, acoustic_cols: list) -> list:
+# ── Whisper 언어 피처 추출 (치매용) ─────────────────────────────
+_whisper_model = None
+_FILLERS_KO = ['음', '어', '그', '저', '뭐', '있잖아', '그니까', '아']
+_FILLERS_EN = ['um', 'uh', 'er', 'ah', 'like', 'you know', 'i mean', 'well', 'so']
+
+
+def load_whisper():
+    global _whisper_model
+    if _whisper_model is None:
+        print("⏳ Whisper 모델 로드 중...")
+        import whisper as _whisper
+        _whisper_model = _whisper.load_model("base")
+        print("✅ Whisper 로드 완료")
+    return _whisper_model
+
+
+def extract_language_features(wav_path: str, lang: str = "ko") -> dict:
+    _keys = ['ttr', 'filler_ratio', 'total_words', 'content_density',
+             'ttr_per_min', 'repetition_ratio']
+    try:
+        model  = load_whisper()
+        result = model.transcribe(wav_path, language=lang)
+        text   = result.get('text', '').strip()
+        words  = text.lower().split()
+
+        if not words:
+            print("⚠️ Whisper 전사 결과 없음 — 언어 피처 0으로 채움")
+            return {k: 0.0 for k in _keys}
+
+        print(f"=== Whisper 전사: {text[:80]} ===")
+        print(f"=== 단어 수: {len(words)}, 고유 단어: {len(set(words))} ===")
+
+        try:
+            y_tmp, sr_tmp = librosa.load(wav_path, sr=16000)
+            duration_min  = (len(y_tmp) / sr_tmp) / 60.0
+        except Exception:
+            duration_min = None
+
+        ttr         = len(set(words)) / len(words)
+        ttr_per_min = (len(set(words)) / duration_min) if duration_min and duration_min > 0 else 0.0
+
+        fillers      = _FILLERS_KO if lang == "ko" else _FILLERS_EN
+        filler_count = sum(words.count(f) for f in fillers)
+        filler_ratio = filler_count / len(words)
+
+        content_words   = [w for w in words if len(w) >= 2]
+        content_density = len(content_words) / len(words)
+
+        from collections import Counter
+        word_counts      = Counter(words)
+        repeated_words   = sum(c for w, c in word_counts.items() if c > 1)
+        repetition_ratio = repeated_words / len(words)
+
+        return {
+            'ttr':              ttr,
+            'filler_ratio':     filler_ratio,
+            'total_words':      float(len(words)),
+            'content_density':  content_density,
+            'ttr_per_min':      ttr_per_min,
+            'repetition_ratio': repetition_ratio,
+        }
+    except Exception as e:
+        print(f"⚠️ 언어 피처 추출 실패: {e}")
+        return {k: 0.0 for k in _keys}
+
+
+def extract_dementia_features(wav_path: str, acoustic_cols: list, lang: str = "ko") -> list:
     """
     치매 전용 — acoustic_cols.pkl 순서에 맞게 정렬된 리스트 반환
-    언어 특징(ttr, filler_ratio 등)은 0.0으로 채움
-    Whisper 기반 언어 특징 추출기 결과가 있으면 all_feats.update() 후 넘길 것
+    언어 피처는 Whisper로 실제 추출 (한국어 기본)
     """
     all_feats = extract_all_acoustic_features(wav_path)
-
-    # 언어 특징 기본값
-    lang_defaults = {
-        "ttr":              0.0,
-        "filler_ratio":     0.0,
-        "total_words":      0.0,
-        "content_density":  0.0,
-        "ttr_per_min":      0.0,
-        "repetition_ratio": 0.0,
-    }
-    all_feats.update(lang_defaults)
-
-    # acoustic_cols 순서대로 리스트로 반환 (치매 모델 입력은 list)
+    lang_feats = extract_language_features(wav_path, lang=lang)
+    all_feats.update(lang_feats)
     return [float(all_feats.get(k, 0.0)) for k in acoustic_cols]
