@@ -9,8 +9,14 @@ import {
   Mic,
   ChevronRight as ArrowRight,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { WEATHER_IMAGE } from "../constants/weatherIcons";
+import { useAuthStore } from "../stores/authStore";
+import { getReportTrend } from "../api/report";
+import { listScriptRecords } from "../api/record";
+
+// real 모드에서만 서버 조회. 그 외(mock)·조회 실패 시 아래 MOCK_HISTORY로 폴백한다.
+const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
 
 type DayStatus = "sunny" | "cloudy" | "rainy" | null;
 type HistoryRecordType = "conversation" | "record";
@@ -226,6 +232,53 @@ function getKoreanDay(year: number, month: number, day: number) {
   return WEEKDAYS[new Date(year, month, day).getDay()];
 }
 
+function formatTime(d: Date): string {
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h < 12 ? "오전" : "오후";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${ampm} ${h}:${String(m).padStart(2, "0")}`;
+}
+
+// 실데이터(추이 날씨 + 낭독 이력)를 기록 탭 모델로 변환.
+// real: 캘린더 날씨·기록 유무·기록 시각/유형 / mock 유지: 기록별 요약 문구(백엔드 미지원).
+function buildRealHistory(
+  trend: { date: string; status: NonNullable<DayStatus> }[],
+  records: { recordId: string; measuredAt: string }[],
+): Record<string, DailyHistory> {
+  const statusByDate: Record<string, NonNullable<DayStatus>> = {};
+  trend.forEach((p) => {
+    statusByDate[p.date] = p.status;
+  });
+
+  const map: Record<string, DailyHistory> = {};
+  records.forEach((r) => {
+    const d = new Date(r.measuredAt);
+    const key = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+    const status = statusByDate[key] ?? "sunny";
+    const entry = map[key] ?? { status, records: [] };
+    entry.records.push({
+      id: r.recordId,
+      type: "record",
+      time: formatTime(d),
+      duration: "지정문구 낭독",
+      status,
+      // 요약 문구는 백엔드 미지원 → 중립 placeholder(임의 관찰 생성 금지)
+      summary: "기록이 저장되었어요.",
+    });
+    entry.status = status;
+    map[key] = entry;
+  });
+
+  // 측정은 있으나 낭독 이력이 없는 날도 캘린더 날씨는 보이도록 채운다.
+  Object.entries(statusByDate).forEach(([key, status]) => {
+    if (!map[key]) map[key] = { status, records: [] };
+  });
+
+  return map;
+}
+
 export default function HistoryPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -235,16 +288,40 @@ export default function HistoryPage() {
   const [month, setMonth] = useState(today.getMonth());
   const [selectedDay, setSelectedDay] = useState(today.getDate());
 
+  // real 모드: 본인(직접사용자) 기록을 서버에서 조회. 실패 시 null → mock 폴백.
+  const seniorId = useAuthStore((s) => s.userId);
+  const [realHistory, setRealHistory] = useState<Record<string, DailyHistory> | null>(null);
+  useEffect(() => {
+    if (!REAL_API || !seniorId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [trend, records] = await Promise.all([
+          getReportTrend(seniorId, 31),
+          listScriptRecords(seniorId),
+        ]);
+        if (alive) setRealHistory(buildRealHistory(trend, records));
+      } catch {
+        // 조회 실패 — mock 폴백 유지
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [seniorId]);
+
+  const history = realHistory ?? MOCK_HISTORY;
+
   const weeks = buildCalendar(year, month);
   const selectedKey = dateKey(year, month, selectedDay);
-  const selectedHistory = MOCK_HISTORY[selectedKey] ?? null;
+  const selectedHistory = history[selectedKey] ?? null;
   const selectedRecords = selectedHistory?.records ?? [];
 
-  const monthlyKeys = Object.keys(MOCK_HISTORY).filter((key) =>
+  const monthlyKeys = Object.keys(history).filter((key) =>
     key.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)
   );
 
-  const sunnyCount = monthlyKeys.filter((key) => MOCK_HISTORY[key]?.status === "sunny").length;
+  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status === "sunny").length;
   const isThisMonth = year === today.getFullYear() && month === today.getMonth();
 
   function prevMonth() {
@@ -332,7 +409,7 @@ export default function HistoryPage() {
                   if (!day) return <View key={di} style={styles.dayCell} />;
 
                   const key = dateKey(year, month, day);
-                  const status = MOCK_HISTORY[key]?.status ?? null;
+                  const status = history[key]?.status ?? null;
                   const isSelected = day === selectedDay;
 
                   return (
