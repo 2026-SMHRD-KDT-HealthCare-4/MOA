@@ -6,6 +6,9 @@ import { ArrowLeft } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
+import { createHospitalVisit, updateHospitalVisit, deleteHospitalVisit } from "../api/hospital";
+import { useAuthStore } from "../stores/authStore";
+import { scheduleHospitalNotifications, cancelHospitalNotifications } from "../utils/notificationHelper";
 
 export default function HospitalFormPage() {
   const router=useRouter(); 
@@ -36,40 +39,84 @@ export default function HospitalFormPage() {
       setEnabled(true);
     }
   }, [resolvedId, resolvedReset]);
-  const save=()=>{if(!hospitalName.trim()||!/^\d{4}-\d{2}-\d{2}$/.test(visitDate)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(visitTime))
-    return Alert.alert("입력 확인", "병원명, 방문일, 시간(08:00)을 입력해주세요.");
-    const input={hospitalName:hospitalName.trim(),visitDate,visitTime,memo:memo.trim()||undefined,enabled};if(item)update(item.id,input);else add(input);router.replace("/health")};
+  const save = async () => {
+    const trimmedTime = visitTime.trim();
+    const formattedVisitTime = /^\d:[0-5]\d$/.test(trimmedTime) ? "0" + trimmedTime : trimmedTime;
+
+    if (!hospitalName.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(visitDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(formattedVisitTime))
+      return Alert.alert("입력 확인", "병원명, 방문일, 시간(08:00)을 입력해주세요.");
+    
+    // senior_id 조회
+    const authStore = useAuthStore.getState();
+    const authUser = authStore.user;
+    const role = authStore.role;
+    const links = authStore.links;
+    const seniorId = role === "elder"
+      ? (authUser?.id || "")
+      : (links.find((l) => l.status === "ACTIVE")?.counterpartId || "");
+    if (!seniorId) {
+      return Alert.alert("오류", "고령층 정보를 확인할 수 없습니다.");
+    }
+
+    try {
+      const input = { hospitalName: hospitalName.trim(), visitDate, visitTime: formattedVisitTime, memo: memo.trim() || undefined, enabled };
+      if (item) {
+        await updateHospitalVisit(item.id, {
+          hospital_name: hospitalName.trim(),
+          visit_date: visitDate,
+          visit_time: formattedVisitTime,
+          memo: memo.trim() || null,
+          is_active: enabled,
+        });
+        update(item.id, input);
+      } else {
+        await createHospitalVisit(seniorId, hospitalName.trim(), visitDate, formattedVisitTime, memo.trim(), enabled);
+        add(input);
+      }
+      router.replace("/health");
+    } catch (err) {
+      console.error("Failed to save hospital visit:", err);
+      Alert.alert("저장 실패", "병원 일정을 저장하지 못했습니다.");
+    }
+  };
+
   const deleteItem = () => {
-  if (!item) return;
+    if (!item) return;
 
-  if (Platform.OS === "web") {
-    const ok = window.confirm(
-      "정말 삭제할까요?\n삭제하면 되돌릴 수 없어요."
-    );
+    const performDelete = async () => {
+      try {
+        await deleteHospitalVisit(item.id);
+        remove(item.id);
+        router.replace("/health");
+      } catch (err) {
+        console.error("Failed to delete hospital visit:", err);
+        Alert.alert("삭제 실패", "병원 일정을 삭제하지 못했습니다.");
+      }
+    };
 
-    if (!ok) return;
+    if (Platform.OS === "web") {
+      const ok = window.confirm(
+        "정말 삭제할까요?\n삭제하면 되돌릴 수 없어요."
+      );
+      if (ok) void performDelete();
+      return;
+    }
 
-    remove(item.id);
-    router.replace("/health");
-    return;
-  }
-
-  Alert.alert(
-    "정말 삭제할까요?",
-    "삭제하면 되돌릴 수 없어요.",
-    [
-      { text: "취소", style: "cancel" },
-      {
-        text: "삭제",
-        style: "destructive",
-        onPress: () => {
-          remove(item.id);
-          router.replace("/health");
+    Alert.alert(
+      "정말 삭제할까요?",
+      "삭제하면 되돌릴 수 없어요.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "삭제",
+          style: "destructive",
+          onPress: () => {
+            void performDelete();
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
   return <View style={[styles.fill,{paddingTop:insets.top}]}>
     <LinearGradient colors={["#F7D6AC","#FFF2DE","#F7D6AC"]} style={StyleSheet.absoluteFill}/>
     <View style={styles.header}><TouchableOpacity onPress={()=>router.replace("/health")} style={styles.back}>

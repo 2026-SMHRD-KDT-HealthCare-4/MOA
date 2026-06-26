@@ -71,6 +71,7 @@ export interface SessionUser {
   role: UserRole;
   token: string;
   linkedElderName?: string;
+  fcmToken?: string | null;
 }
 
 const MOCK_ELDER_SESSION: SessionUser = {
@@ -188,6 +189,7 @@ interface AuthState {
   onboardingDone: boolean; // 온보딩 완료 여부 (가드 게이트)
 
   setSession: (user: SessionUser, opts?: SetSessionOptions) => void;
+  updateFCMToken: (token: string | null) => void;
   setLinkedElder: (elderName: string) => void;
   setLinks: (links: FamilyLink[]) => void;
   setFamilyGroup: (familyGroup: FamilyGroup | null) => void;
@@ -281,6 +283,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hydrated: false,
 
   setSession: (user, opts) => set(sessionState(user, opts)),
+
+  updateFCMToken: (token) =>
+    set((state) => (state.user ? { user: { ...state.user, fcmToken: token } } : {})),
 
   setLinkedElder: (elderName) =>
     set((state) => (state.user ? { user: { ...state.user, linkedElderName: elderName } } : {})),

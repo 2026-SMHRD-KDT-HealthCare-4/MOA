@@ -15,7 +15,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Guardian, GuardianSenior, LinkStatus, Notification, UrgentAlert
+from app.models.models import Guardian, GuardianSenior, LinkStatus, Notification, UrgentAlert, Senior
+from app.services.fcm_service import send_fcm_push
 
 URGENT_ALERT_COOLDOWN_MINUTES = 15
 
@@ -26,7 +27,7 @@ def create_risk_notifications_for_active_guardians(
     prediction_id: UUID,
     commit: bool = True,
 ) -> list[Notification]:
-    """ACTIVE 연동 보호자 전원에게 RISK 알림을 생성한다.
+    """ACTIVE 연동 보호자 전원에게 RISK 알림을 생성하고 FCM 푸시를 보낸다.
 
     Args:
         commit: True면 이 함수 안에서 commit한다. 호출자가 더 큰 트랜잭션의 일부로
@@ -43,14 +44,43 @@ def create_risk_notifications_for_active_guardians(
         .all()
     )
 
+    senior = db.query(Senior).filter(Senior.senior_id == senior_id).first()
+    senior_name = senior.name if senior else "가족"
+
     notifications: list[Notification] = []
     for link in active_links:
+        guardian = db.query(Guardian).filter(Guardian.guardian_id == link.guardian_id).first()
+        if not guardian:
+            continue
+        
+        # 보호자의 알림 수신 설정 체크 (전체 알림 push_enabled)
+        if not guardian.push_enabled:
+            continue
+            
+        success = False
+        title = "[이상 징후 알림] 가족 건강 변화 감지"
+        body = f"{senior_name}님의 목소리 분석 결과 지속적인 건강 상태 변화 패턴이 감지되었습니다. 상세 리포트를 확인해 주세요."
+        
+        if guardian.fcm_token:
+            success = send_fcm_push(
+                token=guardian.fcm_token,
+                title=title,
+                body=body,
+                data={
+                    "notification_type": "RISK",
+                    "prediction_id": str(prediction_id)
+                }
+            )
+        else:
+            # fcm_token이 없으면 Mock Mode로 간주하여 성공(True) 처리
+            success = True
+
         notification = Notification(
             guardian_id=link.guardian_id,
             senior_id=senior_id,
             notification_type="RISK",
             prediction_id=prediction_id,
-            status="SENT",
+            status="SENT" if success else "FAILED",
             sent_at=datetime.utcnow(),
         )
         db.add(notification)
@@ -133,6 +163,9 @@ def create_urgent_alert_with_notifications(
     )
 
     for guardian in notifiable_guardians:
+        if not guardian.push_enabled:
+            continue
+
         notification = Notification(
             guardian_id=guardian.guardian_id,
             senior_id=senior_id,

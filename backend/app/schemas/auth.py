@@ -14,6 +14,7 @@ class MeResponse(BaseModel):
     role: Literal["guardian", "senior"]
     name: str
     user_id: UUID
+    fcm_token: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -197,3 +198,10 @@ class FamilyStateResponse(BaseModel):
     family_group: FamilyGroupResponse
     guardian_members: list[GuardianMemberResponse]
     links: list[GuardianSeniorResponse]
+
+
+# ---------- FCM 토큰 등록 ----------
+
+class FCMTokenRegisterRequest(BaseModel):
+    fcm_token: Optional[str] = None
+

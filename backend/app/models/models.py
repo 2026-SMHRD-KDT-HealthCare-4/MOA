@@ -49,6 +49,9 @@ class Guardian(Base):
     gender = Column(String(1), nullable=True)
     phone = Column(String(20), nullable=False)
     fcm_token = Column(String(255), nullable=True)
+    push_enabled = Column(Boolean, nullable=False, default=True)
+    medication_push_enabled = Column(Boolean, nullable=False, default=True)
+    hospital_push_enabled = Column(Boolean, nullable=False, default=True)
 
     biometric_consent_yn = Column(Boolean, nullable=False, default=False)
     consent_at = Column(DateTime, nullable=True)
@@ -76,6 +79,9 @@ class Senior(Base):
     gender = Column(String(1), nullable=True)
     phone = Column(String(20), nullable=False)
     fcm_token = Column(String(255), nullable=True)
+    push_enabled = Column(Boolean, nullable=False, default=True)
+    medication_push_enabled = Column(Boolean, nullable=False, default=True)
+    hospital_push_enabled = Column(Boolean, nullable=False, default=True)
 
     smoking_yn = Column(Boolean, nullable=True)
     bmi = Column(Numeric(5, 2), nullable=True)  # 당뇨 모델 입력값
@@ -341,6 +347,26 @@ class MedicationReminder(Base):
     senior = relationship("Senior", backref="medication_reminders")
 
 
+class HospitalVisit(Base):
+    """병원 일정 (HOSPITAL_VISIT) — 신규 추가"""
+    __tablename__ = "hospital_visit"
+
+    visit_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
+    guardian_id = Column(UUID(as_uuid=True), ForeignKey("guardian.guardian_id"), nullable=False)
+    hospital_name = Column(String(100), nullable=False)
+    visit_date = Column(Date, nullable=False)
+    visit_time = Column(Time, nullable=False)
+    memo = Column(String(500), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+    senior = relationship("Senior", backref="hospital_visits")
+    guardian = relationship("Guardian", backref="hospital_visits")
+
+
 class Notification(Base):
     """알림 (NOTIFICATION) — 요구사항 10, 11번.
     이상 징후 알림(RISK)과 생활 알림(복약/병원방문/미접속)을 하나의 테이블에서 통합 관리한다.
@@ -358,6 +384,7 @@ class Notification(Base):
 
     prediction_id = Column(UUID(as_uuid=True), ForeignKey("risk_prediction.prediction_id"), nullable=True)
     medication_id = Column(UUID(as_uuid=True), ForeignKey("medication.medication_id"), nullable=True)
+    hospital_visit_id = Column(UUID(as_uuid=True), ForeignKey("hospital_visit.visit_id"), nullable=True)
 
     notification_type = Column(String(15), nullable=False)
     status = Column(String(10), nullable=False)
@@ -375,6 +402,7 @@ class Notification(Base):
 
     guardian = relationship("Guardian", backref="notifications")
     senior = relationship("Senior", backref="notifications")
+    hospital_visit = relationship("HospitalVisit", backref="notifications")
 
 
 class MonthlyReport(Base):

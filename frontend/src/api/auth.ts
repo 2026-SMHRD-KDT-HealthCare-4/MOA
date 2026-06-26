@@ -490,6 +490,7 @@ interface BackendMeResponse {
   role: BackendRole;
   name: string;
   user_id: string;
+  fcm_token?: string | null;
 }
 
 interface BackendInviteResponse {
@@ -1305,6 +1306,7 @@ export async function restoreSession(): Promise<RestoredSession | null> {
       email: parseJwtEmail(token),
       role: toUserRole(me.role),
       token,
+      fcmToken: me.fcm_token,
     };
     realCurrentUser = user;
 
@@ -1365,4 +1367,53 @@ const DEFAULT_DAILY_SCRIPT: ScriptResponseData = {
     "가을은 참 아름다운 계절입니다. 높고 푸른 하늘 아래 산들이 울긋불긋 단풍으로 물들고, 들판에는 오곡백과가 풍성하게 익어갑니다.",
 };
 
+
+export async function registerFCMToken(fcmToken: string): Promise<void> {
+  if (AUTH_API_MODE === "mock") {
+    console.log("[FCM MOCK] Registered token:", fcmToken);
+    return;
+  }
+  await apiFetch("/auth/fcm-token", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify({ fcm_token: fcmToken }),
+  });
+}
+
+export type NotificationSettings = {
+  push_enabled: boolean;
+  medication_push_enabled: boolean;
+  hospital_push_enabled: boolean;
+};
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  if (AUTH_API_MODE === "mock") {
+    return {
+      push_enabled: true,
+      medication_push_enabled: true,
+      hospital_push_enabled: true,
+    };
+  }
+  return await apiFetch<NotificationSettings>("/auth/notification-settings", {
+    method: "GET",
+    auth: true,
+  });
+}
+
+export async function updateNotificationSettings(
+  settings: Partial<NotificationSettings>
+): Promise<NotificationSettings> {
+  if (AUTH_API_MODE === "mock") {
+    return {
+      push_enabled: settings.push_enabled ?? true,
+      medication_push_enabled: settings.medication_push_enabled ?? true,
+      hospital_push_enabled: settings.hospital_push_enabled ?? true,
+    };
+  }
+  return await apiFetch<NotificationSettings>("/auth/notification-settings", {
+    method: "PATCH",
+    auth: true,
+    body: JSON.stringify(settings),
+  });
+}
 

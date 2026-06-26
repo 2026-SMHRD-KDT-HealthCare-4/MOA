@@ -6,7 +6,9 @@ import { ArrowLeft, Minus, Plus, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { CycleType, MedicationInput, Weekday, useMedicationStore } from "../stores/medicationStore";
-import * as Notifications from "expo-notifications";
+import { createMedication, updateMedication, deleteMedication } from "../api/medication";
+import { useAuthStore } from "../stores/authStore";
+import { scheduleMedicationNotifications, cancelMedicationNotifications } from "../utils/notificationHelper";
 
 const WEEKDAYS: { key: Weekday; label: string }[] = [
   { key: "MON", label: "월" }, { key: "TUE", label: "화" }, { key: "WED", label: "수" }, { key: "THU", label: "목" }, { key: "FRI", label: "금" }, { key: "SAT", label: "토" }, { key: "SUN", label: "일" },
@@ -72,53 +74,96 @@ export default function MedicationFormPage() {
   const setSchedule = (next: CycleType) => { setCycle(next); if (next === "weekly" && days.length !== 1) setDays(["WED"]); if (next === "daily") setDays([]); };
   const toggleDay = (day: Weekday) => setDays((current) => cycle === "weekly" ? [day] : current.includes(day) ? current.filter((value) => value !== day) : [...current, day]);
   const save = async () => {
-    if (!name.trim() || !times.length || times.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) 
+    const formattedTimes = times.map((t) => {
+      const trimmed = t.trim();
+      if (/^\d:[0-5]\d$/.test(trimmed)) {
+        return "0" + trimmed;
+      }
+      return trimmed;
+    });
+
+    if (!name.trim() || !formattedTimes.length || formattedTimes.some((time) => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) 
       return Alert.alert("입력 확인", "약 이름과 시간을 08:00 형식으로 입력해주세요.");
     if ((cycle === "weekly" || cycle === "custom_days") && !days.length) 
       return Alert.alert("요일 선택", "복용할 요일을 선택해주세요.");
-    const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times, startDate, endDate: endDate || null, isActive: enabled };
-    if (item) update(item.id, input);
-     else { const medicationId = add(input); 
-      if (enabled && cycle === "daily") { try { const permission = await Notifications.requestPermissionsAsync(); 
-        if (permission.granted) 
-          { const ids = await Promise.all(times.map((time) => { 
-            const [hour, minute] = time.split(":").map(Number); 
-            return Notifications.scheduleNotificationAsync({ 
-              content: { title: "복약 알림", body: "약 드실 시간이에요.", 
-                data: { localMedicationId: medicationId, medicationPrompt: "약 드셨나요?" } }, 
-                trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute } }); })); 
-                setNotificationId(medicationId, ids[0]); } } catch {} } }
-    router.replace("/health");
+    
+    // senior_id 조회
+    const authStore = useAuthStore.getState();
+    const authUser = authStore.user;
+    const role = authStore.role;
+    const links = authStore.links;
+    const seniorId = role === "elder"
+      ? (authUser?.id || "")
+      : (links.find((l) => l.status === "ACTIVE")?.counterpartId || "");
+    if (!seniorId) {
+      return Alert.alert("오류", "고령층 정보를 확인할 수 없습니다.");
+    }
+
+    try {
+      if (item) {
+        // 기존 약 수정 (Zustand store 키 id 매핑)
+        await updateMedication(item.id, {
+          medicine_name: name.trim(),
+          intake_time: formattedTimes[0],
+          start_date: startDate,
+          end_date: endDate || null,
+          is_active: enabled,
+        });
+        
+        // Zustand 로컬 동기화 (기존 코드 호환용)
+        const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times: formattedTimes, startDate, endDate: endDate || null, isActive: enabled };
+        update(item.id, input);
+      } else {
+        // 신규 등록
+        const res = await createMedication(seniorId, name.trim(), formattedTimes, startDate, endDate || null, enabled);
+        
+        // Zustand 로컬 동기화
+        const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times: formattedTimes, startDate, endDate: endDate || null, isActive: enabled };
+        add(input);
+      }
+
+      router.replace("/health");
+    } catch (err) {
+      console.error("Failed to save medication:", err);
+      Alert.alert("저장 실패", "약 정보를 저장하지 못했습니다.");
+    }
   };
+
   const confirmDeleteMedication = (id: string) => {
-  if (Platform.OS === "web") {
-    const ok = window.confirm(
-      "정말 삭제할까요?\n이 약 정보를 삭제하면 되돌릴 수 없어요."
-    );
+    const performDelete = async () => {
+      try {
+        await deleteMedication(id);
+        deleteMedication(id); // Zustand 로컬 동기화
+        router.replace("/health");
+      } catch (err) {
+        console.error("Failed to delete medication:", err);
+        Alert.alert("삭제 실패", "약 정보를 삭제하지 못했습니다.");
+      }
+    };
 
-    if (!ok) return;
+    if (Platform.OS === "web") {
+      const ok = window.confirm(
+        "정말 삭제할까요?\n이 약 정보를 삭제하면 되돌릴 수 없어요."
+      );
+      if (ok) void performDelete();
+      return;
+    }
 
-    deleteMedication(id);
-    router.replace("/health");
-    return;
-  }
-
-  Alert.alert(
-    "정말 삭제할까요?",
-    "이 약 정보를 삭제하면 되돌릴 수 없어요.",
-    [
-      { text: "취소", style: "cancel" },
-      {
-        text: "삭제",
-        style: "destructive",
-        onPress: () => {
-          deleteMedication(id);
-          router.replace("/health");
+    Alert.alert(
+      "정말 삭제할까요?",
+      "이 약 정보를 삭제하면 되돌릴 수 없어요.",
+      [
+        { text: "취소", style: "cancel" },
+        {
+          text: "삭제",
+          style: "destructive",
+          onPress: () => {
+            void performDelete();
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
   return <View style={[styles.fill,{paddingTop:insets.top}]}>
     <LinearGradient colors={["#F7D6AC","#FFF2DE","#F7D6AC"]} style={StyleSheet.absoluteFill}/>
     <View style={styles.header}>
