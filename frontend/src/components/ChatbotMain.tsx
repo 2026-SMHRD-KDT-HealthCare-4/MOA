@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Clock, Share2, ChevronRight, MessageCircle, Bell } from "lucide-react-native";
 import Svg, { Path } from "react-native-svg";
 import { CharacterPlayer, type CharacterMood } from "./CharacterPlayer";
+import { ResultComplete } from "./ResultComplete";
 import { MicIcon } from "./icons/MicIcon";
 import { Waveform } from "./Waveform";
 import { useAuthStore } from "../stores/authStore";
@@ -27,6 +28,7 @@ type ChatState =
   | "thinking"
   | "completed"
   | "error";
+
 type VoiceMode = "wake" | "waitingCommand" | "conversation" | null;
 
 const SHOW_STT_DEBUG =
@@ -73,6 +75,7 @@ function formatDuration(ms: number) {
 
 export default function ChatbotMain() {
   const router = useRouter();
+
   const {
     fromIntro,
     voiceText,
@@ -88,6 +91,7 @@ export default function ChatbotMain() {
     localMedicationId?: string;
     medicationPrompt?: string;
   }>();
+
   const startedFromIntro = String(fromIntro).toLowerCase() === "true";
   const insets = useSafeAreaInsets();
 
@@ -107,6 +111,8 @@ export default function ChatbotMain() {
   const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
   const [isConversationActive, setIsConversationActive] = useState(false);
   const [lastRecognizedText, setLastRecognizedText] = useState("");
+  const [showConversationResult, setShowConversationResult] = useState(false);
+
   const {
     messages,
     isBotTyping,
@@ -116,8 +122,9 @@ export default function ChatbotMain() {
     clearRoute,
     sendMessage,
     speakText,
-    nextAction
+    nextAction,
   } = useMoaChat();
+
   const {
     state: recorderState,
     transcript,
@@ -145,7 +152,6 @@ export default function ChatbotMain() {
   const silenceRetryRef = useRef(0);
   const lastPromptRef = useRef("");
   const greetingInProgressRef = useRef(false);
-  // Expo Router 화면은 탭 전환 뒤에도 유지될 수 있으므로, 인트로 자동 시작은 한 번만 허용한다.
   const autoStartedRef = useRef(false);
   const medicationReminderIdRef = useRef<string | null>(null);
   const localMedicationIdRef = useRef<string | null>(null);
@@ -177,9 +183,16 @@ export default function ChatbotMain() {
         typewriterTimerRef.current = null;
         return;
       }
-      displayedReplyRef.current = streamedReplyRef.current.slice(0, displayedReplyRef.current.length + 1);
+
+      displayedReplyRef.current = streamedReplyRef.current.slice(
+        0,
+        displayedReplyRef.current.length + 1,
+      );
       setBotReply(displayedReplyRef.current);
-      typewriterTimerRef.current = setTimeout(writeNextCharacter, typewriterDelayRef.current);
+      typewriterTimerRef.current = setTimeout(
+        writeNextCharacter,
+        typewriterDelayRef.current,
+      );
     };
 
     writeNextCharacter();
@@ -190,19 +203,23 @@ export default function ChatbotMain() {
       router.push(recordHref);
       return true;
     }
+
     if (command === "history") {
       router.push(resultHref);
       return true;
     }
+
     if (command === "result") {
       router.push(resultHref);
       return true;
     }
+
     return false;
   }
 
   function handleChatTurn(text: string, turnDurationMs: number) {
     const command = detectVoiceCommand(text);
+
     if (routeVoiceCommand(command)) {
       voiceModeRef.current = null;
       conversationActiveRef.current = false;
@@ -219,54 +236,63 @@ export default function ChatbotMain() {
     void sendMessage(text, { duration_ms: turnDurationMs });
   }
 
-  // The app-level listener routes ordinary wake-word speech here so it uses the existing chat/TTS flow.
   useEffect(() => {
     const text = voiceText?.trim();
     if (!text || text === lastVoiceTextRef.current) return;
+
     lastVoiceTextRef.current = text;
     handleChatTurn(text, Number(voiceDurationMs) || 0);
   }, [voiceDurationMs, voiceText]);
 
-  useEffect(() => () => {
-    if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
-    if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
+      if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+    },
+    [],
+  );
 
-  // 탭 화면은 기록 화면으로 이동해도 메모리에 남아 있을 수 있다.
-  // 홈으로 다시 돌아올 때는 언제나 기본 홈 상태로 복원해 대화 시작 버튼을 다시 보여 준다.
-  useFocusEffect(
-    useCallback(() => {
+ useFocusEffect(
+  useCallback(() => {
+    conversationRunningRef.current = false;
+    conversationActiveRef.current = false;
+    submittingTranscriptRef.current = false;
+    turnCountRef.current = 0;
+
+    setIsConversationActive(false);
+    setChatState("idle");
+    setBotEmotion("default");
+    setBotReply("오늘은 어떤 하루였나요?");
+    setShowConversationResult(false);
+
+    return () => {
+      voiceModeRef.current = null;
       conversationRunningRef.current = false;
       conversationActiveRef.current = false;
       submittingTranscriptRef.current = false;
-      turnCountRef.current = 0;
-      setIsConversationActive(false);
-      setChatState("idle");
-      setBotEmotion("default");
-      setBotReply("오늘은 어떤 하루였나요?");
-      resetRecorder();
-      return () => {
-        voiceModeRef.current = null;
-        resetRecorder();
-      };
-    }, []),
-  );
+    };
+  }, []),
+);
 
   async function handleMedicationReminderAnswer(text: string) {
     const localMedicationId = localMedicationIdRef.current;
     const reminderId = medicationReminderIdRef.current;
+
     if (!reminderId && !localMedicationId) return;
 
     greetingInProgressRef.current = true;
     setChatState("thinking");
+
     if (localMedicationId) {
       const outcome = respondToLocalMedication(localMedicationId, text);
+
       const reply =
         outcome === "completed"
           ? "잘하셨어요. 체크해둘게요."
           : outcome === "reminder_scheduled"
             ? "그럼 약 드시고 말씀해주세요. 10분 뒤에 한 번 더 알려드릴게요."
             : "드셨는지 아직 못 드셨는지만 말씀해주세요.";
+
       if (outcome === "reminder_scheduled") {
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -286,30 +312,39 @@ export default function ChatbotMain() {
           },
         });
       }
+
       lastPromptRef.current = reply;
       setBotReply(reply);
       setBotEmotion(outcome === "completed" ? "happy" : "default");
       setChatState("botSpeaking");
+
       await speakText(reply);
+
       if (outcome === "completed") localMedicationIdRef.current = null;
+
       greetingInProgressRef.current = false;
+
       if (conversationActiveRef.current) beginConversationListening();
+
       return;
     }
+
     if (!reminderId) return;
+
     try {
       const result = await replyToMedicationReminder(reminderId, text);
+
       lastPromptRef.current = result.reply;
       setBotReply(result.reply);
       setBotEmotion(result.status === "COMPLETED" ? "happy" : "default");
       setChatState("botSpeaking");
+
       await speakText(result.reply);
 
       if (result.status === "COMPLETED") {
         medicationReminderIdRef.current = null;
       }
     } catch {
-      // 서버 응답을 받지 못한 경우에도 기존 일반 대화 흐름으로 이어진다.
       medicationReminderIdRef.current = null;
       handleChatTurn(text, durationMs);
       return;
@@ -322,32 +357,45 @@ export default function ChatbotMain() {
 
   useEffect(() => {
     const text = transcript?.trim();
+
     if (!text) {
-      // 녹음기를 초기화한 뒤 다음 발화를 전송할 수 있게 잠금을 푼다.
-      if (!text) submittingTranscriptRef.current = false;
+      submittingTranscriptRef.current = false;
       return;
     }
-    // sendMessage/resetRecorder의 참조가 렌더마다 바뀌어도 동일 전사는 한 번만 보낸다.
+
     if (submittingTranscriptRef.current) return;
+
     submittingTranscriptRef.current = true;
 
     if (SHOW_STT_DEBUG) setLastRecognizedText(text);
+
     resetRecorder();
+
     const mode = voiceModeRef.current;
+
     if (mode === "conversation") {
       if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+
       if (medicationReminderIdRef.current || localMedicationIdRef.current) {
         void handleMedicationReminderAnswer(text);
         return;
       }
+
       handleChatTurn(text, durationMs);
       return;
     }
+
     submittingTranscriptRef.current = false;
   }, [durationMs, resetRecorder, transcript]);
 
   useEffect(() => {
-    if (!isConversationActive || !noSpeechDetected || voiceModeRef.current !== "conversation") return;
+    if (
+      !isConversationActive ||
+      !noSpeechDetected ||
+      voiceModeRef.current !== "conversation"
+    ) {
+      return;
+    }
 
     if (silenceRetryRef.current >= 1) {
       voiceModeRef.current = null;
@@ -370,6 +418,7 @@ export default function ChatbotMain() {
 
   useEffect(() => {
     if (!isConversationActive) return;
+
     if (isBotTyping) {
       setChatState("thinking");
     }
@@ -381,7 +430,10 @@ export default function ChatbotMain() {
     const lastBotMessage = [...messages]
       .reverse()
       .find((message) => message.role === "bot");
-    if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) return;
+
+    if (!lastBotMessage || lastBotMessage.id === lastBotMessageIdRef.current) {
+      return;
+    }
 
     lastBotMessageIdRef.current = lastBotMessage.id;
     activeBotTurnIdRef.current = lastBotMessage.turnId ?? lastBotMessage.id;
@@ -389,15 +441,16 @@ export default function ChatbotMain() {
     lastPromptRef.current = lastBotMessage.text;
     displayedReplyRef.current = "";
     typewriterDelayRef.current = lastBotMessage.typingDelayMs ?? 48;
+
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
       typewriterTimerRef.current = null;
     }
+
     setBotReply("");
     setBotEmotion(lastBotMessage.emotion ?? liveBotEmotion);
     streamReplyCharacters();
     setChatState("botSpeaking");
-
   }, [isConversationActive, liveBotEmotion, messages]);
 
   useEffect(() => {
@@ -407,66 +460,71 @@ export default function ChatbotMain() {
       isBotTyping ||
       isBotSpeaking ||
       greetingInProgressRef.current
-    ) return;
+    ) {
+      return;
+    }
 
     if (nextAction === "finish") {
-    setChatState("completed");
-    setTimeout(() => {
+      voiceModeRef.current = null;
       conversationActiveRef.current = false;
       setIsConversationActive(false);
-      setChatState("idle");
-      setBotEmotion("default");
-    }, 2000); // completed 상태 잠깐 보여주고 idle로
-    return;
-  }
+      setChatState("completed");
+      setBotEmotion("clapping");
+      setShowConversationResult(true);
+      return;
+    }
+
     setChatState("listening");
     beginConversationListening();
   }, [chatState, isBotSpeaking, isBotTyping, isConversationActive, nextAction]);
 
-const startFirstGreeting = useCallback(async () => {
-  if (conversationRunningRef.current) return;
+  const startFirstGreeting = useCallback(async () => {
+    if (conversationRunningRef.current) return;
 
-  conversationRunningRef.current = true;
-  greetingInProgressRef.current = true;
+    conversationRunningRef.current = true;
+    greetingInProgressRef.current = true;
 
-  try {
-    const firstReply = "안녕하세요. 오늘은 어떤 하루였나요?";
+    try {
+      const firstReply = "안녕하세요. 오늘은 어떤 하루였나요?";
 
-    silenceRetryRef.current = 0;
-    lastPromptRef.current = firstReply;
-    setBotReply(firstReply);
-    setBotEmotion("happy");
-    setChatState("botSpeaking");
+      silenceRetryRef.current = 0;
+      lastPromptRef.current = firstReply;
+      setBotReply(firstReply);
+      setBotEmotion("happy");
+      setChatState("botSpeaking");
 
-    await speakText(firstReply);
+      await speakText(firstReply);
 
-    greetingInProgressRef.current = false;
-    // ↓ 여기서 반드시 ref를 true로 재확인하고 시작
-    conversationActiveRef.current = true;
-    setIsConversationActive(true);
-    setChatState("listening");
-    beginConversationListening();
-  } catch {
-    setChatState("error");
-    await wait(1200);
-    setChatState("idle");
-    conversationActiveRef.current = false;
-    setIsConversationActive(false);
-  } finally {
-    greetingInProgressRef.current = false;
-    conversationRunningRef.current = false;
-  }
-}, [speakText]);
+      greetingInProgressRef.current = false;
+      conversationActiveRef.current = true;
+      setIsConversationActive(true);
+      setChatState("listening");
+      beginConversationListening();
+    } catch {
+      setChatState("error");
+      await wait(1200);
+      setChatState("idle");
+      conversationActiveRef.current = false;
+      setIsConversationActive(false);
+    } finally {
+      greetingInProgressRef.current = false;
+      conversationRunningRef.current = false;
+    }
+  }, [speakText]);
 
   const startMedicationReminderConversation = useCallback(async () => {
-    const reminderId = typeof medicationReminderId === "string" ? medicationReminderId : undefined;
-    const localId = typeof localMedicationId === "string" ? localMedicationId : undefined;
+    const reminderId =
+      typeof medicationReminderId === "string" ? medicationReminderId : undefined;
+    const localId =
+      typeof localMedicationId === "string" ? localMedicationId : undefined;
+
     if ((!reminderId && !localId) || conversationRunningRef.current) return;
 
     conversationRunningRef.current = true;
     greetingInProgressRef.current = true;
     medicationReminderIdRef.current = reminderId ?? null;
     localMedicationIdRef.current = localId ?? null;
+
     const prompt =
       typeof medicationPrompt === "string" && medicationPrompt.trim()
         ? medicationPrompt
@@ -478,7 +536,9 @@ const startFirstGreeting = useCallback(async () => {
       setBotReply(prompt);
       setBotEmotion("happy");
       setChatState("botSpeaking");
+
       await speakText(prompt);
+
       greetingInProgressRef.current = false;
       beginConversationListening();
     } catch {
@@ -493,21 +553,24 @@ const startFirstGreeting = useCallback(async () => {
 
   useEffect(() => {
     const triggerId = medicationReminderId ?? localMedicationId;
-    if (
-      !triggerId ||
-      medicationAutoStartedRef.current === triggerId
-    ) return;
+
+    if (!triggerId || medicationAutoStartedRef.current === triggerId) return;
 
     medicationAutoStartedRef.current = triggerId;
     voiceModeRef.current = null;
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
+
     void startMedicationReminderConversation();
-  }, [localMedicationId, medicationReminderId, resetRecorder, startMedicationReminderConversation]);
+  }, [
+    localMedicationId,
+    medicationReminderId,
+    resetRecorder,
+    startMedicationReminderConversation,
+  ]);
 
   useEffect(() => {
-    // 홈을 직접 열었을 때는 자동 시작하지 않는다.
     if (!startedFromIntro || autoStartedRef.current) return;
 
     autoStartedRef.current = true;
@@ -515,6 +578,7 @@ const startFirstGreeting = useCallback(async () => {
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
+
     void startFirstGreeting();
   }, [resetRecorder, startFirstGreeting, startedFromIntro]);
 
@@ -523,27 +587,33 @@ const startFirstGreeting = useCallback(async () => {
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
+    setShowConversationResult(false);
+
     void startFirstGreeting();
   }
 
   function beginConversationListening() {
-  console.log("[LISTEN] active:", conversationActiveRef.current, "recorder:", recorderState);
-  if (!conversationActiveRef.current) return;
-  if (recorderState === "recording" || recorderState === "processing") return;
+    console.log("[LISTEN] active:", conversationActiveRef.current, "recorder:", recorderState);
 
-  voiceModeRef.current = "conversation";
-  resetRecorder();
-  setBotEmotion("listening");
-  setChatState("listening");
-  // 웹에서 reset 직후 바로 start하면 MediaRecorder가 초기화 안 된 채로 시작될 수 있음
-  setTimeout(() => {
-    void startRecording();
-  }, 80);
-}
+    if (!conversationActiveRef.current) return;
+    if (recorderState === "recording" || recorderState === "processing") return;
+
+    voiceModeRef.current = "conversation";
+    resetRecorder();
+    setBotEmotion("listening");
+    setChatState("listening");
+
+    setTimeout(() => {
+      void startRecording();
+    }, 80);
+  }
 
   function handleConversationVoice() {
-    // 대화 모드에서는 자동으로 듣기와 전송이 이어진다. 권한 오류 뒤 재시도할 때만 누른다.
-    if (chatState !== "botSpeaking" && chatState !== "thinking" && recorderState !== "recording") {
+    if (
+      chatState !== "botSpeaking" &&
+      chatState !== "thinking" &&
+      recorderState !== "recording"
+    ) {
       beginConversationListening();
     }
   }
@@ -554,12 +624,24 @@ const startFirstGreeting = useCallback(async () => {
     setBotEmotion("default");
     conversationActiveRef.current = false;
     setIsConversationActive(false);
+    setShowConversationResult(false);
     resetRecorder();
     router.push(recordHref);
   }
 
-  // 챗봇 메인은 보호자·직접사용자 모두 동일한 대화 화면을 사용한다.
-  // 초대/연결 관리는 가족 및 설정 화면에서 처리한다.
+  function handleResultHome() {
+    conversationRunningRef.current = false;
+    conversationActiveRef.current = false;
+    submittingTranscriptRef.current = false;
+    voiceModeRef.current = null;
+    setShowConversationResult(false);
+    setIsConversationActive(false);
+    setChatState("idle");
+    setBotEmotion("default");
+    setBotReply("오늘은 어떤 하루였나요?");
+    resetRecorder();
+  }
+
   const showGuardianNotice = false;
 
   const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
@@ -588,6 +670,7 @@ const startFirstGreeting = useCallback(async () => {
 
   useEffect(() => {
     if (!isConversationActive || !permissionDenied) return;
+
     setBotEmotion("worried");
     setBotReply("마이크 사용을 허용해 주시면 목소리로 이야기할 수 있어요");
     setChatState("listening");
@@ -595,6 +678,7 @@ const startFirstGreeting = useCallback(async () => {
 
   useEffect(() => {
     if (!isConversationActive || !recorderError) return;
+
     setBotEmotion("worried");
     setBotReply(recorderError);
     setChatState("listening");
@@ -616,6 +700,15 @@ const startFirstGreeting = useCallback(async () => {
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);
 
+  if (showConversationResult) {
+    return (
+      <ResultComplete
+        type="conversation"
+        onHome={handleResultHome}
+      />
+    );
+  }
+
   return (
     <View style={styles.fill}>
       <LinearGradient
@@ -624,16 +717,16 @@ const startFirstGreeting = useCallback(async () => {
       />
 
       <LinearGradient
-        pointerEvents="none"
         colors={["rgba(247,214,172,0)", "rgba(247,214,172,0.72)", "#F7D6AC"]}
         locations={[0, 0.58, 1]}
-        style={styles.navBackdrop}
+        style={[styles.navBackdrop, { pointerEvents: 'none' }]}
       />
 
       <View style={[styles.header, { top: headerTop }]}>
         <View style={styles.dateBlock}>
           <Text style={styles.dateText}>6월 17일 (화)</Text>
         </View>
+
         {role === "elder" && (
           <Pressable
             style={styles.notificationButton}
@@ -695,12 +788,11 @@ const startFirstGreeting = useCallback(async () => {
             }
           >
             <Svg
-              pointerEvents="none"
               width="100%"
               height="100%"
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
-              style={styles.speechBubbleShape}
+              style={[styles.speechBubbleShape, { pointerEvents: 'none' }]}
             >
               <Path
                 d="M 12 0 H 88 C 94.6 0 100 13.5 100 30 V 64 C 100 79.5 94.6 92 88 92 H 60 C 56 92 55 97 50 97 C 45 97 44 92 40 92 H 12 C 5.4 92 0 79.5 0 64 V 30 C 0 13.5 5.4 0 12 0 Z"
@@ -709,11 +801,10 @@ const startFirstGreeting = useCallback(async () => {
             </Svg>
 
             <Svg
-              pointerEvents="none"
               width={18}
               height={18}
               viewBox="0 0 18 18"
-              style={[styles.speechSparkle, styles.speechSparkleLeft]}
+              style={[styles.speechSparkle, styles.speechSparkleLeft, { pointerEvents: 'none' }]}
             >
               <Path
                 d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7"
@@ -725,11 +816,10 @@ const startFirstGreeting = useCallback(async () => {
             </Svg>
 
             <Svg
-              pointerEvents="none"
               width={18}
               height={18}
               viewBox="0 0 18 18"
-              style={[styles.speechSparkle, styles.speechSparkleRight]}
+              style={[styles.speechSparkle, styles.speechSparkleRight, { pointerEvents: 'none' }]}
             >
               <Path
                 d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7"
@@ -762,7 +852,6 @@ const startFirstGreeting = useCallback(async () => {
       )}
 
       <View
-        pointerEvents="none"
         style={[
           styles.characterWrap,
           {
@@ -770,6 +859,7 @@ const startFirstGreeting = useCallback(async () => {
             right: 0,
             top: characterTop,
             height: characterHeight,
+            pointerEvents: 'none',
           },
         ]}
       >
@@ -787,10 +877,9 @@ const startFirstGreeting = useCallback(async () => {
       </View>
 
       <LinearGradient
-        pointerEvents="none"
         colors={["#F7D6AC", "rgba(247,214,172,0.92)", "rgba(247,214,172,0)"]}
         locations={[0, topFadeStop, 1]}
-        style={[styles.characterTopFade, { height: topFadeHeight }]}
+        style={[styles.characterTopFade, { height: topFadeHeight, pointerEvents: 'none' }]}
       />
 
       <Pressable
@@ -810,6 +899,7 @@ const startFirstGreeting = useCallback(async () => {
         <View style={styles.recordTextWrap}>
           <Text style={styles.recordTitle}>녹음하러 가기</Text>
         </View>
+
         <ChevronRight
           style={styles.buttonChevron}
           size={26}
@@ -820,11 +910,11 @@ const startFirstGreeting = useCallback(async () => {
 
       <Pressable
         style={({ pressed }) => [
-            styles.conversationButton,
-            { bottom: recordBottom + 90 },
-            pressed && !isConversationActive && styles.pressed,
-            isConversationActive && styles.conversationButtonDisabled,
-          ]}
+          styles.conversationButton,
+          { bottom: recordBottom + 90 },
+          pressed && !isConversationActive && styles.pressed,
+          isConversationActive && styles.conversationButtonDisabled,
+        ]}
         onPress={handleStartConversation}
         disabled={isConversationActive}
         accessibilityRole="button"
@@ -832,30 +922,33 @@ const startFirstGreeting = useCallback(async () => {
           isConversationActive ? "모아가 듣고 있어요" : "모아와 대화 시작하기"
         }
       >
-          <View style={styles.conversationIconWrap}>
-            <MessageCircle
-              size={32}
-              color="#FFFFFF"
-              fill="#FFFFFF"
-              strokeWidth={1.8}
-            />
-            <View style={styles.conversationIconDots}>
-              <View style={styles.conversationIconDot} />
-              <View style={styles.conversationIconDot} />
-              <View style={styles.conversationIconDot} />
-            </View>
-          </View>
-          <View style={styles.conversationTextWrap}>
-            <Text style={styles.conversationTitle}>
-              {isConversationActive ? "듣고 있어요..." : "모아와 대화 시작하기"}
-            </Text>
-          </View>
-          <ChevronRight
-            style={styles.buttonChevron}
-            size={26}
+        <View style={styles.conversationIconWrap}>
+          <MessageCircle
+            size={32}
             color="#FFFFFF"
-            strokeWidth={2.2}
+            fill="#FFFFFF"
+            strokeWidth={1.8}
           />
+
+          <View style={styles.conversationIconDots}>
+            <View style={styles.conversationIconDot} />
+            <View style={styles.conversationIconDot} />
+            <View style={styles.conversationIconDot} />
+          </View>
+        </View>
+
+        <View style={styles.conversationTextWrap}>
+          <Text style={styles.conversationTitle}>
+            {isConversationActive ? "듣고 있어요..." : "모아와 대화 시작하기"}
+          </Text>
+        </View>
+
+        <ChevronRight
+          style={styles.buttonChevron}
+          size={26}
+          color="#FFFFFF"
+          strokeWidth={2.2}
+        />
       </Pressable>
     </View>
   );

@@ -43,7 +43,6 @@ interface CharacterPlayerProps {
   size?: number;
   circular?: boolean;
   containerStyle?: StyleProp<ViewStyle>;
-  /** Optional bottom fade used when the video needs to blend into a page background. */
   bottomFadeColor?: string;
 }
 
@@ -92,8 +91,6 @@ function AvatarVideoLayer({
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
-
-    // 영상 움직임이 너무 빠르면 0.65~0.8 사이로 조절
     p.playbackRate = 0.75;
   });
 
@@ -208,10 +205,9 @@ function AbsoluteCharacterVideo({
       ))}
       {bottomFadeColor && (
         <LinearGradient
-          pointerEvents="none"
           colors={[`${bottomFadeColor}00`, `${bottomFadeColor}90`, bottomFadeColor]}
           locations={[0, 0.45, 1]}
-          style={styles.bottomFadeMask}
+          style={[styles.bottomFadeMask, { pointerEvents: 'none' }]}
         />
       )}
     </View>

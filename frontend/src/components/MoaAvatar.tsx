@@ -40,7 +40,6 @@ function VideoLayer({
 }) {
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const videoSrc = resolveVideoSrc(layer.emotion, layer.isTalking);
-  // 모든 레이어를 mount해 소스를 미리 로드하되, 재생은 보이는 레이어만 (아래 effect).
   const player = useVideoPlayer(videoSrc, (p) => {
     p.loop = true;
     p.muted = true;
@@ -60,13 +59,11 @@ function VideoLayer({
         duration: CROSSFADE_MS,
         useNativeDriver: USE_NATIVE_DRIVER,
       }).start(({ finished }) => {
-        // 페이드 아웃 완료 후 정지 → 동시 재생 디코더를 최소화(끊김의 주원인 제거).
         if (finished) player.pause();
       });
     }
   }, [visible, opacity, player]);
 
-  // 자연스러운 전환 보조 신호 — 보이는(재생 중) 레이어에서만 발생.
   useEventListener(player, "playToEnd", () => {
     if (!visible) return;
     onActiveVideoLoop?.({ emotion: layer.emotion, isTalking: layer.isTalking });
@@ -74,8 +71,7 @@ function VideoLayer({
 
   return (
     <Animated.View
-      pointerEvents="none"
-      style={[styles.videoLayer, { width: size, height: size, opacity }]}
+      style={[styles.videoLayer, { width: size, height: size, opacity, pointerEvents: 'none' }]}
     >
       <VideoView
         player={player}
