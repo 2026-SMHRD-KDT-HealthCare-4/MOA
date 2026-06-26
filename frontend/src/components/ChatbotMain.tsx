@@ -18,6 +18,7 @@ import { useMedicationStore } from "../stores/medicationStore";
 import * as Notifications from "expo-notifications";
 import { useMoaChat } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
+import { analyzeVoice } from "../api/record";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
 
 type ChatState =
@@ -132,9 +133,11 @@ export default function ChatbotMain() {
     permissionDenied,
     error: recorderError,
     noSpeechDetected,
+    audioUri,            // ← 추가: 보관된 녹음 파일 경로
     start: startRecording,
     reset: resetRecorder,
-  } = useRecorder({ autoStopOnSilence: true });
+    clearAudio,          // ← 추가: 분석 후 해제(ZDR)
+} = useRecorder({ autoStopOnSilence: true, keepAudio: true });  // ← keepAudio 추가
 
   const turnCountRef = useRef(0);
   const conversationRunningRef = useRef(false);
@@ -368,6 +371,19 @@ export default function ChatbotMain() {
     submittingTranscriptRef.current = true;
 
     if (SHOW_STT_DEBUG) setLastRecognizedText(text);
+
+    // ── 매 발화 턴의 음성을 분석에 보내고 즉시 해제(ZDR) ──
+    // resetRecorder()가 보관 오디오를 정리하기 전에 uri를 확보해서 전송한다.
+    const turnAudioUri = audioUri;
+    console.log("[ANALYZE_DEBUG] audioUri =", turnAudioUri);
+    if (turnAudioUri) {
+      void analyzeVoice(turnAudioUri, "CHATBOT")
+        .catch((e) => console.warn("[CHATBOT_ANALYZE_FAILED]", e))
+        .finally(() => {
+          // 분석 성공/실패와 무관하게 음성 파일은 즉시 폐기한다.
+          void clearAudio?.();
+        });
+    }
 
     resetRecorder();
 

@@ -70,9 +70,13 @@ def extract_byols_embedding(wav_path: str) -> np.ndarray:
         audio_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(0)  # (1, T)
 
         with torch.no_grad():
-            embedding = serab_byols.get_scene_embeddings(audio_tensor, _byols_model)
+            embedding = serab_byols.get_scene_embeddings(
+                audio_tensor, _byols_model, cfg_path=_CONFIG_PATH
+            )
 
         return embedding.squeeze().cpu().numpy()  # (2048,)
     except Exception as e:
-        print(f"⚠️ BYOL-S 임베딩 추출 실패: {e}")
+        import traceback
+        print(f"⚠️ BYOL-S 임베딩 추출 실패: [{type(e).__name__}] {e!r}")
+        traceback.print_exc()
         return None

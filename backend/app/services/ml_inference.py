@@ -4,6 +4,8 @@ ML 추론 bridge — 백엔드 ↔ MOAInferenceEngine 연결
 
 import os
 import sys
+import shutil
+import subprocess
 import tempfile
 import numpy as np
 
@@ -79,19 +81,65 @@ def _score_to_level(score: float, disease: str = "") -> str:
 
 
 # ── 메인 추론 함수 ───────────────────────────────────────────────
+def _decode_to_wav(audio_bytes: bytes) -> str:
+    """
+    입력 오디오(webm/m4a/wav/ogg 등 무엇이든)를 표준 16kHz mono PCM WAV로
+    디코딩해 임시파일 경로를 반환한다.
+
+    웹 챗봇은 webm(Opus), 모바일은 m4a를 보내는데 parselmouth/openSMILE/
+    BYOL-S 등은 진짜 PCM WAV만 읽을 수 있으므로 여기서 한 번 정규화해
+    이후 모든 추출기(음향지표/HuBERT/BYOL-S)가 같은 WAV를 쓰게 한다.
+
+    1순위: ffmpeg(설치돼 있으면) — 가장 폭넓은 포맷 지원
+    2순위: librosa(audioread/soundfile) — ffmpeg 없을 때의 폴백
+    호출부가 반환된 경로를 finally에서 삭제한다(ZDR).
+    """
+    raw_fd, raw_path = tempfile.mkstemp(suffix=".bin")
+    os.close(raw_fd)
+    with open(raw_path, "wb") as f:
+        f.write(audio_bytes)
+
+    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(wav_fd)
+
+    try:
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-i", raw_path,
+                 "-ac", "1", "-ar", "16000", "-f", "wav", "-acodec", "pcm_s16le",
+                 wav_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            if proc.returncode == 0 and os.path.getsize(wav_path) > 0:
+                return wav_path
+            err = proc.stderr.decode("utf-8", errors="replace")[-300:]
+            print(f"⚠️ ffmpeg 변환 실패, librosa 폴백 시도: {err}")
+
+        # 폴백: librosa로 디코딩 후 soundfile로 WAV 기록
+        import librosa
+        import soundfile as sf
+
+        y, _ = librosa.load(raw_path, sr=16000, mono=True)
+        sf.write(wav_path, y, 16000, subtype="PCM_16")
+        return wav_path
+
+    except Exception:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        raise
+    finally:
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
+
+
 def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
     tmp_path = None
     try:
-        # 임시 WAV 저장
-        fd, tmp_path = tempfile.mkstemp(suffix=".wav")
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(audio_bytes)
-                f.flush()
-                os.fsync(f.fileno())
-        except Exception:
-            os.close(fd)
-            raise
+        # 입력이 webm/m4a/wav 무엇이든 표준 16kHz PCM WAV로 변환한 뒤 처리한다.
+        # 이렇게 한 번 정규화하면 아래의 음향지표/HuBERT/BYOL-S 추출이 모두
+        # 동일한 정상 WAV를 사용하게 되어 "Not an audio file" 오류가 사라진다.
+        tmp_path = _decode_to_wav(audio_bytes)
 
         # ── 1. 음향지표 추출 (파킨슨용) ──
         acoustic = _fe.extract_all_acoustic_features(tmp_path)
@@ -132,6 +180,16 @@ def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
                 print(f"⚠️ BYOL-S 추출 실패: {e}")
                 byols_embedding = None
 
+        # ── 디버그: 각 모델 입력이 실제로 들어왔는지 확인 ──
+        # (None/비어있음이면 해당 질환이 0으로 떨어지는 원인이 된다)
+        print(
+            "🔎 ML 입력 점검 → "
+            f"raw_features(치매)={'있음' if raw_features.get('CTD') else '없음'}, "
+            f"hubert(치매)={'있음' if hubert_embedding is not None else 'None'}, "
+            f"byols(당뇨)={'있음' if byols_embedding is not None else 'None'}, "
+            f"user_info={user_info}"
+        )
+
         # ── 5. features 딕셔너리 구성 ──
         features = {
             "acoustic":         acoustic,           # 파킨슨용
@@ -151,6 +209,12 @@ def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
     dem = float(rs["score_dem"])
     dep = float(rs["score_dep"])
     dm  = float(rs["score_dm"])
+
+    # ── 디버그: ML이 백엔드에 넘기는 최종 점수 ──
+    # 이 값과 DB(risk_prediction)의 값을 비교하면 0이 어디서 생기는지 알 수 있다.
+    #  - 여기서 이미 0 → ML 엔진(total_engine) 계산/입력 문제
+    #  - 여기선 0이 아닌데 DB가 0 → 저장(컬럼/스키마) 문제
+    print(f"🎯 ML 최종 점수 → pkn={pkn}, dem={dem}, dm={dm}, dep={dep}")
 
     return {
         "parkinson":  {"score": pkn, "level": _score_to_level(pkn, "parkinson")},
