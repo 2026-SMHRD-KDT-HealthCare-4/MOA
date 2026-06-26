@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: moa-fastapi-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - EXPO_PUBLIC_API_BASE_URL=https://api.moa-app.com # 실제 배포 시 연동할 백엔드 HTTPS 주소로 수정
+    container_name: moa-expo-web
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
