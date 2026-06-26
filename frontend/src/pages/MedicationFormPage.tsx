@@ -27,7 +27,7 @@ export default function MedicationFormPage() {
   const item = useMedicationStore((s) => s.medications.find((m) => m.id === resolvedId)); 
   const add = useMedicationStore((s) => s.addMedication); 
   const update = useMedicationStore((s) => s.updateMedication); 
-  const deleteMedication = useMedicationStore((s) => s.deleteMedication); 
+  const deleteMedicationLocal = useMedicationStore((s) => s.deleteMedication);
   const setNotificationId = useMedicationStore((s) => s.setNotificationId);
   const [name, setName] = useState(item?.medicineName ?? ""); 
   const [cycle, setCycle] = useState<CycleType>(item?.scheduleType ?? item?.cycleType ?? "daily"); 
@@ -133,7 +133,7 @@ export default function MedicationFormPage() {
     const performDelete = async () => {
       try {
         await deleteMedication(id);
-        deleteMedication(id); // Zustand 로컬 동기화
+        deleteMedicationLocal(id); // Zustand 로컬 동기화
         router.replace("/health");
       } catch (err) {
         console.error("Failed to delete medication:", err);
