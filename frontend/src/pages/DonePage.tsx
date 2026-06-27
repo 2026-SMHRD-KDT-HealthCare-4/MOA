@@ -158,10 +158,10 @@ export default function DonePage() {
           ]}
           onPress={goHome}
           accessibilityRole="button"
-          accessibilityLabel="홈으로 가기"
+          accessibilityLabel="기록으로 돌아가기"
         >
           <Home size={27} color="#FFFFFF" />
-          <Text style={styles.homeButtonText}>홈으로 가기</Text>
+          <Text style={styles.homeButtonText}>기록으로 돌아가기</Text>
         </Pressable>
       </View>
 
