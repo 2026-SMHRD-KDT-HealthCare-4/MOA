@@ -237,11 +237,22 @@ export function useRecorder({
       // 무음/잡음 구간의 Whisper 환각이나 빈 결과는 발화로 처리하지 않고
       // 무발화(no-speech) 경로로 보낸다 → ChatbotMain이 재안내/종료를 담당한다.
       if (!text || isWhisperHallucination(text)) {
-        if (!isWeb) await FileSystem.deleteAsync(uri, { idempotent: true });
+        if (!isWeb) {
+          await FileSystem.deleteAsync(uri, { idempotent: true });
+        }
+
         setTranscript(null);
         setNoSpeechDetected(true);
         setState("idle");
-        if (manageWakeWord) enableWakeWord();
+
+        if (manageWakeWord) {
+          enableWakeWord();
+        }
+
+        setTimeout(() => {
+          setNoSpeechDetected(false);
+        }, 3000);
+
         return;
       }
 
@@ -433,6 +444,10 @@ export function useRecorder({
         setTranscript(null);
         setNoSpeechDetected(true);
         setState("idle");
+
+        setTimeout(() => {
+          setNoSpeechDetected(false);
+        }, 3000);
         if (manageWakeWord) enableWakeWord();
         return;
       }

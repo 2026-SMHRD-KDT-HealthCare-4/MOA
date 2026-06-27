@@ -277,6 +277,7 @@ export default function HistoryPage() {
       params: {
         date: selectedKey,
         status: record.status,
+        origin: "history",
         type: "history",
         recordId: record.id,
         recordType: record.type,
