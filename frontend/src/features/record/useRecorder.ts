@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
+import { getAuthApiMode } from "../../api/auth";
 import { getToken } from "../../api/session";
 
 export type RecordState = "idle" | "recording" | "processing" | "done";
@@ -21,7 +22,10 @@ interface RecorderOptions {
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+  /\/$/,
+  "",
+);
 
 const MOCK_TRANSCRIPT =
   "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
@@ -71,22 +75,22 @@ async function whisperSTT(uri: string): Promise<string> {
     return form;
   }
 
-  const token = await getToken();
-  const hasRealSession = Boolean(token && !token.startsWith("mock-token-"));
-  if (hasRealSession) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: await createFormData(),
-      });
-      if (response.ok) {
-        const data = (await response.json()) as { text?: string };
-        return data.text ?? "";
-      }
-    } catch {
-      // 서버 연결 실패 시 개발용 직접 호출 경로로 이어진다.
+  if (getAuthApiMode() === "real") {
+    const token = await getToken();
+    if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
+
+    const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: await createFormData(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`STT_BACKEND_FAILED_${response.status}`);
     }
+
+    const data = (await response.json()) as { text?: string };
+    return data.text ?? "";
   }
 
   if (!OPENAI_API_KEY) return MOCK_TRANSCRIPT;
