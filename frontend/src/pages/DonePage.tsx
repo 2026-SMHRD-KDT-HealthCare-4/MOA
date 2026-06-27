@@ -102,7 +102,7 @@ export default function DonePage() {
         }}
       />
 
-      <View style={[styles.resultCard, { top: insets.top + Math.round(410 * v) }]}>
+      <View style={[styles.resultCard, { top: insets.top + Math.round(470 * v) }]}>
         <View style={styles.headlineRow}>
           <View style={[styles.mainIconCircle, { backgroundColor: theme.light }]}>
             {isConversation ? (
@@ -165,7 +165,7 @@ export default function DonePage() {
         </Pressable>
       </View>
 
-      <Text style={[styles.bottomNote, { top: insets.top + Math.round(782 * v) }]}>
+      <Text style={[styles.bottomNote, { top: insets.top + Math.round(860 * v) }]}>
         ※ 결과는 리포트에서 더 자세히 확인할 수 있어요.
       </Text>
     </View>
@@ -213,21 +213,21 @@ const styles = StyleSheet.create({
   },
 
   resultCard: {
-    position: "absolute",
-    left: 24,
-    right: 24,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.97)",
-    paddingHorizontal: 22,
-    paddingTop: 24,
-    paddingBottom: 18,
-    shadowColor: "#6A4B3C",
-    shadowOpacity: 0.11,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
-    zIndex: 6,
-  },
+  position: "absolute",
+  left: 20,
+  right: 20,
+  borderRadius: 18,
+  backgroundColor: "#FFFFFF",
+  padding: 18,
+  borderWidth: 1,
+  borderColor: "#f0e8e2",
+  shadowColor: "#c0a99f",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.08,
+  shadowRadius: 12,
+  elevation: 2,
+  zIndex: 6,
+},
 
   headlineRow: {
     flexDirection: "row",

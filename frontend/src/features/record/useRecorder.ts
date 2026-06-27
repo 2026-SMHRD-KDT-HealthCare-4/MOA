@@ -25,8 +25,8 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8
 
 const MOCK_TRANSCRIPT =
   "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
-const MAX_RECORDING_DURATION_MS = 30_000;
-const NO_SPEECH_TIMEOUT_MS = 8_000;
+const MAX_RECORDING_DURATION_MS = 8_000;
+const NO_SPEECH_TIMEOUT_MS = 6_000;
 
 // 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
 // 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
@@ -191,14 +191,14 @@ export function useRecorder({
         console.log("[VAD] rms:", rms.toFixed(4));
         const now = Date.now();
 
-        if (rms > 0.008) {
+        if (rms > 0.035) {
           heardSpeech = true;
           lastSpeechAt = now;
           lastSpeechAtRef.current = now - startedAt;
         }
 
         // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
-        if (heardSpeech && now - lastSpeechAt >= 800 && now - startedAt >= 700) {
+        if (heardSpeech && now - lastSpeechAt >= 700 && now - startedAt >= 900) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;
@@ -281,7 +281,10 @@ export function useRecorder({
     updateDuration();
     // 100ms 단위 갱신으로 SVG 링이 30초 동안 자연스럽게 채워진다.
     timerRef.current = setInterval(updateDuration, 100);
-    const timeoutMs = autoStopOnSilence ? NO_SPEECH_TIMEOUT_MS : MAX_RECORDING_DURATION_MS;
+    const timeoutMs =
+    autoStopOnSilence
+        ? NO_SPEECH_TIMEOUT_MS
+        : MAX_RECORDING_DURATION_MS;
     maxDurationTimeoutRef.current = setTimeout(() => {
       setDurationMs(timeoutMs);
       void finishRecording(autoStopOnSilence && lastSpeechAtRef.current === 0);
@@ -364,7 +367,10 @@ export function useRecorder({
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
         const shouldCommitFromSilence =
-          typeof metering === "number" && duration >= 1000 && lastSpeechAtRef.current > 0 && silenceElapsed >= 1100;
+          typeof metering === "number" &&
+          duration >= 1000 &&
+          lastSpeechAtRef.current > 0 &&
+          silenceElapsed >= 1000;
         const fallbackTurnLimit = 30000;
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
