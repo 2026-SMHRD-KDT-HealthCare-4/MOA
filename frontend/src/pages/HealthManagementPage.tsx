@@ -7,7 +7,7 @@ import {
   View,
   Platform,
 } from "react-native";
-import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -64,10 +64,8 @@ export default function HealthManagementPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const params = useLocalSearchParams<{ section?: string }>();
-
   const [active, setActive] = useState<"medication" | "hospital">(
-    params.section === "hospital" ? "hospital" : "medication"
+    "medication"
   );
 
   const authUser = useAuthStore((s) => s.user);
@@ -98,6 +96,7 @@ export default function HealthManagementPage() {
 
   useFocusEffect(
     useCallback(() => {
+      setActive("medication");
       loadData();
     }, [seniorId])
   );
