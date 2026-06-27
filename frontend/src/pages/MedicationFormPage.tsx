@@ -18,12 +18,36 @@ const today = new Date().toISOString().slice(0, 10);
 export default function MedicationFormPage() {
   const router = useRouter(); 
   const insets = useSafeAreaInsets(); 
-  const { id, reset } = useLocalSearchParams<{
+  const { id, reset, medicineName: medicineNameParam, cycleType: cycleTypeParam, times: timesParam, startDate: startDateParam, endDate: endDateParam, enabled: enabledParam } = useLocalSearchParams<{
     id?: string | string[];
     reset?: string | string[];
+    medicineName?: string | string[];
+    cycleType?: CycleType | CycleType[];
+    times?: string | string[];
+    startDate?: string | string[];
+    endDate?: string | string[];
+    enabled?: string | string[];
   }>();
   const resolvedId = Array.isArray(id) ? id[0] : id;
   const resolvedReset = Array.isArray(reset) ? reset[0] : reset;
+  const resolvedMedicineName = Array.isArray(medicineNameParam) ? medicineNameParam[0] : medicineNameParam;
+  const resolvedCycleType = Array.isArray(cycleTypeParam) ? cycleTypeParam[0] : cycleTypeParam;
+  const resolvedTimes = Array.isArray(timesParam) ? timesParam[0] : timesParam;
+  const resolvedStartDate = Array.isArray(startDateParam) ? startDateParam[0] : startDateParam;
+  const resolvedEndDate = Array.isArray(endDateParam) ? endDateParam[0] : endDateParam;
+  const resolvedEnabled = Array.isArray(enabledParam) ? enabledParam[0] : enabledParam;
+  const isEditMode = !!resolvedId;
+  const hasRouteMedicationParams = resolvedMedicineName !== undefined || resolvedTimes !== undefined || resolvedStartDate !== undefined;
+  const routeTimes = (() => {
+    if (!resolvedTimes) return ["08:00"];
+    try {
+      const parsed = JSON.parse(resolvedTimes);
+      return Array.isArray(parsed) && parsed.length ? parsed.map(String) : ["08:00"];
+    } catch {
+      const splitTimes = resolvedTimes.split(",").map((time) => time.trim()).filter(Boolean);
+      return splitTimes.length ? splitTimes : ["08:00"];
+    }
+  })();
   const item = useMedicationStore((s) => s.medications.find((m) => m.id === resolvedId)); 
   const add = useMedicationStore((s) => s.addMedication); 
   const update = useMedicationStore((s) => s.updateMedication); 
@@ -38,6 +62,28 @@ export default function MedicationFormPage() {
   const [enabled, setEnabled] = useState(item?.isActive ?? true);
   useEffect(() => {
     console.log("medication form", { id: resolvedId, item });
+
+    if (isEditMode && hasRouteMedicationParams) {
+      setName(resolvedMedicineName ?? "");
+      setCycle(resolvedCycleType ?? "daily");
+      setDays([]);
+      setTimes(routeTimes);
+
+      setDoseMode(
+        routeTimes.length === 1
+          ? "1"
+          : routeTimes.length === 2
+            ? "2"
+            : routeTimes.length === 3
+              ? "3"
+              : "custom"
+      );
+
+      setStartDate(resolvedStartDate || today);
+      setEndDate(resolvedEndDate ?? "");
+      setEnabled(resolvedEnabled !== "false");
+      return;
+    }
 
     if (item) {
       setName(item.medicineName);
@@ -68,7 +114,7 @@ export default function MedicationFormPage() {
       setEndDate("");
       setEnabled(true);
     }
-  }, [resolvedId, resolvedReset]);
+  }, [item, isEditMode, hasRouteMedicationParams, resolvedMedicineName, resolvedCycleType, resolvedTimes, resolvedStartDate, resolvedEndDate, resolvedEnabled, resolvedReset]);
   const setCount = (count: number) => setTimes((current) => Array.from({ length: count }, (_, index) => current[index] ?? (index === 1 ? "13:00" : index === 2 ? "20:00" : "08:00")));
   const chooseDose = (mode: "1" | "2" | "3" | "custom") => { setDoseMode(mode); if (mode !== "custom") setCount(Number(mode)); };
   const setSchedule = (next: CycleType) => { setCycle(next); if (next === "weekly" && days.length !== 1) setDays(["WED"]); if (next === "daily") setDays([]); };
@@ -100,9 +146,9 @@ export default function MedicationFormPage() {
     }
 
     try {
-      if (item) {
+      if (isEditMode && resolvedId) {
         // 기존 약 수정 (Zustand store 키 id 매핑)
-        await updateMedication(item.id, {
+        await updateMedication(resolvedId, {
           medicine_name: name.trim(),
           intake_time: formattedTimes[0],
           start_date: startDate,
@@ -112,7 +158,7 @@ export default function MedicationFormPage() {
         
         // Zustand 로컬 동기화 (기존 코드 호환용)
         const input: MedicationInput = { medicineName: name.trim(), cycleType: cycle, scheduleType: cycle, daysOfWeek: days, times: formattedTimes, startDate, endDate: endDate || null, isActive: enabled };
-        update(item.id, input);
+        update(resolvedId, input);
       } else {
         // 신규 등록
         const res = await createMedication(seniorId, name.trim(), formattedTimes, startDate, endDate || null, enabled);
@@ -169,7 +215,7 @@ export default function MedicationFormPage() {
     <View style={styles.header}>
       <TouchableOpacity onPress={()=>router.replace("/health")} style={styles.iconButton}>
         <ArrowLeft color="#3B2318" size={25}/></TouchableOpacity>
-        <Text style={styles.headerTitle}>{item ? "약 정보" : "약 추가"}</Text>{item ? <TouchableOpacity onPress={() => item && confirmDeleteMedication(item.id)}>
+        <Text style={styles.headerTitle}>{isEditMode ? "약 정보 수정" : "약 추가"}</Text>{isEditMode ? <TouchableOpacity onPress={() => resolvedId && confirmDeleteMedication(resolvedId)}>
           <Text style={styles.delete}>삭제</Text></TouchableOpacity> : <TouchableOpacity onPress={()=>void save()}>
             <Text style={styles.saveTop}>저장</Text></TouchableOpacity>}</View>
             <ScrollView contentContainerStyle={[styles.body,{paddingBottom:insets.bottom+30}]}>

@@ -13,9 +13,16 @@ import { scheduleHospitalNotifications, cancelHospitalNotifications } from "../u
 export default function HospitalFormPage() {
   const router=useRouter(); 
   const insets=useSafeAreaInsets(); 
-  const {id,reset}=useLocalSearchParams<{id?:string | string[]; reset?: string | string[]}>();
+  const {id,reset,hospitalName: hospitalNameParam,visitDate: visitDateParam,visitTime: visitTimeParam,memo: memoParam,enabled: enabledParam}=useLocalSearchParams<{id?:string | string[]; reset?: string | string[]; hospitalName?: string | string[]; visitDate?: string | string[]; visitTime?: string | string[]; memo?: string | string[]; enabled?: string | string[]}>();
   const resolvedId = Array.isArray(id) ? id[0] : id;
   const resolvedReset = Array.isArray(reset) ? reset[0] : reset;
+  const resolvedHospitalName = Array.isArray(hospitalNameParam) ? hospitalNameParam[0] : hospitalNameParam;
+  const resolvedVisitDate = Array.isArray(visitDateParam) ? visitDateParam[0] : visitDateParam;
+  const resolvedVisitTime = Array.isArray(visitTimeParam) ? visitTimeParam[0] : visitTimeParam;
+  const resolvedMemo = Array.isArray(memoParam) ? memoParam[0] : memoParam;
+  const resolvedEnabled = Array.isArray(enabledParam) ? enabledParam[0] : enabledParam;
+  const isEditMode = !!resolvedId;
+  const hasRouteScheduleParams = resolvedHospitalName !== undefined || resolvedVisitDate !== undefined || resolvedVisitTime !== undefined;
   const item=useMedicationStore(s=>s.hospitalSchedules.find(schedule=>schedule.id===resolvedId)); const add=useMedicationStore(s=>s.addHospitalSchedule); 
   const update=useMedicationStore(s=>s.updateHospitalSchedule); 
   const remove=useMedicationStore(s=>s.removeHospitalSchedule);
@@ -25,20 +32,40 @@ export default function HospitalFormPage() {
   const [memo,setMemo]=useState(item?.memo??""); 
   const [enabled,setEnabled]=useState(item?.enabled??true);
   useEffect(() => {
-    if (item) {
-      setHospitalName(item.hospitalName);
-      setVisitDate(item.visitDate);
-      setVisitTime(item.visitTime);
-      setMemo(item.memo ?? "");
-      setEnabled(item.enabled);
-    } else {
-      setHospitalName("");
-      setVisitDate("");
-      setVisitTime("");
-      setMemo("");
-      setEnabled(true);
-    }
-  }, [resolvedId, resolvedReset]);
+  if (isEditMode && hasRouteScheduleParams) {
+    setHospitalName(resolvedHospitalName ?? "");
+    setVisitDate(resolvedVisitDate ?? "");
+    setVisitTime(resolvedVisitTime ?? "");
+    setMemo(resolvedMemo ?? "");
+    setEnabled(resolvedEnabled !== "false");
+    return;
+  }
+
+  if (item) {
+    setHospitalName(item.hospitalName);
+    setVisitDate(item.visitDate);
+    setVisitTime(item.visitTime);
+    setMemo(item.memo ?? "");
+    setEnabled(item.enabled);
+    return;
+  }
+
+  if (isEditMode) {
+    setHospitalName(resolvedHospitalName ?? "");
+    setVisitDate(resolvedVisitDate ?? "");
+    setVisitTime(resolvedVisitTime ?? "");
+    setMemo(resolvedMemo ?? "");
+    setEnabled(resolvedEnabled !== "false");
+    return;
+  }
+
+  setHospitalName("");
+  setVisitDate("");
+  setVisitTime("");
+  setMemo("");
+  setEnabled(true);
+}, [item, isEditMode, hasRouteScheduleParams, resolvedHospitalName, resolvedVisitDate, resolvedVisitTime, resolvedMemo, resolvedEnabled, resolvedReset]);
+
   const save = async () => {
     const trimmedTime = visitTime.trim();
     const formattedVisitTime = /^\d:[0-5]\d$/.test(trimmedTime) ? "0" + trimmedTime : trimmedTime;
@@ -60,15 +87,15 @@ export default function HospitalFormPage() {
 
     try {
       const input = { hospitalName: hospitalName.trim(), visitDate, visitTime: formattedVisitTime, memo: memo.trim() || undefined, enabled };
-      if (item) {
-        await updateHospitalVisit(item.id, {
+      if (isEditMode && resolvedId) {
+        await updateHospitalVisit(resolvedId, {
           hospital_name: hospitalName.trim(),
           visit_date: visitDate,
           visit_time: formattedVisitTime,
           memo: memo.trim() || null,
           is_active: enabled,
         });
-        update(item.id, input);
+        update(resolvedId, input);
       } else {
         await createHospitalVisit(seniorId, hospitalName.trim(), visitDate, formattedVisitTime, memo.trim(), enabled);
         add(input);
@@ -81,12 +108,12 @@ export default function HospitalFormPage() {
   };
 
   const deleteItem = () => {
-    if (!item) return;
+    if (!resolvedId) return;
 
     const performDelete = async () => {
       try {
-        await deleteHospitalVisit(item.id);
-        remove(item.id);
+        await deleteHospitalVisit(resolvedId);
+        remove(resolvedId);
         router.replace("/health");
       } catch (err) {
         console.error("Failed to delete hospital visit:", err);
@@ -121,7 +148,7 @@ export default function HospitalFormPage() {
     <LinearGradient colors={["#F7D6AC","#FFF2DE","#F7D6AC"]} style={StyleSheet.absoluteFill}/>
     <View style={styles.header}><TouchableOpacity onPress={()=>router.replace("/health")} style={styles.back}>
       <ArrowLeft color="#3B2318" size={25}/></TouchableOpacity>
-      <Text style={styles.headerTitle}>{item?"병원 일정":"병원 일정 추가"}</Text>{item?<TouchableOpacity onPress={deleteItem}>
+      <Text style={styles.headerTitle}>{isEditMode?"병원 일정 수정":"병원 일정 추가"}</Text>{isEditMode?<TouchableOpacity onPress={deleteItem}>
         <Text style={styles.delete}>삭제</Text></TouchableOpacity>:<TouchableOpacity onPress={save}><Text style={styles.saveTop}>저장</Text></TouchableOpacity>}</View><ScrollView contentContainerStyle={[styles.body,{paddingBottom:insets.bottom+30}]}>
           <Field label="병원명">
             <TextInput value={hospitalName} onChangeText={setHospitalName} placeholder="예) 남양주 현대병원" placeholderTextColor="#A8968D" style={styles.input}/></Field>

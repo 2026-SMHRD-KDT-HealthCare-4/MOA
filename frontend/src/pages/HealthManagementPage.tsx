@@ -19,6 +19,7 @@ import {
 } from "lucide-react-native";
 import { useState, useEffect, useCallback } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
+import type { HospitalSchedule } from "../stores/medicationStore";
 import { cancelMedicationNotifications } from "../utils/notificationHelper";
 import { useAuthStore } from "../stores/authStore";
 import { listMedications, deleteMedication as deleteMedicationApi, MedicationResponse } from "../api/medication";
@@ -54,6 +55,8 @@ type GroupedMedication = {
   medicineName: string;
   times: string[];
   cycleType: string;
+  startDate: string;
+  endDate: string | null;
   isActive: boolean;
 };
 
@@ -110,6 +113,8 @@ export default function HealthManagementPage() {
           medicineName: item.medicine_name,
           times: [timeStr],
           cycleType: "daily",
+          startDate: item.start_date,
+          endDate: item.end_date,
           isActive: item.is_active,
         };
       } else {
@@ -197,10 +202,18 @@ export default function HealthManagementPage() {
     });
   };
 
-  const openMedicationEdit = (id: string) => {
+  const openMedicationEdit = (medication: GroupedMedication) => {
     router.push({
       pathname: "/medication-form",
-      params: { id },
+      params: {
+        id: medication.id,
+        medicineName: medication.medicineName,
+        cycleType: medication.cycleType,
+        times: JSON.stringify(medication.times),
+        startDate: medication.startDate,
+        endDate: medication.endDate ?? "",
+        enabled: medication.isActive ? "true" : "false",
+      },
     });
   };
 
@@ -213,10 +226,17 @@ export default function HealthManagementPage() {
     });
   };
 
-  const openHospitalEdit = (id: string) => {
+  const openHospitalEdit = (schedule: HospitalSchedule) => {
     router.push({
       pathname: "/hospital-form",
-      params: { id },
+      params: {
+        id: schedule.id,
+        hospitalName: schedule.hospitalName,
+        visitDate: schedule.visitDate,
+        visitTime: schedule.visitTime,
+        memo: schedule.memo ?? "",
+        enabled: schedule.enabled ? "true" : "false",
+      },
     });
   };
 
@@ -284,7 +304,7 @@ export default function HealthManagementPage() {
                   <TouchableOpacity
                     key={medication.id}
                     style={styles.medRow}
-                    onPress={() => openMedicationEdit(medication.id)}
+                    onPress={() => openMedicationEdit(medication)}
                     activeOpacity={0.8}
                   >
                     <View style={styles.pillIcon}>
@@ -328,7 +348,7 @@ export default function HealthManagementPage() {
                 <View key={medication.id} style={styles.listRow}>
                   <TouchableOpacity
                     style={styles.editRow}
-                    onPress={() => openMedicationEdit(medication.id)}
+                    onPress={() => openMedicationEdit(medication)}
                     activeOpacity={0.8}
                   >
                     <View style={styles.pillIcon}>
@@ -403,7 +423,7 @@ function ScheduleList({
   daysLeft,
 }: {
   schedules: ReturnType<typeof useMedicationStore.getState>["hospitalSchedules"];
-  onPress: (id: string) => void;
+  onPress: (schedule: HospitalSchedule) => void;
   daysLeft: (date: string) => number;
 }) {
   if (!schedules.length) {
@@ -423,7 +443,7 @@ function ScheduleList({
           <TouchableOpacity
             key={schedule.id}
             style={styles.scheduleCard}
-            onPress={() => onPress(schedule.id)}
+            onPress={() => onPress(schedule)}
           >
             <View style={styles.rowBody}>
               <Text style={styles.rowTitle}>{schedule.hospitalName}</Text>
