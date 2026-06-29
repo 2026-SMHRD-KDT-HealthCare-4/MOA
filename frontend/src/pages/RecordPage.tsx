@@ -43,8 +43,18 @@ export default function RecordPage() {
   const { width: windowWidth } = useWindowDimensions();
   const W = Math.min(windowWidth, 430);
 
-  const { state, transcript, durationMs, permissionDenied, start, stop, reset, audioUri, clearAudio } =
-    useRecorder({ keepAudio: REAL_API });
+  const {
+    state,
+    transcript,
+    durationMs,
+    permissionDenied,
+    noSpeechDetected,
+    start,
+    stop,
+    reset,
+    audioUri,
+    clearAudio,
+  } = useRecorder({ keepAudio: REAL_API });
   const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
 
   useEffect(() => {
@@ -110,7 +120,13 @@ export default function RecordPage() {
     } else if (REAL_API) {
       await clearAudio();
     }
-    router.replace("/done");
+    router.replace({
+      pathname: "/done",
+      params: {
+        origin: "home",
+        recordType: "record",
+      },
+    });
   }
 
   return (
@@ -174,6 +190,18 @@ export default function RecordPage() {
           <View style={styles.permDenied}>
             <Text style={styles.permDeniedText}>
               마이크 사용 권한이 필요해요.{"\n"}기기 설정에서 허용해 주세요.
+            </Text>
+          </View>
+        )}
+
+        {noSpeechDetected && (
+          <View style={styles.noSpeechCard}>
+            <Text style={styles.noSpeechTitle}>목소리가 잘 들리지 않았어요.</Text>
+
+            <Text style={styles.noSpeechBody}>
+              조금 더 크게,
+              {"\n"}
+              마이크 버튼을 누르고 다시 읽어 주세요.
             </Text>
           </View>
         )}
@@ -413,4 +441,26 @@ const styles = StyleSheet.create({
   },
   saveBtnText: { fontSize: 18, fontWeight: "700", color: "white" },
   finishHint: { marginTop: -12, color: "#9A887D", fontSize: 13, fontWeight: "600" },
+  noSpeechCard: {
+    width: "100%",
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+    backgroundColor: "#FFF6F3",
+    borderWidth: 1,
+    borderColor: "#F4C7BA",
+    alignItems: "center",
+  },
+  noSpeechTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#7A3A2A",
+  },
+  noSpeechBody: {
+    marginTop: 8,
+    fontSize: 16,
+    color: "#7B6C65",
+    textAlign: "center",
+    lineHeight: 24,
+  },
 });

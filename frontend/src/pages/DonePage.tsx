@@ -1,4 +1,12 @@
-import { View, Text, Pressable, StyleSheet, useWindowDimensions } from "react-native";
+import {
+  Image,
+  ScrollView,
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -7,19 +15,51 @@ import {
   MessageCircle,
   Mic,
   Heart,
-  Check,
   Volume2,
   Smile,
   TrendingUp,
 } from "lucide-react-native";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { useAuthStore } from "../stores/authStore";
+import { WEATHER_IMAGE, type WeatherStatus } from "../constants/weatherIcons";
 
 type DoneRecordType = "record" | "conversation";
+type MetricTone = "green" | "blue" | "orange" | "purple";
+
+const MOA_WINK_HEART = require("../../assets/images/moa-wink-heart.png");
+
+const voiceSummary: {
+  weather: WeatherStatus;
+  status: string;
+  description: string;
+  comparisonTitle: string;
+  comparisonDescription: string;
+} = {
+  weather: "sunny",
+  status: "맑은 편이에요!",
+  description: "오늘은 안정적인 목소리로 기록되었어요.",
+  comparisonTitle: "지난 검사와 비슷해요.",
+  comparisonDescription: "큰 변화는 없어요.",
+};
+
+const analysisItems: Array<{
+  label: string;
+  value: string;
+  progress: number;
+  tone: MetricTone;
+  icon: "voice" | "speed" | "amount" | "clarity";
+}> = [
+  { label: "목소리 떨림", value: "안정적", progress: 88, tone: "green", icon: "voice" },
+  { label: "말하기 속도", value: "정상", progress: 78, tone: "blue", icon: "speed" },
+  { label: "발화량", value: "충분", progress: 86, tone: "orange", icon: "amount" },
+  { label: "음성 명료도", value: "좋음", progress: 84, tone: "purple", icon: "clarity" },
+];
 
 export default function DonePage() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    origin?: string;
+    source?: string;
     type?: string;
     recordType?: string;
   }>();
@@ -33,7 +73,8 @@ export default function DonePage() {
   const s = W / 430;
   const v = H / 900;
 
-  const isHistoryView = params.type === "history";
+  const origin = params.origin ?? params.source ?? (params.type === "history" ? "history" : "home");
+  const isHistoryView = origin === "history";
 
   const recordType: DoneRecordType =
     params.recordType === "conversation" ? "conversation" : "record";
@@ -42,27 +83,20 @@ export default function DonePage() {
 
   const homeHref = role === "guardian" ? "/(guardian)/" : "/(elder)/";
   const historyHref = "/history";
+  const ctaLabel = isHistoryView ? "기록으로 돌아가기" : "홈으로 가기";
 
   const theme = isConversation
     ? {
         main: "#7A5CE0",
         light: "#EEE7FF",
-        title: "대화 완료! ✨",
+        title: "대화 완료!",
         badge: "대화 플로우",
-        headline: "오늘도 모아와\n즐겁게 이야기했어요!",
-        note1: "오늘 대화가 잘 기록되었어요.",
-        note2: "충분한 음성을 확인했어요.",
-        note3: "내일도 모아와 이야기해요!",
       }
     : {
         main: "#FF6F52",
         light: "#FFE9E1",
-        title: "녹음 완료! ✨",
+        title: "녹음 완료!",
         badge: "녹음 플로우",
-        headline: "오늘 목소리는\n맑은 편이에요!",
-        note1: "지난 검사와 비슷해요.",
-        note2: "충분한 음성이 기록되었어요.",
-        note3: "내일도 건강한 목소리로 만나요!",
       };
 
   function goHome() {
@@ -76,109 +110,181 @@ export default function DonePage() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.badge, { top: insets.top + 18, backgroundColor: theme.main }]}>
-        {isConversation ? (
-          <MessageCircle size={18} color="#FFFFFF" />
-        ) : (
-          <Mic size={18} color="#FFFFFF" />
-        )}
-        <Text style={styles.badgeText}>{theme.badge}</Text>
-      </View>
-
-      <Text style={[styles.title, { marginTop: insets.top + 76, color: theme.main }]}>
-        {theme.title}
-      </Text>
-
-      <Text style={[styles.heart, { top: insets.top + Math.round(240 * v) }]}>♥</Text>
-
-      <CharacterPlayer
-        mood="happy"
-        containerStyle={{
-          left: Math.round(54 * s),
-          right: Math.round(54 * s),
-          top: insets.top + Math.round(128 * v),
-          height: Math.round(330 * v),
-          borderRadius: Math.round(90 * s),
-        }}
-      />
-
-      <View style={[styles.resultCard, { top: insets.top + Math.round(410 * v) }]}>
-        <View style={styles.headlineRow}>
-          <View style={[styles.mainIconCircle, { backgroundColor: theme.light }]}>
-            {isConversation ? (
-              <MessageCircle size={38} color={theme.main} />
-            ) : (
-              <Smile size={38} color="#F7B928" />
-            )}
-          </View>
-
-          <Text style={styles.headline}>
-            {theme.headline.split("\n")[0]}
-            {"\n"}
-            <Text style={{ color: theme.main }}>{theme.headline.split("\n")[1]}</Text>
-          </Text>
+      <ScrollView
+        style={styles.screenScroll}
+        contentContainerStyle={[
+          styles.screenScrollContent,
+          { paddingTop: insets.top + 18 },
+          { paddingBottom: insets.bottom + 28 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.badge, { backgroundColor: theme.main }]}>
+          {isConversation ? (
+            <MessageCircle size={18} color="#FFFFFF" />
+          ) : (
+            <Mic size={18} color="#FFFFFF" />
+          )}
+          <Text style={styles.badgeText}>{theme.badge}</Text>
         </View>
 
-        <View style={styles.resultList}>
-          <View style={styles.resultRow}>
-            <View style={styles.greenCircle}>
-              {isConversation ? (
-                <Check size={22} color="#36B979" />
-              ) : (
-                <TrendingUp size={21} color="#FF6F52" />
-              )}
-            </View>
-            <Text style={styles.resultText}>{theme.note1}</Text>
-          </View>
+        <Text style={[styles.title, { color: theme.main }]}>{theme.title}</Text>
 
-          <View style={styles.resultRow}>
-            <View style={styles.yellowCircle}>
-              {isConversation ? (
-                <Volume2 size={21} color="#F5A623" />
-              ) : (
-                <Mic size={21} color="#22C285" />
-              )}
-            </View>
-            <Text style={styles.resultText}>{theme.note2}</Text>
-          </View>
+        <View style={[styles.heroStage, { height: Math.round(330 * v) }]}>
+          <Text style={[styles.heart, { top: Math.round(112 * v) }]}>♥</Text>
 
-          <View style={styles.resultRow}>
-            <View style={styles.purpleCircle}>
-              <Heart size={21} color={isConversation ? "#F45F8C" : theme.main} fill={isConversation ? "#F45F8C" : theme.main} />
-            </View>
-            <Text style={styles.resultText}>{theme.note3}</Text>
-          </View>
+          <CharacterPlayer
+            mood="happy"
+            containerStyle={{
+              left: Math.round(54 * s),
+              right: Math.round(54 * s),
+              top: 0,
+              height: Math.round(330 * v),
+              borderRadius: Math.round(90 * s),
+            }}
+          />
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.homeButton,
-            { backgroundColor: theme.main },
-            pressed && { opacity: 0.92, transform: [{ scale: 0.985 }] },
-          ]}
-          onPress={goHome}
-          accessibilityRole="button"
-          accessibilityLabel="홈으로 가기"
-        >
-          <Home size={27} color="#FFFFFF" />
-          <Text style={styles.homeButtonText}>홈으로 가기</Text>
-        </Pressable>
-      </View>
+        <View style={styles.resultCard}>
+          <View style={styles.statusRow}>
+            <View style={styles.weatherCircle}>
+              <Image
+                source={WEATHER_IMAGE[voiceSummary.weather]}
+                style={styles.weatherIcon}
+                resizeMode="contain"
+              />
+            </View>
+            <View style={styles.statusTextWrap}>
+              <Text style={styles.sectionEyebrow}>오늘의 목소리 상태</Text>
+              <Text style={[styles.statusTitle, { color: theme.main }]}>
+                {voiceSummary.status}
+              </Text>
+              <Text style={styles.statusDescription}>{voiceSummary.description}</Text>
+            </View>
+          </View>
 
-      <Text style={[styles.bottomNote, { top: insets.top + Math.round(782 * v) }]}>
-        ※ 결과는 리포트에서 더 자세히 확인할 수 있어요.
-      </Text>
+          <View style={styles.divider} />
+
+          <View style={styles.compareRow}>
+            <View style={styles.compareIconCircle}>
+              <TrendingUp size={29} color="#18A86B" />
+            </View>
+            <View style={styles.compareTextWrap}>
+              <Text style={styles.compareLabel}>지난 검사와 비교</Text>
+              <Text style={styles.compareTitle}>{voiceSummary.comparisonTitle}</Text>
+              <Text style={styles.compareDescription}>
+                {voiceSummary.comparisonDescription}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.analysisHeaderRow}>
+            <View style={styles.headerLine} />
+            <Text style={styles.analysisTitle}>오늘의 목소리 분석</Text>
+            <View style={styles.headerLine} />
+          </View>
+
+          <View style={styles.analysisList}>
+            {analysisItems.map((item) => (
+              <AnalysisRow key={item.label} item={item} />
+            ))}
+          </View>
+
+          <View style={styles.moaMessageCard}>
+            <Image source={MOA_WINK_HEART} style={styles.moaMessageImage} resizeMode="contain" />
+            <View style={styles.moaMessageTextWrap}>
+              <Text style={[styles.moaMessageTitle, { color: theme.main }]}>
+                모아가 전해요!
+              </Text>
+              <Text style={styles.moaMessageText}>오늘처럼 편안하게 이야기하면</Text>
+              <Text style={styles.moaMessageText}>변화를 더 정확하게 살펴볼 수 있어요.</Text>
+              <Text style={styles.moaMessageText}>내일도 모아와 함께해요. 💜</Text>
+            </View>
+          </View>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.homeButton,
+              { backgroundColor: theme.main },
+              pressed && { opacity: 0.92, transform: [{ scale: 0.985 }] },
+            ]}
+            onPress={goHome}
+            accessibilityRole="button"
+            accessibilityLabel={ctaLabel}
+          >
+            <Home size={27} color="#FFFFFF" />
+            <Text style={styles.homeButtonText}>{ctaLabel}</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.bottomNote}>
+          ※ 결과는 리포트에서 더 자세히 확인할 수 있어요.
+        </Text>
+      </ScrollView>
     </View>
   );
 }
+
+function AnalysisRow({
+  item,
+}: {
+  item: {
+    label: string;
+    value: string;
+    progress: number;
+    tone: MetricTone;
+    icon: "voice" | "speed" | "amount" | "clarity";
+  };
+}) {
+  const color = toneColor[item.tone];
+
+  return (
+    <View style={styles.analysisRow}>
+      <View style={[styles.metricIconCircle, { backgroundColor: color.light }]}>
+        {item.icon === "voice" && <Volume2 size={24} color={color.main} />}
+        {item.icon === "speed" && <TrendingUp size={23} color={color.main} />}
+        {item.icon === "amount" && <Mic size={24} color={color.main} />}
+        {item.icon === "clarity" && <Heart size={23} color={color.main} fill={color.main} />}
+      </View>
+
+      <Text style={styles.metricLabel}>{item.label}</Text>
+
+      <View style={styles.metricResult}>
+        <Text style={[styles.metricValue, { color: color.main }]}>{item.value}</Text>
+        <View style={styles.progressTrack}>
+          <View
+            style={[
+              styles.progressFill,
+              { width: `${item.progress}%`, backgroundColor: color.main },
+            ]}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const toneColor: Record<MetricTone, { main: string; light: string }> = {
+  green: { main: "#18A86B", light: "#E1F8EF" },
+  blue: { main: "#5579E8", light: "#E8EEFF" },
+  orange: { main: "#FF9F1C", light: "#FFF1D9" },
+  purple: { main: "#704FD3", light: "#EFE7FF" },
+};
 
 const styles = StyleSheet.create({
   fill: {
     flex: 1,
   },
 
+  screenScroll: {
+    flex: 1,
+  },
+
+  screenScrollContent: {
+    paddingBottom: 28,
+  },
+
   badge: {
-    position: "absolute",
     alignSelf: "center",
     height: 38,
     paddingHorizontal: 22,
@@ -187,7 +293,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
-    zIndex: 10,
   },
 
   badgeText: {
@@ -197,110 +302,249 @@ const styles = StyleSheet.create({
   },
 
   title: {
+    marginTop: 20,
+    marginBottom: 13,
     fontSize: 31,
     lineHeight: 39,
     fontWeight: "900",
     textAlign: "center",
-    zIndex: 5,
+  },
+
+  heroStage: {
+    position: "relative",
+    marginBottom: 12,
   },
 
   heart: {
     position: "absolute",
     left: 48,
-    color: "#FF6F52",
+    color: "#7A5CE0",
     fontSize: 34,
     zIndex: 5,
   },
 
   resultCard: {
-    position: "absolute",
-    left: 24,
-    right: 24,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.97)",
-    paddingHorizontal: 22,
-    paddingTop: 24,
-    paddingBottom: 18,
-    shadowColor: "#6A4B3C",
-    shadowOpacity: 0.11,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
-    zIndex: 6,
+    marginHorizontal: 20,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#f0e8e2",
+    shadowColor: "#c0a99f",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
   },
 
-  headlineRow: {
+  statusRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
-    marginBottom: 22,
+    gap: 18,
+    marginBottom: 18,
   },
 
-  mainIconCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+  weatherCircle: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: "#FFF7E8",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  headline: {
+  weatherIcon: {
+    width: 72,
+    height: 72,
+  },
+
+  statusTextWrap: {
     flex: 1,
+  },
+
+  sectionEyebrow: {
     color: "#2F2A26",
-    fontSize: 25,
-    lineHeight: 33,
+    fontSize: 19,
+    lineHeight: 25,
     fontWeight: "900",
+    marginBottom: 5,
   },
 
-  resultList: {
-    gap: 16,
+  statusTitle: {
+    fontSize: 31,
+    lineHeight: 38,
+    fontWeight: "900",
+    marginBottom: 4,
   },
 
-  resultRow: {
+  statusDescription: {
+    color: "#5D514B",
+    fontSize: 16,
+    lineHeight: 23,
+    fontWeight: "700",
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: "#EEE8E3",
+    marginBottom: 18,
+  },
+
+  compareRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 15,
+    marginBottom: 22,
   },
 
-  greenCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  compareIconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     backgroundColor: "#DDF8EA",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  yellowCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFF1C8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  purpleCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#EFE6FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  resultText: {
+  compareTextWrap: {
     flex: 1,
-    color: "#3F332E",
+  },
+
+  compareLabel: {
+    color: "#2F2A26",
     fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+
+  compareTitle: {
+    color: "#2F2A26",
+    fontSize: 24,
+    lineHeight: 31,
+    fontWeight: "900",
+  },
+
+  compareDescription: {
+    color: "#6F625C",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
+
+  analysisHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 13,
+  },
+
+  headerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E5DDD7",
+  },
+
+  analysisTitle: {
+    color: "#2F2A26",
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: "900",
+  },
+
+  analysisList: {
+    gap: 0,
+    marginBottom: 18,
+  },
+
+  analysisRow: {
+    minHeight: 68,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEE8E3",
+    gap: 12,
+  },
+
+  metricIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  metricLabel: {
+    flex: 1,
+    color: "#2F2A26",
+    fontSize: 19,
     lineHeight: 25,
+    fontWeight: "900",
+  },
+
+  metricResult: {
+    width: 130,
+    alignItems: "flex-start",
+    gap: 7,
+  },
+
+  metricValue: {
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+
+  progressTrack: {
+    width: "100%",
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#E5E5E5",
+    overflow: "hidden",
+  },
+
+  progressFill: {
+    height: "100%",
+    borderRadius: 5,
+  },
+
+  moaMessageCard: {
+    minHeight: 126,
+    borderRadius: 18,
+    backgroundColor: "#F5EEFF",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    gap: 8,
+    marginBottom: 16,
+  },
+
+  moaMessageImage: {
+    width: 112,
+    height: 104,
+  },
+
+  moaMessageTextWrap: {
+    flex: 1,
+  },
+
+  moaMessageTitle: {
+    fontSize: 22,
+    lineHeight: 29,
+    fontWeight: "900",
+    marginBottom: 5,
+  },
+
+  moaMessageText: {
+    color: "#2F2A26",
+    fontSize: 16,
+    lineHeight: 23,
     fontWeight: "800",
   },
 
   homeButton: {
     height: 66,
     borderRadius: 16,
-    marginTop: 26,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -320,9 +564,7 @@ const styles = StyleSheet.create({
   },
 
   bottomNote: {
-    position: "absolute",
-    left: 20,
-    right: 20,
+    marginTop: 10,
     color: "#8D796D",
     fontSize: 13,
     lineHeight: 19,

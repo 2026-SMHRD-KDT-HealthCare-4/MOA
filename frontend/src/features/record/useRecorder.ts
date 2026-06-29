@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
+import { getAuthApiMode } from "../../api/auth";
 import { getToken } from "../../api/session";
 
 export type RecordState = "idle" | "recording" | "processing" | "done";
@@ -21,12 +22,15 @@ interface RecorderOptions {
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+  /\/$/,
+  "",
+);
 
 const MOCK_TRANSCRIPT =
   "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
-const MAX_RECORDING_DURATION_MS = 30_000;
-const NO_SPEECH_TIMEOUT_MS = 8_000;
+const MAX_RECORDING_DURATION_MS = 8_000;
+const NO_SPEECH_TIMEOUT_MS = 6_000;
 
 // 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
 // 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
@@ -71,22 +75,22 @@ async function whisperSTT(uri: string): Promise<string> {
     return form;
   }
 
-  const token = await getToken();
-  const hasRealSession = Boolean(token && !token.startsWith("mock-token-"));
-  if (hasRealSession) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: await createFormData(),
-      });
-      if (response.ok) {
-        const data = (await response.json()) as { text?: string };
-        return data.text ?? "";
-      }
-    } catch {
-      // 서버 연결 실패 시 개발용 직접 호출 경로로 이어진다.
+  if (getAuthApiMode() === "real") {
+    const token = await getToken();
+    if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
+
+    const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: await createFormData(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`STT_BACKEND_FAILED_${response.status}`);
     }
+
+    const data = (await response.json()) as { text?: string };
+    return data.text ?? "";
   }
 
   if (!OPENAI_API_KEY) return MOCK_TRANSCRIPT;
@@ -191,14 +195,14 @@ export function useRecorder({
         console.log("[VAD] rms:", rms.toFixed(4));
         const now = Date.now();
 
-        if (rms > 0.008) {
+        if (rms > 0.035) {
           heardSpeech = true;
           lastSpeechAt = now;
           lastSpeechAtRef.current = now - startedAt;
         }
 
         // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
-        if (heardSpeech && now - lastSpeechAt >= 800 && now - startedAt >= 700) {
+        if (heardSpeech && now - lastSpeechAt >= 700 && now - startedAt >= 900) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;
@@ -233,11 +237,22 @@ export function useRecorder({
       // 무음/잡음 구간의 Whisper 환각이나 빈 결과는 발화로 처리하지 않고
       // 무발화(no-speech) 경로로 보낸다 → ChatbotMain이 재안내/종료를 담당한다.
       if (!text || isWhisperHallucination(text)) {
-        if (!isWeb) await FileSystem.deleteAsync(uri, { idempotent: true });
+        if (!isWeb) {
+          await FileSystem.deleteAsync(uri, { idempotent: true });
+        }
+
         setTranscript(null);
         setNoSpeechDetected(true);
         setState("idle");
-        if (manageWakeWord) enableWakeWord();
+
+        if (manageWakeWord) {
+          enableWakeWord();
+        }
+
+        setTimeout(() => {
+          setNoSpeechDetected(false);
+        }, 3000);
+
         return;
       }
 
@@ -281,7 +296,10 @@ export function useRecorder({
     updateDuration();
     // 100ms 단위 갱신으로 SVG 링이 30초 동안 자연스럽게 채워진다.
     timerRef.current = setInterval(updateDuration, 100);
-    const timeoutMs = autoStopOnSilence ? NO_SPEECH_TIMEOUT_MS : MAX_RECORDING_DURATION_MS;
+    const timeoutMs =
+    autoStopOnSilence
+        ? NO_SPEECH_TIMEOUT_MS
+        : MAX_RECORDING_DURATION_MS;
     maxDurationTimeoutRef.current = setTimeout(() => {
       setDurationMs(timeoutMs);
       void finishRecording(autoStopOnSilence && lastSpeechAtRef.current === 0);
@@ -364,7 +382,10 @@ export function useRecorder({
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
         const shouldCommitFromSilence =
-          typeof metering === "number" && duration >= 1000 && lastSpeechAtRef.current > 0 && silenceElapsed >= 1100;
+          typeof metering === "number" &&
+          duration >= 1000 &&
+          lastSpeechAtRef.current > 0 &&
+          silenceElapsed >= 1000;
         const fallbackTurnLimit = 30000;
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
@@ -423,6 +444,10 @@ export function useRecorder({
         setTranscript(null);
         setNoSpeechDetected(true);
         setState("idle");
+
+        setTimeout(() => {
+          setNoSpeechDetected(false);
+        }, 3000);
         if (manageWakeWord) enableWakeWord();
         return;
       }

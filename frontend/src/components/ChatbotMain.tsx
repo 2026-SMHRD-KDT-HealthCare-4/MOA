@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, useWindowDimensions, Share } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  Share,
+} from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Clock, Share2, ChevronRight, MessageCircle, Bell } from "lucide-react-native";
+import {
+  Clock,
+  Share2,
+  ChevronRight,
+  MessageCircle,
+  Bell,
+} from "lucide-react-native";
 import Svg, { Path } from "react-native-svg";
 import { CharacterPlayer, type CharacterMood } from "./CharacterPlayer";
 import { ResultComplete } from "./ResultComplete";
@@ -35,6 +48,8 @@ type VoiceMode = "wake" | "waitingCommand" | "conversation" | null;
 const SHOW_STT_DEBUG =
   __DEV__ || process.env.EXPO_PUBLIC_SHOW_STT_DEBUG === "true";
 
+const RETURN_GREETING_COOLDOWN_MS = 40 * 1000;
+
 type BotEmotion =
   | "default"
   | "listening"
@@ -47,7 +62,10 @@ function botEmotionToMood(emotion: BotEmotion): CharacterMood {
   return emotion === "default" ? "idle" : emotion;
 }
 
-function chatStateToMood(state: ChatState, botEmotion: BotEmotion): CharacterMood {
+function chatStateToMood(
+  state: ChatState,
+  botEmotion: BotEmotion,
+): CharacterMood {
   switch (state) {
     case "idle":
       return "idle";
@@ -72,6 +90,28 @@ function wait(ms: number) {
 function formatDuration(ms: number) {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function getTimeBasedGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 11) {
+    return "좋은 아침이에요. 잠은 잘 주무셨어요?";
+  }
+
+  if (hour >= 11 && hour < 15) {
+    return "점심은 맛있게 드셨어요?";
+  }
+
+  if (hour >= 15 && hour < 18) {
+    return "오후는 어떻게 보내고 계세요?";
+  }
+
+  if (hour >= 18 && hour < 22) {
+    return "오늘 하루는 어떠셨어요?";
+  }
+
+  return "늦은 시간이네요. 오늘은 편안하셨나요?";
 }
 
 export default function ChatbotMain() {
@@ -101,7 +141,9 @@ export default function ChatbotMain() {
   const wakePrompt = useWakeWordStore((s) => s.wakePrompt);
   const clearWakePrompt = useWakeWordStore((s) => s.clearWakePrompt);
 
-  const hasStoredUserInteracted = useInteractionStore((s) => s.hasUserInteracted);
+  const hasStoredUserInteracted = useInteractionStore(
+    (s) => s.hasUserInteracted,
+  );
   const hasUserInteracted = fromIntro === "true" || hasStoredUserInteracted;
   const respondToLocalMedication = useMedicationStore((s) => s.respond);
 
@@ -109,10 +151,11 @@ export default function ChatbotMain() {
 
   const [chatState, setChatState] = useState<ChatState>("idle");
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
-  const [botReply, setBotReply] = useState<string>("오늘은 어떤 하루였나요?");
+  const [botReply, setBotReply] = useState<string>(getTimeBasedGreeting());
   const [isConversationActive, setIsConversationActive] = useState(false);
   const [lastRecognizedText, setLastRecognizedText] = useState("");
   const [showConversationResult, setShowConversationResult] = useState(false);
+  const [replyTypingVersion, setReplyTypingVersion] = useState(0);
 
   const {
     messages,
@@ -133,11 +176,14 @@ export default function ChatbotMain() {
     permissionDenied,
     error: recorderError,
     noSpeechDetected,
-    audioUri,            // ← 추가: 보관된 녹음 파일 경로
+    audioUri,
     start: startRecording,
     reset: resetRecorder,
-    clearAudio,          // ← 추가: 분석 후 해제(ZDR)
-} = useRecorder({ autoStopOnSilence: true, keepAudio: true });  // ← keepAudio 추가
+    clearAudio,
+  } = useRecorder({
+    autoStopOnSilence: true,
+    keepAudio: true,
+  });
 
   const turnCountRef = useRef(0);
   const conversationRunningRef = useRef(false);
@@ -150,29 +196,56 @@ export default function ChatbotMain() {
   const typewriterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterDelayRef = useRef(48);
   const voiceModeRef = useRef<VoiceMode>(null);
+  const activeRecordingModeRef = useRef<VoiceMode>(null);
   const wakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastVoiceTextRef = useRef<string | null>(null);
   const silenceRetryRef = useRef(0);
   const lastPromptRef = useRef("");
   const greetingInProgressRef = useRef(false);
   const autoStartedRef = useRef(false);
+  const lastAutoGreetingRef = useRef(0);
   const medicationReminderIdRef = useRef<string | null>(null);
   const localMedicationIdRef = useRef<string | null>(null);
   const medicationAutoStartedRef = useRef<string | null>(null);
+  const audioUriRef = useRef<string | null>(null);
+  const recorderStateRef = useRef(recorderState);
+  const finishActionPendingRef = useRef(false);
+  const showConversationResultRef = useRef(false);
 
   const mood = chatStateToMood(chatState, botEmotion);
-  const recordHref = role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
-  const resultHref = role === "guardian" ? "/(guardian)/report" : "/(elder)/history";
+  const recordHref =
+    role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
+  const resultHref =
+    role === "guardian" ? "/(guardian)/report" : "/(elder)/history";
+
+  useEffect(() => {
+    audioUriRef.current = audioUri ?? null;
+  }, [audioUri]);
+
+  useEffect(() => {
+    recorderStateRef.current = recorderState;
+  }, [recorderState]);
 
   useEffect(() => {
     if (!route) return;
+
     clearRoute();
-    if (route === "/record") router.push(recordHref);
-    else router.push(resultHref);
-  }, [clearRoute, recordHref, resultHref, route, router]);
+
+    if (showConversationResultRef.current || nextAction === "finish") {
+      console.log("[ROUTE_SKIP_RESULT_VISIBLE]", { route, nextAction });
+      return;
+    }
+
+    if (route === "/record") {
+      router.push(recordHref);
+    } else {
+      router.push(resultHref);
+    }
+  }, [clearRoute, nextAction, recordHref, resultHref, route, router]);
 
   useEffect(() => {
     if (!wakePrompt) return;
+
     setBotReply(wakePrompt);
     setBotEmotion("happy");
     clearWakePrompt();
@@ -184,6 +257,7 @@ export default function ChatbotMain() {
     const writeNextCharacter = () => {
       if (displayedReplyRef.current.length >= streamedReplyRef.current.length) {
         typewriterTimerRef.current = null;
+        setReplyTypingVersion((version) => version + 1);
         return;
       }
 
@@ -191,7 +265,9 @@ export default function ChatbotMain() {
         0,
         displayedReplyRef.current.length + 1,
       );
+
       setBotReply(displayedReplyRef.current);
+
       typewriterTimerRef.current = setTimeout(
         writeNextCharacter,
         typewriterDelayRef.current,
@@ -220,11 +296,37 @@ export default function ChatbotMain() {
     return false;
   }
 
+  function isCapturePending() {
+    return (
+      activeRecordingModeRef.current === "conversation" ||
+      recorderStateRef.current === "recording" ||
+      recorderStateRef.current === "processing" ||
+      submittingTranscriptRef.current
+    );
+  }
+
+  function shouldPreserveConversationActive() {
+    return (
+      conversationActiveRef.current ||
+      conversationRunningRef.current ||
+      greetingInProgressRef.current ||
+      isCapturePending()
+    );
+  }
+
+  function setConversationResultVisible(visible: boolean) {
+    showConversationResultRef.current = visible;
+    setShowConversationResult(visible);
+  }
+
   function handleChatTurn(text: string, turnDurationMs: number) {
+    console.log("[CHAT_TURN]", text, turnDurationMs);
     const command = detectVoiceCommand(text);
 
     if (routeVoiceCommand(command)) {
       voiceModeRef.current = null;
+      activeRecordingModeRef.current = null;
+      finishActionPendingRef.current = false;
       conversationActiveRef.current = false;
       setIsConversationActive(false);
       setChatState("idle");
@@ -232,15 +334,21 @@ export default function ChatbotMain() {
     }
 
     voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
     silenceRetryRef.current = 0;
     conversationActiveRef.current = true;
     setIsConversationActive(true);
     setChatState("thinking");
+
+    console.log("[SEND_MESSAGE_START]");
     void sendMessage(text, { duration_ms: turnDurationMs });
+    console.log("[SEND_MESSAGE_CALLED]");
   }
 
   useEffect(() => {
     const text = voiceText?.trim();
+
     if (!text || text === lastVoiceTextRef.current) return;
 
     lastVoiceTextRef.current = text;
@@ -254,28 +362,6 @@ export default function ChatbotMain() {
     },
     [],
   );
-
- useFocusEffect(
-  useCallback(() => {
-    conversationRunningRef.current = false;
-    conversationActiveRef.current = false;
-    submittingTranscriptRef.current = false;
-    turnCountRef.current = 0;
-
-    setIsConversationActive(false);
-    setChatState("idle");
-    setBotEmotion("default");
-    setBotReply("오늘은 어떤 하루였나요?");
-    setShowConversationResult(false);
-
-    return () => {
-      voiceModeRef.current = null;
-      conversationRunningRef.current = false;
-      conversationActiveRef.current = false;
-      submittingTranscriptRef.current = false;
-    };
-  }, []),
-);
 
   async function handleMedicationReminderAnswer(text: string) {
     const localMedicationId = localMedicationIdRef.current;
@@ -323,11 +409,15 @@ export default function ChatbotMain() {
 
       await speakText(reply);
 
-      if (outcome === "completed") localMedicationIdRef.current = null;
+      if (outcome === "completed") {
+        localMedicationIdRef.current = null;
+      }
 
       greetingInProgressRef.current = false;
 
-      if (conversationActiveRef.current) beginConversationListening();
+      if (conversationActiveRef.current) {
+        beginConversationListening();
+      }
 
       return;
     }
@@ -355,11 +445,22 @@ export default function ChatbotMain() {
       greetingInProgressRef.current = false;
     }
 
-    if (conversationActiveRef.current) beginConversationListening();
+    if (conversationActiveRef.current) {
+      beginConversationListening();
+    }
   }
 
   useEffect(() => {
     const text = transcript?.trim();
+    const recordingMode = activeRecordingModeRef.current;
+
+    console.log("[TRANSCRIPT_EFFECT]", {
+      transcript,
+      text,
+      voiceMode: voiceModeRef.current,
+      recordingMode,
+      submitting: submittingTranscriptRef.current,
+    });
 
     if (!text) {
       submittingTranscriptRef.current = false;
@@ -370,39 +471,48 @@ export default function ChatbotMain() {
 
     submittingTranscriptRef.current = true;
 
-    if (SHOW_STT_DEBUG) setLastRecognizedText(text);
-
-    // ── 매 발화 턴의 음성을 분석에 보내고 즉시 해제(ZDR) ──
-    // resetRecorder()가 보관 오디오를 정리하기 전에 uri를 확보해서 전송한다.
-    const turnAudioUri = audioUri;
-    console.log("[ANALYZE_DEBUG] audioUri =", turnAudioUri);
-    if (turnAudioUri) {
-      void analyzeVoice(turnAudioUri, "CHATBOT")
-        .catch((e) => console.warn("[CHATBOT_ANALYZE_FAILED]", e))
-        .finally(() => {
-          // 분석 성공/실패와 무관하게 음성 파일은 즉시 폐기한다.
-          void clearAudio?.();
-        });
+    if (SHOW_STT_DEBUG) {
+      setLastRecognizedText(text);
     }
 
-    resetRecorder();
+    const turnDurationMs = durationMs;
+    const turnAudioUri = audioUriRef.current;
 
-    const mode = voiceModeRef.current;
+    console.log("[TURN_READY]", {
+      text,
+      mode: recordingMode,
+      durationMs: turnDurationMs,
+      audioUri: turnAudioUri,
+    });
 
-    if (mode === "conversation") {
-      if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+    void (async () => {
+      try {
+        if (turnAudioUri) {
+          console.log("[AUDIO_CLEAR]", turnAudioUri);
+          await clearAudio?.();
+        }
 
-      if (medicationReminderIdRef.current || localMedicationIdRef.current) {
-        void handleMedicationReminderAnswer(text);
-        return;
+        resetRecorder();
+
+        if (wakeTimeoutRef.current) {
+          clearTimeout(wakeTimeoutRef.current);
+        }
+
+        if (medicationReminderIdRef.current || localMedicationIdRef.current) {
+          await handleMedicationReminderAnswer(text);
+          return;
+        }
+
+        if (recordingMode !== "conversation") return;
+        if (!conversationActiveRef.current) return;
+
+        handleChatTurn(text, turnDurationMs);
+      } finally {
+        activeRecordingModeRef.current = null;
+        submittingTranscriptRef.current = false;
       }
-
-      handleChatTurn(text, durationMs);
-      return;
-    }
-
-    submittingTranscriptRef.current = false;
-  }, [durationMs, resetRecorder, transcript]);
+    })();
+  }, [clearAudio, durationMs, resetRecorder, transcript]);
 
   useEffect(() => {
     if (
@@ -414,7 +524,21 @@ export default function ChatbotMain() {
     }
 
     if (silenceRetryRef.current >= 1) {
+      if (
+        recorderStateRef.current === "recording" ||
+        recorderStateRef.current === "processing" ||
+        submittingTranscriptRef.current
+      ) {
+        console.log("[ACTIVE_FALSE_SKIP]", {
+          reason: "no_speech_while_capture_pending",
+          recorderState: recorderStateRef.current,
+          submitting: submittingTranscriptRef.current,
+        });
+        return;
+      }
+
       voiceModeRef.current = null;
+      activeRecordingModeRef.current = null;
       conversationActiveRef.current = false;
       setChatState("idle");
       setIsConversationActive(false);
@@ -423,12 +547,15 @@ export default function ChatbotMain() {
     }
 
     const prompt = lastPromptRef.current || botReply;
+
     if (!prompt) return;
 
     silenceRetryRef.current = 1;
     voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
     setBotReply(prompt);
     setChatState("botSpeaking");
+
     void speakText(prompt);
   }, [botReply, isConversationActive, noSpeechDetected, resetRecorder, speakText]);
 
@@ -470,29 +597,86 @@ export default function ChatbotMain() {
   }, [isConversationActive, liveBotEmotion, messages]);
 
   useEffect(() => {
-    if (
-      !isConversationActive ||
-      chatState !== "botSpeaking" ||
-      isBotTyping ||
-      isBotSpeaking ||
-      greetingInProgressRef.current
-    ) {
+    if (nextAction === "finish") {
+      finishActionPendingRef.current = true;
+    }
+
+    const isReplyTyping = typewriterTimerRef.current !== null;
+
+    console.log("[FINISH_CHECK]", {
+      nextAction,
+      chatState,
+      isBotTyping,
+      isBotSpeaking,
+      isConversationActive,
+      isReplyTyping,
+      finishPending: finishActionPendingRef.current,
+    });
+
+    if (!isConversationActive || greetingInProgressRef.current) {
       return;
     }
 
-    if (nextAction === "finish") {
+    if (
+      finishActionPendingRef.current &&
+      !isBotTyping &&
+      !isBotSpeaking &&
+      !isReplyTyping
+    ) {
+      if (isCapturePending()) {
+        console.log("[FINISH_DEFERRED]", {
+          recorderState: recorderStateRef.current,
+          recordingMode: activeRecordingModeRef.current,
+          submitting: submittingTranscriptRef.current,
+        });
+        return;
+      }
+
+      finishActionPendingRef.current = false;
+      console.log("[FINISH_COMPLETE_SHOW_RESULT]");
       voiceModeRef.current = null;
+      activeRecordingModeRef.current = null;
       conversationActiveRef.current = false;
       setIsConversationActive(false);
       setChatState("completed");
       setBotEmotion("clapping");
-      setShowConversationResult(true);
+      setConversationResultVisible(true);
+      console.log("[CONVERSATION_FINISH]", {
+        nextAction,
+        chatState: "completed",
+        showConversationResult: true,
+      });
+      return;
+    }
+
+    if (finishActionPendingRef.current) {
+      console.log("[FINISH_WAITING_FOR_REPLY_END]", {
+        isBotTyping,
+        isBotSpeaking,
+        isReplyTyping,
+      });
+      return;
+    }
+
+    if (
+      chatState !== "botSpeaking" ||
+      isBotTyping ||
+      isBotSpeaking ||
+      isReplyTyping
+    ) {
       return;
     }
 
     setChatState("listening");
     beginConversationListening();
-  }, [chatState, isBotSpeaking, isBotTyping, isConversationActive, nextAction]);
+  }, [
+    chatState,
+    isBotSpeaking,
+    isBotTyping,
+    isConversationActive,
+    nextAction,
+    replyTypingVersion,
+  ]);
 
   const startFirstGreeting = useCallback(async () => {
     if (conversationRunningRef.current) return;
@@ -501,10 +685,11 @@ export default function ChatbotMain() {
     greetingInProgressRef.current = true;
 
     try {
-      const firstReply = "안녕하세요. 오늘은 어떤 하루였나요?";
+      const firstReply = `안녕하세요. ${getTimeBasedGreeting()}`;
 
       silenceRetryRef.current = 0;
       lastPromptRef.current = firstReply;
+
       setBotReply(firstReply);
       setBotEmotion("happy");
       setChatState("botSpeaking");
@@ -515,10 +700,13 @@ export default function ChatbotMain() {
       conversationActiveRef.current = true;
       setIsConversationActive(true);
       setChatState("listening");
+
       beginConversationListening();
     } catch {
       setChatState("error");
+
       await wait(1200);
+
       setChatState("idle");
       conversationActiveRef.current = false;
       setIsConversationActive(false);
@@ -527,6 +715,133 @@ export default function ChatbotMain() {
       conversationRunningRef.current = false;
     }
   }, [speakText]);
+
+  const startReturnGreeting = useCallback(async () => {
+    if (conversationRunningRef.current) return;
+
+    conversationRunningRef.current = true;
+    greetingInProgressRef.current = true;
+
+    try {
+      function getReturnGreeting() {
+        const greetings = [
+          "다시 오셨네요. 조금 더 이야기해볼까요?",
+          "돌아오셨네요. 방금 보신 건 괜찮으셨어요?",
+          "어서 오세요. 이어서 잠깐만 더 이야기해볼까요?",
+          "다시 만나서 좋아요. 지금 기분은 어떠세요?",
+        ];
+
+  return greetings[Math.floor(Math.random() * greetings.length)];
+}
+
+const reply = getReturnGreeting();
+      silenceRetryRef.current = 0;
+      lastPromptRef.current = reply;
+
+      setBotReply(reply);
+      setBotEmotion("happy");
+      setChatState("botSpeaking");
+
+      await speakText(reply);
+
+      greetingInProgressRef.current = false;
+      conversationActiveRef.current = true;
+      setIsConversationActive(true);
+      setChatState("listening");
+
+      beginConversationListening();
+    } catch {
+      setChatState("error");
+
+      await wait(1200);
+
+      setChatState("idle");
+      conversationActiveRef.current = false;
+      setIsConversationActive(false);
+    } finally {
+      greetingInProgressRef.current = false;
+      conversationRunningRef.current = false;
+    }
+  }, [speakText]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (showConversationResultRef.current) {
+        console.log("[RESULT_RESET_SKIP]", {
+          reason: "conversation_result_visible",
+          showConversationResult: showConversationResultRef.current,
+        });
+        return () => {
+          console.log("[RESULT_CLEANUP_SKIP]", {
+            reason: "conversation_result_visible",
+          });
+        };
+      }
+
+      const preserveActive = shouldPreserveConversationActive();
+
+      if (preserveActive) {
+        console.log("[ACTIVE_RESET_SKIP]", {
+          reason: "conversation_turn_in_flight",
+          recorderState: recorderStateRef.current,
+          recordingMode: activeRecordingModeRef.current,
+          submitting: submittingTranscriptRef.current,
+        });
+        conversationActiveRef.current = true;
+        setIsConversationActive(true);
+      } else {
+        conversationRunningRef.current = false;
+        conversationActiveRef.current = false;
+        submittingTranscriptRef.current = false;
+        turnCountRef.current = 0;
+
+        setIsConversationActive(false);
+        setChatState("idle");
+        setBotEmotion("default");
+        setBotReply(getTimeBasedGreeting());
+        setConversationResultVisible(false);
+      }
+
+      const hasMedicationTrigger = !!(medicationReminderId || localMedicationId);
+      const now = Date.now();
+      const canReturnGreeting =
+        autoStartedRef.current &&
+        !preserveActive &&
+        !hasMedicationTrigger &&
+        now - lastAutoGreetingRef.current > RETURN_GREETING_COOLDOWN_MS;
+
+      if (canReturnGreeting) {
+        lastAutoGreetingRef.current = now;
+
+        conversationActiveRef.current = true;
+        setIsConversationActive(true);
+
+        void startReturnGreeting();
+      }
+
+      return () => {
+        if (shouldPreserveConversationActive()) {
+          console.log("[ACTIVE_CLEANUP_SKIP]", {
+            reason: "conversation_turn_in_flight",
+            recorderState: recorderStateRef.current,
+            recordingMode: activeRecordingModeRef.current,
+            submitting: submittingTranscriptRef.current,
+          });
+          return;
+        }
+
+        voiceModeRef.current = null;
+        activeRecordingModeRef.current = null;
+        conversationRunningRef.current = false;
+        conversationActiveRef.current = false;
+        submittingTranscriptRef.current = false;
+      };
+    }, [
+      localMedicationId,
+      medicationReminderId,
+      startReturnGreeting,
+    ]),
+  );
 
   const startMedicationReminderConversation = useCallback(async () => {
     const reminderId =
@@ -549,6 +864,7 @@ export default function ChatbotMain() {
     try {
       silenceRetryRef.current = 0;
       lastPromptRef.current = prompt;
+
       setBotReply(prompt);
       setBotEmotion("happy");
       setChatState("botSpeaking");
@@ -556,6 +872,7 @@ export default function ChatbotMain() {
       await speakText(prompt);
 
       greetingInProgressRef.current = false;
+
       beginConversationListening();
     } catch {
       setChatState("error");
@@ -574,6 +891,8 @@ export default function ChatbotMain() {
 
     medicationAutoStartedRef.current = triggerId;
     voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
@@ -590,7 +909,11 @@ export default function ChatbotMain() {
     if (!startedFromIntro || autoStartedRef.current) return;
 
     autoStartedRef.current = true;
+    lastAutoGreetingRef.current = Date.now();
+
     voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
@@ -599,27 +922,47 @@ export default function ChatbotMain() {
   }, [resetRecorder, startFirstGreeting, startedFromIntro]);
 
   function handleStartConversation() {
+    console.log("[START_BUTTON_CLICKED]");
+
+    autoStartedRef.current = true;
+    lastAutoGreetingRef.current = Date.now();
+
     voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
-    setShowConversationResult(false);
+    setConversationResultVisible(false);
 
     void startFirstGreeting();
   }
 
   function beginConversationListening() {
-    console.log("[LISTEN] active:", conversationActiveRef.current, "recorder:", recorderState);
+    console.log("[BEGIN_LISTEN]", {
+      active: conversationActiveRef.current,
+      recorderState,
+    });
 
-    if (!conversationActiveRef.current) return;
-    if (recorderState === "recording" || recorderState === "processing") return;
+    if (!conversationActiveRef.current) {
+    console.log("[LISTEN_SKIP] not active");  // ← 이게 찍히면?
+      return;
+    }
+    if (recorderState === "recording" || recorderState === "processing") {
+    console.log("[LISTEN_SKIP] recorder busy:", recorderState);  // ← 이게 찍히면?
+      return;
+    }
 
     voiceModeRef.current = "conversation";
-    resetRecorder();
+    console.log("[VOICE_MODE_SET]", voiceModeRef.current);
+    activeRecordingModeRef.current = "conversation";
+    console.log("[RECORDING_MODE_SET]", activeRecordingModeRef.current);
+
     setBotEmotion("listening");
     setChatState("listening");
 
     setTimeout(() => {
+      console.log("[START_RECORDING]", voiceModeRef.current);
       void startRecording();
     }, 80);
   }
@@ -639,9 +982,13 @@ export default function ChatbotMain() {
     setChatState("idle");
     setBotEmotion("default");
     conversationActiveRef.current = false;
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
     setIsConversationActive(false);
-    setShowConversationResult(false);
+    setConversationResultVisible(false);
     resetRecorder();
+
     router.push(recordHref);
   }
 
@@ -650,17 +997,23 @@ export default function ChatbotMain() {
     conversationActiveRef.current = false;
     submittingTranscriptRef.current = false;
     voiceModeRef.current = null;
-    setShowConversationResult(false);
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
+
+    setConversationResultVisible(false);
     setIsConversationActive(false);
     setChatState("idle");
     setBotEmotion("default");
     setBotReply("오늘은 어떤 하루였나요?");
+
     resetRecorder();
   }
 
   const showGuardianNotice = false;
 
-  const [pendingInvites, setPendingInvites] = useState<authApi.PendingInvite[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<
+    authApi.PendingInvite[]
+  >([]);
 
   useEffect(() => {
     if (role !== "guardian" || !user) return;
@@ -717,12 +1070,12 @@ export default function ChatbotMain() {
   const characterVideoTopOffset = Math.round(170 * v);
 
   if (showConversationResult) {
-    return (
-      <ResultComplete
-        type="conversation"
-        onHome={handleResultHome}
-      />
-    );
+    console.log("[RESULT_COMPLETE_RENDER]", {
+      type: "conversation",
+      showConversationResult,
+      chatState,
+    });
+    return <ResultComplete type="conversation" onHome={handleResultHome} />;
   }
 
   return (
@@ -733,9 +1086,13 @@ export default function ChatbotMain() {
       />
 
       <LinearGradient
-        colors={["rgba(247,214,172,0)", "rgba(247,214,172,0.72)", "#F7D6AC"]}
+        colors={[
+          "rgba(247,214,172,0)",
+          "rgba(247,214,172,0.72)",
+          "#F7D6AC",
+        ]}
         locations={[0, 0.58, 1]}
-        style={[styles.navBackdrop, { pointerEvents: 'none' }]}
+        style={[styles.navBackdrop, { pointerEvents: "none" }]}
       />
 
       <View style={[styles.header, { top: headerTop }]}>
@@ -808,7 +1165,7 @@ export default function ChatbotMain() {
               height="100%"
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
-              style={[styles.speechBubbleShape, { pointerEvents: 'none' }]}
+              style={[styles.speechBubbleShape, { pointerEvents: "none" }]}
             >
               <Path
                 d="M 12 0 H 88 C 94.6 0 100 13.5 100 30 V 64 C 100 79.5 94.6 92 88 92 H 60 C 56 92 55 97 50 97 C 45 97 44 92 40 92 H 12 C 5.4 92 0 79.5 0 64 V 30 C 0 13.5 5.4 0 12 0 Z"
@@ -820,7 +1177,11 @@ export default function ChatbotMain() {
               width={18}
               height={18}
               viewBox="0 0 18 18"
-              style={[styles.speechSparkle, styles.speechSparkleLeft, { pointerEvents: 'none' }]}
+              style={[
+                styles.speechSparkle,
+                styles.speechSparkleLeft,
+                { pointerEvents: "none" },
+              ]}
             >
               <Path
                 d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7"
@@ -835,7 +1196,11 @@ export default function ChatbotMain() {
               width={18}
               height={18}
               viewBox="0 0 18 18"
-              style={[styles.speechSparkle, styles.speechSparkleRight, { pointerEvents: 'none' }]}
+              style={[
+                styles.speechSparkle,
+                styles.speechSparkleRight,
+                { pointerEvents: "none" },
+              ]}
             >
               <Path
                 d="M 9 0 V 7 M 2 3 L 7 7 M 16 3 L 11 7"
@@ -875,7 +1240,7 @@ export default function ChatbotMain() {
             right: 0,
             top: characterTop,
             height: characterHeight,
-            pointerEvents: 'none',
+            pointerEvents: "none",
           },
         ]}
       >
@@ -893,9 +1258,19 @@ export default function ChatbotMain() {
       </View>
 
       <LinearGradient
-        colors={["#F7D6AC", "rgba(247,214,172,0.92)", "rgba(247,214,172,0)"]}
+        colors={[
+          "#F7D6AC",
+          "rgba(247,214,172,0.92)",
+          "rgba(247,214,172,0)",
+        ]}
         locations={[0, topFadeStop, 1]}
-        style={[styles.characterTopFade, { height: topFadeHeight, pointerEvents: 'none' }]}
+        style={[
+          styles.characterTopFade,
+          {
+            height: topFadeHeight,
+            pointerEvents: "none",
+          },
+        ]}
       />
 
       <Pressable
