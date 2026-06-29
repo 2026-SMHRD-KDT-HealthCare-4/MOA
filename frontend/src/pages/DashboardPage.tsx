@@ -8,8 +8,7 @@ import {
   type TrendPoint,
   type TrendStatus,
 } from "../api/report";
-
-const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
+import { colors } from "../styles/tokens";
 
 type BarState = "normal" | "detected" | "pending";
 
@@ -27,28 +26,6 @@ interface ReportView {
   summary: string;
   alert: { title: string; period: string } | null;
 }
-
-// 백엔드 미연결(mock 모드)·조회 실패 시 보여줄 샘플 리포트.
-const FALLBACK_REPORT: ReportView = {
-  month: "6월",
-  status: {
-    icon: "🌧️",
-    title: "이번 주 변화가 감지됐어요",
-    description: "3주차 이후 패턴 변화가 확인됐어요",
-  },
-  participation: { completedDays: 21, totalDays: 30 },
-  weeklyVoice: [
-    { day: "월", value: 54, state: "normal" },
-    { day: "화", value: 61, state: "normal" },
-    { day: "수", value: 58, state: "normal" },
-    { day: "목", value: 72, state: "detected" },
-    { day: "금", value: 79, state: "detected" },
-    { day: "토", value: 84, state: "detected" },
-    { day: "일", value: 64, state: "pending" },
-  ],
-  summary: "전반적으로 안정적인 패턴이었으나 3주차 이후 변화 패턴이 확인됐어요.",
-  alert: { title: "모아가 변화를 감지했어요", period: "3일 연속 · 목요일부터" },
-};
 
 // 상태별 막대 높이(점수 데이터가 없어 상태를 단계로 매핑) — 맑음<흐림<비.
 const STATUS_HEIGHT: Record<TrendStatus, number> = { sunny: 42, cloudy: 66, rainy: 92 };
@@ -133,10 +110,10 @@ export default function DashboardPage() {
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 보호자 리포트. real 모드 + elderlyId가 있을 때만 서버 조회, 실패 시 샘플 유지.
-  const [report, setReport] = useState<ReportView>(FALLBACK_REPORT);
+  // 보호자 리포트. elderlyId가 있으면 서버 조회. 실패/로딩/빈 데이터는 빈 상태로 표시(샘플 없음).
+  const [report, setReport] = useState<ReportView | null>(null);
   useEffect(() => {
-    if (!REAL_API || !elderlyId) return;
+    if (!elderlyId) return;
     let alive = true;
     (async () => {
       try {
@@ -149,7 +126,7 @@ export default function DashboardPage() {
           setReport(buildReportView(trend, stats.measurementCount, stats.riskAlertCount, month));
         }
       } catch {
-        // 조회 실패 — 샘플 리포트 유지
+        // 조회 실패 — 빈 상태 유지(report = null)
       }
     })();
     return () => {
@@ -157,7 +134,9 @@ export default function DashboardPage() {
     };
   }, [elderlyId]);
 
-  const participationRate = report.participation.completedDays / report.participation.totalDays;
+  const participationRate = report
+    ? report.participation.completedDays / report.participation.totalDays
+    : 0;
 
   useEffect(() => {
     return () => {
@@ -184,7 +163,7 @@ export default function DashboardPage() {
         </Pressable>
         <Text style={styles.headerTitle}>어머니 리포트</Text>
         <View style={[styles.headerSide, styles.monthSide]} accessibilityElementsHidden>
-          <Text style={styles.monthText}>{report.month} ▼</Text>
+          <Text style={styles.monthText}>{report ? `${report.month} ▼` : ""}</Text>
         </View>
       </View>
 
@@ -192,6 +171,14 @@ export default function DashboardPage() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 36 }]}
       >
+        {!report ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyIcon}>☀️</Text>
+            <Text style={styles.emptyTitle}>데이터를 불러오는 중이에요</Text>
+            <Text style={styles.emptyText}>음성 기록이 쌓이면 리포트를 보여드릴게요</Text>
+          </View>
+        ) : (
+        <>
         <View style={styles.statusCard}>
           <Text style={styles.weatherIcon} accessibilityLabel={report.status.title}>
             {report.status.icon}
@@ -290,6 +277,8 @@ export default function DashboardPage() {
         >
           <Text style={styles.exportButtonText}>PDF 내보내기</Text>
         </Pressable>
+        </>
+        )}
       </ScrollView>
 
       {toastVisible ? (
@@ -305,6 +294,37 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: COLOR.background,
+  },
+  // 빈 상태(로딩·조회 실패) 카드 — tokens.ts 색상만 사용
+  emptyCard: {
+    minHeight: 220,
+    marginTop: 8,
+    padding: 28,
+    borderRadius: 24,
+    backgroundColor: colors.guardian.cardPeach,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    lineHeight: 58,
+  },
+  emptyTitle: {
+    fontFamily: "Pretendard-ExtraBold",
+    color: colors.guardian.coral,
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyText: {
+    fontFamily: "Pretendard-Medium",
+    color: colors.guardian.textSecondary,
+    fontSize: 18,
+    lineHeight: 26,
+    fontWeight: "600",
+    textAlign: "center",
   },
   header: {
     minHeight: 66,

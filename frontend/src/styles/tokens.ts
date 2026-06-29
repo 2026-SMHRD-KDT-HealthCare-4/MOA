@@ -50,9 +50,10 @@ export const colors = {
   // 보라·빨강 사용 금지. 강조/경고/활성은 amber 단독.
   guardian: {
     bgPage:        "#FCF8F3", // 페이지 배경(따뜻한 화이트)
-    cardPeach:     "#FDECDD", // 상태 카드 · 추천 카드 배경
+    cardPeach:     "#FDECDD", // 상태 카드 · 추천 카드 · 빈 상태 카드 배경
     card:          "#FFFFFF", // 차트 · 포인트 카드 배경
     chartBar:      "#C8D0E0", // 7일 차트 막대(연한 라벤더 — 여기만)
+    coral:         "#FF7955", // 빈 상태 강조 텍스트(코랄). 레드 아님.
     amber:         "#E8943A", // 강조 · 경고 · 액티브 탭(단독)
     textPrimary:   "#4A4A48",
     textSecondary: "#8A8A86",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -21,10 +21,10 @@ import {
 import { WEATHER_IMAGE } from "../../constants/weatherIcons";
 import {
   STATUS_LABELS,
-  monthOptions,
   type FamilyReport as FamilyReportData,
   type CheckinCalendar,
 } from "./mockReport";
+import { colors } from "../../styles/tokens";
 
 // 보호자 리포트 네이비 컬러 시스템 (Family 탭과 통일). 레드 금지.
 // 네이비=주요 정보 · 세이지=안정 · 앰버=주의/변화감지 · 베이지=배경.
@@ -59,6 +59,12 @@ if (
 }
 
 const WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"];
+
+// 'YYYY-MM' → 'M월'
+function monthLabelOf(value: string): string {
+  const m = Number(value.split("-")[1]);
+  return Number.isFinite(m) ? `${m}월` : value;
+}
 
 // 근처 전문의 찾기 — 진료과 버튼. 진단 표현 금지(정해진 안내 카피만 사용).
 const HOSPITAL_DEPTS = ["신경과", "정신건강의학과", "내과"] as const;
@@ -148,30 +154,36 @@ function CheckinCalendarGrid({
 
 interface FamilyReportProps {
   report: FamilyReportData;
+  /** 조회 가능한 월 목록('YYYY-MM', 내림차순) */
+  months: string[];
+  /** 현재 선택된 월('YYYY-MM') */
+  selectedMonth: string;
+  /** 월 선택 시 상위에서 해당 월 리포트를 재조회한다 */
+  onSelectMonth: (month: string) => void;
   /** "PDF 내보내기" 등 화면 전역 토스트를 띄우기 위한 콜백 */
   onToast: (message: string) => void;
 }
 
-export function FamilyReport({ report, onToast }: FamilyReportProps) {
+export function FamilyReport({
+  report,
+  months,
+  selectedMonth,
+  onSelectMonth,
+  onToast,
+}: FamilyReportProps) {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const chartWidth = width - 40 - 36; // 좌우 화면 패딩 + 카드 패딩
 
-  const [month, setMonth] = useState(report.month);
   const [monthOpen, setMonthOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-
-  useEffect(() => {
-    setMonth(report.month);
-  }, [report.month]);
 
   function toggleCalendar() {
     LayoutAnimation.easeInEaseOut();
     setCalendarOpen((v) => !v);
   }
 
-  const monthLabel =
-    monthOptions.find((m) => m.value === month)?.label ?? "6월";
+  const monthLabel = monthLabelOf(selectedMonth);
 
   const checkinPct = useMemo(
     () => Math.round((report.checkinRate.done / report.checkinRate.total) * 100),
@@ -193,12 +205,12 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
         </Pressable>
         {monthOpen ? (
           <View style={styles.monthMenu}>
-            {monthOptions.map((m) => (
+            {months.map((m) => (
               <Pressable
-                key={m.value}
+                key={m}
                 style={styles.monthItem}
                 onPress={() => {
-                  setMonth(m.value);
+                  onSelectMonth(m);
                   setMonthOpen(false);
                 }}
                 accessibilityRole="button"
@@ -206,10 +218,10 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
                 <Text
                   style={[
                     styles.monthItemText,
-                    m.value === month && styles.monthItemActive,
+                    m === selectedMonth && styles.monthItemActive,
                   ]}
                 >
-                  {m.label}
+                  {monthLabelOf(m)}
                 </Text>
               </Pressable>
             ))}
@@ -342,9 +354,12 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
         </View>
       </View>
 
-      {/* 5. 이번 달 주목할 변화 (핵심) */}
+      {/* 5. 이번 달 주목할 변화 (핵심) — 백엔드 미지원 시 빈 상태 */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>이번 달 주목할 변화</Text>
+        {report.voicePatterns.length === 0 ? (
+          <Text style={styles.sectionEmpty}>목소리 패턴 분석을 준비 중이에요 ☀️</Text>
+        ) : (
         <View style={styles.patternList}>
           {report.voicePatterns.map((p) => {
             const isCaution = p.status === "caution";
@@ -384,9 +399,12 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
             );
           })}
         </View>
-        <Text style={styles.disclaimer}>
-          이 내용은 참고용이며 의학적 진단이 아니에요
-        </Text>
+        )}
+        {report.voicePatterns.length > 0 ? (
+          <Text style={styles.disclaimer}>
+            이 내용은 참고용이며 의학적 진단이 아니에요
+          </Text>
+        ) : null}
       </View>
 
       {/* 6. 이달의 알림 이력 */}
@@ -658,6 +676,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: G.sub,
     paddingTop: 2,
+  },
+
+  // 섹션 빈 상태(준비 중) — tokens.ts 색상, 18pt 이상
+  sectionEmpty: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 18,
+    lineHeight: 26,
+    color: colors.guardian.coral,
+    paddingVertical: 6,
   },
 
   // 알림 이력
