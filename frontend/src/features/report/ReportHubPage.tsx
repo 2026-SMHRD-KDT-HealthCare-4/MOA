@@ -10,7 +10,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../stores/authStore";
 import {
-  mockFamilyReports,
   type FamilyReport as FamilyReportData,
   type CheckinCalendar,
 } from "./mockReport";
@@ -18,27 +17,19 @@ import { FamilyReport } from "./FamilyReport";
 import {
   getReportTrend,
   getMonthlyStats,
+  getAvailableMonths,
+  getReportAlerts,
   type TrendPoint,
   type TrendStatus,
+  type ReportAlert,
 } from "../../api/report";
 
-// real 모드에서만 서버 조회. 그 외(mock)·조회 실패 시 아래 mock 리포트로 폴백한다.
+// real 모드에서만 서버 조회. 그 외(mock)·조회 실패 시 빈 상태로 처리한다.
 const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
-
-// 선택된 직접사용자에 표시할 mock 리포트 (real 조회 전/실패 시 placeholder)
-const FALLBACK_REPORT = Object.values(mockFamilyReports)[0];
 
 function currentReportMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-// 이번 달이면 오늘까지 경과 일수, 지난 달이면 그 달의 총 일수.
-function reportTotalDays(month: string): number {
-  const [y, m] = month.split("-").map(Number);
-  const now = new Date();
-  if (y === now.getFullYear() && m === now.getMonth() + 1) return now.getDate();
-  return new Date(y, m, 0).getDate();
 }
 
 // 추이 상태 → 차트 y값(0 정상 / 1 주의 / 2 변화감지)
@@ -46,45 +37,48 @@ function chartValue(s: TrendStatus): 0 | 1 | 2 {
   return s === "rainy" ? 2 : s === "cloudy" ? 1 : 0;
 }
 
-// 실데이터(추이+집계)를 mock 베이스 위에 덮어써 하이브리드 리포트를 만든다.
-// real: 추이 그래프·체크인 참여수·캘린더·요약 날씨 / mock 유지: 주목할 변화·알림 이력(백엔드 미지원).
-function overlayRealReport(
-  base: FamilyReportData,
+// 서버 실데이터만으로 해당 월 리포트를 구성한다(mock 베이스 없음).
+// 백엔드 미지원 항목(voicePatterns)은 빈 배열 → 화면에서 "준비 중" 빈 상태로 처리한다.
+function buildReport(
   elderName: string,
-  trend: TrendPoint[],
-  measurementCount: number,
   month: string,
+  trend: TrendPoint[],
+  participatedDays: number,
+  totalDays: number,
+  alerts: ReportAlert[],
 ): FamilyReportData {
-  const chartData = trend.map((p) => {
+  // 추이는 최근치를 함께 받으므로 선택된 월의 데이터만 사용한다.
+  const monthTrend = trend.filter((p) => p.date.startsWith(month));
+
+  const chartData = monthTrend.map((p) => {
     const [, mo, d] = p.date.split("-").map(Number);
     return { date: `${mo}/${d}`, value: chartValue(p.status) };
   });
 
-  const total = reportTotalDays(month);
   const checkinCalendar: CheckinCalendar = {};
-  if (trend.length) {
-    for (let day = 1; day <= total; day++) checkinCalendar[day] = "missed";
-  }
-  trend.forEach((p) => {
+  for (let day = 1; day <= totalDays; day++) checkinCalendar[day] = "missed";
+  monthTrend.forEach((p) => {
     const day = Number(p.date.split("-")[2]);
     checkinCalendar[day] = p.status === "rainy" ? "caution" : "normal";
   });
 
-  const latest: TrendStatus = trend.length ? trend[trend.length - 1].status : "sunny";
-  const hasChange = trend.some((p) => p.status === "rainy");
+  const latest: TrendStatus = monthTrend.length
+    ? monthTrend[monthTrend.length - 1].status
+    : "sunny";
+  const hasChange = monthTrend.some((p) => p.status === "rainy");
 
   return {
-    ...base,
     month,
     elderlyName: elderName,
     summary: {
       weather: latest,
       text: hasChange ? "최근 변화 패턴이 확인됐어요" : "안정적인 흐름이 이어졌어요",
     },
-    checkinRate: { done: Math.min(measurementCount, total), total },
-    checkinCalendar: Object.keys(checkinCalendar).length ? checkinCalendar : base.checkinCalendar,
-    chartData: chartData.length ? chartData : base.chartData,
-    // voicePatterns·alerts: 백엔드 미지원 → mock(base) 유지(하이브리드)
+    checkinRate: { done: participatedDays, total: totalDays },
+    checkinCalendar,
+    chartData,
+    voicePatterns: [], // 백엔드 미지원 → 빈 상태 UI ("준비 중")
+    alerts,
   };
 }
 
@@ -130,39 +124,71 @@ export default function ReportHubPage() {
     toastTimer.current = setTimeout(() => setToast(null), 1800);
   }
 
-  // real 모드: 선택된 직접사용자별 서버 리포트 캐시. 실패 시 키 없음 → mock 폴백.
-  const [realReports, setRealReports] = useState<Record<string, FamilyReportData>>({});
+  // 선택된 직접사용자의 조회 가능한 월 목록 + 현재 선택 월
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentReportMonth());
+
+  // 직접사용자가 바뀌면 가능한 월 목록을 조회하고 선택 월을 최신 월로 초기화한다.
   useEffect(() => {
     if (!REAL_API || !effectiveId) return;
-    const elderName = chips.find((c) => c.id === effectiveId)?.name ?? "";
-    const base = mockFamilyReports[effectiveId] ?? FALLBACK_REPORT;
     let alive = true;
     (async () => {
       try {
-        const month = currentReportMonth();
-        const [trend, stats] = await Promise.all([
-          getReportTrend(effectiveId, 9),
-          getMonthlyStats(effectiveId, month),
-        ]);
-        if (alive) {
-          setRealReports((prev) => ({
-            ...prev,
-            [effectiveId]: overlayRealReport(base, elderName, trend, stats.measurementCount, month),
-          }));
-        }
+        const months = await getAvailableMonths(effectiveId);
+        if (!alive) return;
+        const list = months.length ? months : [currentReportMonth()];
+        setAvailableMonths(list);
+        setSelectedMonth(list[0]);
       } catch {
-        // 조회 실패 — mock 폴백 유지
+        if (alive) {
+          setAvailableMonths([currentReportMonth()]);
+          setSelectedMonth(currentReportMonth());
+        }
       }
     })();
     return () => {
       alive = false;
     };
-  }, [effectiveId, chips]);
+  }, [effectiveId]);
 
-  // real 조회분이 있으면 그것을, 없으면 mock 리포트를 표시(매칭 없으면 기본 mock).
-  const report = effectiveId
-    ? realReports[effectiveId] ?? mockFamilyReports[effectiveId] ?? FALLBACK_REPORT
-    : null;
+  // (직접사용자, 선택 월)별 서버 리포트 캐시. 실패 시 키 없음 → 빈 상태 표시.
+  const [realReports, setRealReports] = useState<Record<string, FamilyReportData>>({});
+  useEffect(() => {
+    if (!REAL_API || !effectiveId || !selectedMonth) return;
+    const elderName = chips.find((c) => c.id === effectiveId)?.name ?? "";
+    const cacheKey = `${effectiveId}:${selectedMonth}`;
+    let alive = true;
+    (async () => {
+      try {
+        const [trend, stats, alerts] = await Promise.all([
+          getReportTrend(effectiveId, 31),
+          getMonthlyStats(effectiveId, selectedMonth),
+          getReportAlerts(effectiveId, selectedMonth),
+        ]);
+        if (alive) {
+          setRealReports((prev) => ({
+            ...prev,
+            [cacheKey]: buildReport(
+              elderName,
+              selectedMonth,
+              trend,
+              stats.participatedDays,
+              stats.totalDays,
+              alerts,
+            ),
+          }));
+        }
+      } catch {
+        // 조회 실패 — 빈 상태 유지
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [effectiveId, selectedMonth, chips]);
+
+  // real 조회분이 있으면 표시, 없으면 null → 빈 상태.
+  const report = effectiveId ? realReports[`${effectiveId}:${selectedMonth}`] ?? null : null;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -205,15 +231,28 @@ export default function ReportHubPage() {
           { paddingBottom: insets.bottom + 120 },
         ]}
       >
-        {!report ? (
+        {chips.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyTitle}>연결된 부모님이 없어요</Text>
             <Text style={styles.emptySub}>
               가족 탭에서 부모님을 연결하면{"\n"}이곳에서 리포트를 확인할 수 있어요.
             </Text>
           </View>
+        ) : !report ? (
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyTitle}>아직 표시할 리포트가 없어요</Text>
+            <Text style={styles.emptySub}>
+              건강 기록이 쌓이면{"\n"}이곳에서 리포트를 확인할 수 있어요.
+            </Text>
+          </View>
         ) : (
-          <FamilyReport report={report} onToast={showToast} />
+          <FamilyReport
+            report={report}
+            months={availableMonths}
+            selectedMonth={selectedMonth}
+            onSelectMonth={setSelectedMonth}
+            onToast={showToast}
+          />
         )}
       </ScrollView>
 

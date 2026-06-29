@@ -10,7 +10,7 @@ DB에 저장하지 않고, 조회 시점에 원본 테이블에서 직접 집계
    직접 JOIN하지 않는다.
 """
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func
@@ -20,6 +20,7 @@ from app.models.models import (
     ChatSession,
     Notification,
     RiskPrediction,
+    Senior,
     VoiceFeature,
 )
 
@@ -99,9 +100,41 @@ def aggregate_monthly_stats(db: Session, senior_id: UUID, report_month: str) -> 
         "diabetes": _round(avg_row[3]) if avg_row else None,
     }
 
+    # 5. 체크인 참여 일수 / 분모(총 일수) — 합의 3: 가입일 기준.
+    #    참여 일수 = 해당 월 VOICE_FEATURE의 distinct 측정 날짜 수(하루 여러 번 측정해도 1일).
+    participated_days = (
+        db.query(func.count(func.distinct(func.date(VoiceFeature.measured_at))))
+        .filter(
+            VoiceFeature.senior_id == senior_id,
+            VoiceFeature.measured_at >= start,
+            VoiceFeature.measured_at < end,
+        )
+        .scalar()
+    ) or 0
+
+    #    총 일수 = max(가입일, 월초) ~ min(오늘, 월말) 사이의 일수(양끝 포함).
+    year, month_no = map(int, report_month.split("-"))
+    month_first = date(year, month_no, 1)
+    if month_no == 12:
+        month_last = date(year, 12, 31)
+    else:
+        month_last = date(year, month_no + 1, 1) - timedelta(days=1)
+
+    senior_created = (
+        db.query(Senior.created_at).filter(Senior.senior_id == senior_id).scalar()
+    )
+    join_date = senior_created.date() if senior_created else month_first
+    today = datetime.utcnow().date()
+
+    start_day = max(join_date, month_first)
+    end_day = min(today, month_last)
+    total_days = (end_day - start_day).days + 1 if end_day >= start_day else 0
+
     return {
         "measurement_count": measurement_count,
         "chat_session_count": chat_session_count,
         "risk_alert_count": risk_alert_count,
+        "participated_days": participated_days,
+        "total_days": total_days,
         "avg_risk": avg_risk,
     }

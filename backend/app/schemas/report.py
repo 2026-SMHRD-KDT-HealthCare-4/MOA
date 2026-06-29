@@ -37,6 +37,8 @@ class MonthlyReportStats(BaseModel):
     measurement_count: int
     chat_session_count: int
     risk_alert_count: int
+    participated_days: int
+    total_days: int
     avg_risk: AvgRisk
 
 

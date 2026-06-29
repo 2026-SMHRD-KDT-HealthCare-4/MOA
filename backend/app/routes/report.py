@@ -20,7 +20,7 @@ from app.schemas.report import (
     MonthlyReportDetailResponse,
     MonthlyReportResponse,
 )
-from app.services.monthly_stats import aggregate_monthly_stats
+from app.services.monthly_stats import aggregate_monthly_stats, _month_range
 
 router = APIRouter(prefix="/report", tags=["report"])
 
@@ -38,6 +38,13 @@ def _status_from_prediction(prediction: RiskPrediction) -> str:
     if "YELLOW" in levels:
         return "cloudy"
     return "sunny"
+
+
+def _format_alert(run_start, run_end) -> dict:
+    """변화감지 연속 구간을 규칙6 안전 문구로 변환한다(점수·병명 비노출)."""
+    length = (run_end - run_start).days + 1
+    text = f"{length}일 연속 변화 감지" if length >= 2 else "변화 감지"
+    return {"date": f"{run_end.month}월 {run_end.day}일", "text": text}
 
 
 @router.post("", response_model=MonthlyReportResponse)
@@ -156,3 +163,77 @@ def get_trend_data(
             for prediction in predictions
         ],
     }
+
+
+@router.get("/available-months/{senior_id}")
+def get_available_months(
+    senior_id: UUID,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """리포트 데이터(위험도 예측)가 존재하는 월 목록을 내림차순으로 반환한다. 본인 또는 연동 보호자만.
+
+    월 드롭다운을 하드코딩 대신 실제 데이터가 있는 월로 채우기 위한 엔드포인트.
+    """
+    verify_senior_access(user_id, senior_id, db)
+    rows = (
+        db.query(RiskPrediction.created_at)
+        .filter(RiskPrediction.senior_id == senior_id)
+        .all()
+    )
+    months = sorted(
+        {f"{r.created_at.year}-{r.created_at.month:02d}" for r in rows},
+        reverse=True,
+    )
+    return {"status": "success", "months": months}
+
+
+@router.get("/alerts/{senior_id}")
+def get_report_alerts(
+    senior_id: UUID,
+    month: str,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """해당 월의 '변화 감지' 알림 이력을 반환한다(점수·병명 비노출, 규칙6).
+
+    AMBER(변화감지) 등급이 나온 날짜를 연속 구간으로 묶어 결정적으로 문구를 만든다.
+    '3일 연속 변화 감지' 같은 표현은 코드의 연속일 카운팅으로 산출하며 LLM을 쓰지 않는다.
+    """
+    verify_senior_access(user_id, senior_id, db)
+    start, end = _month_range(month)
+    predictions = (
+        db.query(RiskPrediction)
+        .filter(
+            RiskPrediction.senior_id == senior_id,
+            RiskPrediction.created_at >= start,
+            RiskPrediction.created_at < end,
+        )
+        .order_by(RiskPrediction.created_at.asc())
+        .all()
+    )
+
+    # 하루에 한 번이라도 AMBER면 그날을 '변화 감지'로 본다.
+    change_dates = sorted(
+        {
+            p.created_at.date()
+            for p in predictions
+            if _status_from_prediction(p) == "rainy"
+        }
+    )
+
+    # 연속된 날짜를 하나의 구간으로 묶어 알림 문구를 만든다.
+    alerts = []
+    run_start = None
+    prev = None
+    for d in change_dates:
+        if prev is None or (d - prev).days != 1:
+            if run_start is not None:
+                alerts.append(_format_alert(run_start, prev))
+            run_start = d
+        prev = d
+    if run_start is not None:
+        alerts.append(_format_alert(run_start, prev))
+
+    alerts.reverse()  # 최신순
+    return {"status": "success", "alerts": alerts}
