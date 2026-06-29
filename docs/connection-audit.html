@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MOA 프론트-백엔드 연결 정밀 조사</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Nanum Gothic', sans-serif;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #1a1a2e;
+      background: #f0f4f8;
+    }
+
+    .page-wrapper {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 40px 48px 60px;
+      background: white;
+    }
+
+    /* ── 표지 ── */
+    .cover {
+      padding: 52px 0 44px;
+      border-bottom: 3px solid #173F73;
+      margin-bottom: 44px;
+    }
+    .cover .tag {
+      display: inline-block;
+      background: #173F73;
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-bottom: 18px;
+    }
+    .cover h1 {
+      font-size: 30px;
+      font-weight: 900;
+      color: #0f2850;
+      margin-bottom: 8px;
+    }
+    .cover .sub {
+      font-size: 14px;
+      color: #6F5A49;
+      margin-bottom: 28px;
+    }
+    .cover .meta {
+      display: flex;
+      gap: 28px;
+      font-size: 12px;
+      color: #999;
+    }
+
+    /* ── 섹션 제목 ── */
+    h2 {
+      font-size: 18px;
+      font-weight: 900;
+      color: #0f2850;
+      margin: 40px 0 14px;
+      padding: 10px 16px;
+      border-left: 4px solid #173F73;
+      background: #f0f5ff;
+      border-radius: 0 8px 8px 0;
+    }
+    h3 {
+      font-size: 14px;
+      font-weight: 800;
+      color: #173F73;
+      margin: 20px 0 8px;
+    }
+
+    /* ── 상태 테이블 ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 20px;
+      font-size: 12px;
+    }
+    thead tr { background: #173F73; color: white; }
+    thead th { padding: 10px 12px; text-align: left; font-weight: 700; }
+    tbody tr:nth-child(even) { background: #f7f9ff; }
+    tbody tr { border-bottom: 1px solid #e5eaf5; }
+    tbody td { padding: 9px 12px; vertical-align: top; line-height: 1.5; }
+
+    /* ── 상태 뱃지 ── */
+    .ok   { color: #166534; font-weight: 800; }
+    .warn { color: #92400e; font-weight: 800; }
+    .err  { color: #9f1239; font-weight: 800; }
+
+    /* ── 코드블록 ── */
+    pre {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: 'Consolas', 'D2Coding', monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      padding: 18px 20px;
+      border-radius: 8px;
+      margin: 10px 0 18px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    pre .c  { color: #8b949e; }   /* comment */
+    pre .k  { color: #ff7b72; }   /* keyword */
+    pre .s  { color: #a5d6ff; }   /* string */
+    pre .f  { color: #d2a8ff; }   /* function */
+    pre .hi { background: #3d1a1a; color: #ffa198; padding: 1px 4px; border-radius: 3px; } /* highlight */
+
+    code {
+      font-family: 'Consolas', 'D2Coding', monospace;
+      background: #eef2ff;
+      color: #3730a3;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    /* ── 버그 카드 ── */
+    .bug-card {
+      border-radius: 10px;
+      margin: 18px 0;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+    }
+    .bug-card-header {
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .bug-card-header.red    { background: #fff1f2; color: #9f1239; border-bottom: 1px solid #fecdd3; }
+    .bug-card-header.yellow { background: #fffbeb; color: #78350f; border-bottom: 1px solid #fde68a; }
+    .bug-card-header.orange { background: #fff7ed; color: #7c2d12; border-bottom: 1px solid #fed7aa; }
+    .bug-card-body {
+      padding: 14px 18px;
+      background: white;
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: #374151;
+    }
+    .bug-card-body p { margin-bottom: 8px; }
+    .bug-card-body p:last-child { margin-bottom: 0; }
+
+    /* ── 우선순위 테이블 ── */
+    .priority-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin: 12px 0;
+    }
+    .priority-table th {
+      background: #1e3a5f;
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 700;
+    }
+    .priority-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #e5eaf5;
+      vertical-align: middle;
+    }
+    .priority-table tr:nth-child(even) td { background: #f7f9ff; }
+    .dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .dot.red    { background: #ef4444; }
+    .dot.yellow { background: #f59e0b; }
+    .dot.orange { background: #fb923c; }
+
+    .badge-diff {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .badge-diff.easy   { background: #dcfce7; color: #166534; }
+    .badge-diff.medium { background: #fef9c3; color: #713f12; }
+    .badge-diff.hard   { background: #fee2e2; color: #991b1b; }
+
+    /* ── 인쇄 ── */
+    @media print {
+      body { background: white; }
+      .page-wrapper { padding: 20px 30px; max-width: 100%; }
+      .no-print { display: none !important; }
+      .bug-card { page-break-inside: avoid; }
+      h2 { page-break-before: auto; }
+      pre { page-break-inside: avoid; }
+    }
+
+    /* ── 버튼 ── */
+    .print-btn {
+      position: fixed;
+      top: 20px; right: 20px;
+      background: #173F73;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+      z-index: 999;
+      font-family: inherit;
+    }
+    .print-btn:hover { background: #4F76A8; }
+
+    hr { border: none; border-top: 1px solid #e5eaf5; margin: 32px 0; }
+    p { margin-bottom: 10px; color: #374151; }
+    ul { padding-left: 20px; margin-bottom: 10px; }
+    li { margin-bottom: 5px; color: #374151; }
+
+    .file-ref {
+      font-family: 'Consolas', monospace;
+      font-size: 11px;
+      color: #6366f1;
+      background: #eef2ff;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">PDF로 저장</button>
+
+<div class="page-wrapper">
+
+  <!-- 표지 -->
+  <div class="cover">
+    <div class="tag">AUDIT REPORT</div>
+    <h1>프론트-백엔드 연결 정밀 조사</h1>
+    <p class="sub">MOA 프로젝트 — API 미연결 · DB 미저장 · 버그 전수 조사</p>
+    <div class="meta">
+      <span>📅 2026-06-29</span>
+      <span>🌿 branch: backend-jaeryang</span>
+      <span>📋 조사 범위: 음성분석 모델 제외 전체 기능</span>
+    </div>
+  </div>
+
+  <!-- 1. 정상 연결 -->
+  <h2>1. 정상 연결 확인 (코드 직접 확인)</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:22%">기능</th>
+        <th style="width:30%">프론트 파일 · 함수</th>
+        <th style="width:30%">백엔드 엔드포인트</th>
+        <th style="width:18%">상태</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>로그인 / 회원가입</td>
+        <td><span class="file-ref">auth.ts</span> loginReal, registerReal</td>
+        <td>POST /auth/login<br>POST /auth/guardian/register</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>직접사용자 회원가입</td>
+        <td><span class="file-ref">auth.ts</span> registerSenior</td>
+        <td>POST /auth/senior/register</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>초대코드 생성 / 검증</td>
+        <td><span class="file-ref">auth.ts</span> createInvite, verifyInvite</td>
+        <td>POST /auth/invite<br>GET /auth/invite/{token}/verify</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>공동보호자 초대</td>
+        <td><span class="file-ref">auth.ts</span> inviteGuardian</td>
+        <td>POST /auth/guardian/invite/member</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>공동보호자 수락</td>
+        <td><span class="file-ref">auth.ts</span> acceptGuardianInvite</td>
+        <td>POST /auth/guardian/invite/accept</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>공동보호자 제거</td>
+        <td><span class="file-ref">auth.ts</span> removeGuardian</td>
+        <td>DELETE /auth/guardian/members/{id}</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>가족그룹 조회</td>
+        <td><span class="file-ref">auth.ts</span> listFamilyMembers</td>
+        <td>GET /auth/guardian/members</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>복약 목록 조회</td>
+        <td><span class="file-ref">HealthManagementPage.tsx:86</span><br>useFocusEffect → listMedications</td>
+        <td>GET /medication/senior/{id}</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>복약 등록</td>
+        <td><span class="file-ref">MedicationFormPage.tsx:293</span><br>createMedication(seniorId, ...)</td>
+        <td>POST /medication</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>복약 수정</td>
+        <td><span class="file-ref">MedicationFormPage.tsx:283</span><br>updateMedication(resolvedId, ...)</td>
+        <td>PATCH /medication/{id}</td>
+        <td class="warn">⚠️ 부분 (아래 버그2 참고)</td>
+      </tr>
+      <tr>
+        <td>복약 삭제 (목록)</td>
+        <td><span class="file-ref">HealthManagementPage.tsx:159</span><br>deleteMedicationApi(id)</td>
+        <td>DELETE /medication/{id}</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>복약 삭제 (폼)</td>
+        <td><span class="file-ref">MedicationFormPage.tsx:315</span><br>deleteMedication(id) + deleteMedicationLocal</td>
+        <td>DELETE /medication/{id}</td>
+        <td class="ok">✅ 이전 버그 수정됨</td>
+      </tr>
+      <tr>
+        <td>복약 알림 응답</td>
+        <td><span class="file-ref">medication.ts</span> replyToMedicationReminder</td>
+        <td>POST /medication/reminders/{id}/reply</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>병원일정 목록 조회</td>
+        <td><span class="file-ref">HealthManagementPage.tsx:87</span><br>listHospitalVisits(seniorId)</td>
+        <td>GET /hospital/senior/{id}</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>병원일정 CRUD</td>
+        <td><span class="file-ref">HospitalFormPage.tsx:63,74,89</span></td>
+        <td>POST / PATCH / DELETE /hospital</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>챗봇 대화</td>
+        <td><span class="file-ref">useMoaChat.ts</span></td>
+        <td>POST /chat</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>TTS (문자→음성)</td>
+        <td><span class="file-ref">ChatbotMain.tsx</span></td>
+        <td>POST /speech/tts (Typecast)</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>STT (음성→문자)</td>
+        <td><span class="file-ref">useRecorder.ts</span></td>
+        <td>POST /speech/transcribe (Whisper)</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>음성 분석 → ML</td>
+        <td><span class="file-ref">record.ts</span> analyzeVoice</td>
+        <td>POST /analyze → ML /predict/*</td>
+        <td class="ok">✅ 정상</td>
+      </tr>
+      <tr>
+        <td>리포트 통계 / 추이</td>
+        <td><span class="file-ref">DashboardPage.tsx:144</span><br>getReportTrend, getMonthlyStats</td>
+        <td>GET /report/trend/{id}<br>GET /report/stats</td>
+        <td class="warn">⚠️ 조건부 (아래 버그4 참고)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr />
+
+  <!-- 2. 버그 / 미연결 -->
+  <h2>2. 버그 · 미연결 · 미실행 — 상세 내용</h2>
+
+  <!-- 버그 1 -->
+  <div class="bug-card">
+    <div class="bug-card-header red">
+      🔴 [버그 1] <code>medication.ts:66</code> — createMedication이 guardian_id 자리에 seniorId를 보냄
+    </div>
+    <div class="bug-card-body">
+      <p>복약 등록 시 요청 body에 <code>guardian_id: seniorId</code>를 포함하고 있습니다. <code>seniorId</code>를 <code>guardian_id</code> 필드에 그대로 넣은 값입니다. 백엔드는 토큰(JWT)에서 호출자의 신원을 직접 확인하므로 body의 <code>guardian_id</code>는 사용되지 않아 기능은 작동합니다. 그러나 의미가 잘못된 데이터를 보내고 있으며, 나중에 백엔드 로직이 바뀌면 오동작할 수 있습니다.</p>
+      <pre><span class="c">// frontend/src/api/medication.ts:64-70</span>
+body: JSON.stringify({
+  senior_id: seniorId,
+  <span class="hi">guardian_id: seniorId,  // ← seniorId를 guardian_id 자리에 잘못 넣음</span>
+  medicine_name: medicineName,
+  intake_times: intakeTimes.map(formatTimeForAPI),
+  ...
+})</pre>
+      <p><strong>수정 방법:</strong> <code>guardian_id</code> 필드 자체를 body에서 제거. 백엔드가 토큰에서 직접 guardianId를 추출함.</p>
+    </div>
+  </div>
+
+  <!-- 버그 2 -->
+  <div class="bug-card">
+    <div class="bug-card-header yellow">
+      🟡 [버그 2] <code>MedicationFormPage.tsx:284</code> — 수정 시 여러 복용시간 중 첫 번째만 업데이트
+    </div>
+    <div class="bug-card-body">
+      <p>백엔드는 같은 약이라도 복용시간마다 별도의 <code>medication</code> row로 저장합니다 (예: 혈압약 08:00, 혈압약 20:00 → 2개 row). 그러나 수정 시 <code>resolvedId</code> 하나에 대해 <code>formattedTimes[0]</code>(첫 번째 시간)만 PATCH하므로, 2회 이상 복용 약의 나머지 시간대 row는 전혀 업데이트되지 않습니다.</p>
+      <pre><span class="c">// frontend/src/pages/MedicationFormPage.tsx:282-289</span>
+<span class="k">if</span> (isEditMode && resolvedId) {
+  <span class="k">await</span> updateMedication(resolvedId, {
+    medicine_name: name.trim(),
+    <span class="hi">intake_time: formattedTimes[0],  // ← 첫 번째 시간만, 나머지 row 미업데이트</span>
+    start_date: startDate,
+    end_date: endDate || null,
+    is_active: enabled,
+  });
+}</pre>
+      <p><strong>근본 원인:</strong> <code>getGroupedMedications()</code>가 같은 약 이름의 여러 row를 하나로 묶어 UI에 보여주는데, 수정 진입 시 <code>id</code>로 첫 번째 row만 넘깁니다. 수정 로직을 "해당 약 이름 + seniorId로 기존 row 전체 삭제 후 재생성" 또는 "여러 medication_id를 받아 각각 PATCH"하는 방식으로 바꿔야 합니다.</p>
+    </div>
+  </div>
+
+  <!-- 미연결 1 -->
+  <div class="bug-card">
+    <div class="bug-card-header red">
+      🔴 [미연결 1] <code>NotificationCenterPage.tsx</code> — 백엔드 알림 API 전혀 미사용
+    </div>
+    <div class="bug-card-body">
+      <p>알림센터 화면이 Zustand store(localStorage)에서만 데이터를 읽고 있습니다. 백엔드에 <code>GET /notification/guardian/me</code>(보호자 알림)와 <code>GET /medication/reminders/me</code>(복약 알림 목록)가 완전히 구현되어 있지만, 이 화면에서 한 번도 호출하지 않습니다.</p>
+      <pre><span class="c">// frontend/src/pages/NotificationCenterPage.tsx:9</span>
+<span class="k">const</span> medications = useMedicationStore(<span class="f">s</span> => s.medications);        <span class="c">// store만</span>
+<span class="k">const</span> schedules   = useMedicationStore(<span class="f">s</span> => s.hospitalSchedules);    <span class="c">// store만</span>
+<span class="c">// GET /notification/guardian/me  → 호출 없음 ❌</span>
+<span class="c">// GET /medication/reminders/me   → 호출 없음 ❌</span></pre>
+      <p><strong>결과:</strong> 백엔드에서 발송된 RISK·MEDICATION·HOSPITAL·INACTIVE 알림이 화면에 전혀 표시되지 않습니다. 고령층이 챗봇에서 "약 먹었어요" 응답을 해도 알림센터가 갱신되지 않습니다.</p>
+    </div>
+  </div>
+
+  <!-- 미연결 2 -->
+  <div class="bug-card">
+    <div class="bug-card-header yellow">
+      🟡 [미연결 2] <code>DashboardPage.tsx:12</code> — 리포트가 환경변수 조건부
+    </div>
+    <div class="bug-card-body">
+      <p>보호자 리포트 화면이 <code>EXPO_PUBLIC_AUTH_API_MODE=real</code> 환경변수가 설정된 경우에만 API를 호출합니다. 이 값이 없으면 항상 하드코딩된 샘플 데이터(<code>FALLBACK_REPORT</code>)만 표시됩니다.</p>
+      <pre><span class="c">// frontend/src/pages/DashboardPage.tsx:12</span>
+<span class="k">const</span> REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === <span class="s">"real"</span>;
+
+<span class="c">// DashboardPage.tsx:139</span>
+<span class="k">if</span> (!REAL_API || !elderlyId) <span class="k">return</span>;  <span class="c">// ← 환경변수 없으면 샘플 데이터만 표시</span></pre>
+      <p><strong>결과:</strong> 실제 음성분석 결과가 DB에 쌓여도 리포트 화면에 반영되지 않을 수 있습니다. <code>.env</code>에 해당 환경변수가 없으면 조건 자체를 제거하거나 기본값을 <code>true</code>로 변경해야 합니다.</p>
+    </div>
+  </div>
+
+  <!-- 미연결 3 -->
+  <div class="bug-card">
+    <div class="bug-card-header orange">
+      🟠 [미연결 3] 긴급알림 — 챗봇에서 키워드 감지만 하고 DB 저장 없음
+    </div>
+    <div class="bug-card-body">
+      <p><code>ChatPage.tsx</code>에서 챗봇 발화에 자살위험·응급 키워드가 감지되면 UI 경고는 표시하지만, 백엔드에 <code>urgent_alert</code> 테이블에 저장하는 API 엔드포인트가 없고 프론트에서도 API 호출이 없습니다.</p>
+      <ul>
+        <li><code>urgent_alert</code> DB 테이블은 존재 (모델 정의 완료)</li>
+        <li>백엔드에 <code>POST /urgent-alert</code> 엔드포인트 없음</li>
+        <li>프론트에서 저장 API 호출 없음</li>
+        <li>결과: 감지된 긴급 상황이 DB에 기록되지 않고, 보호자 알림도 발송되지 않음</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 미실행 -->
+  <div class="bug-card">
+    <div class="bug-card-header orange">
+      🟠 [미실행] 복약 스케줄러 — dispatch_due_reminders() 호출하는 곳 없음
+    </div>
+    <div class="bug-card-body">
+      <p>백엔드에 복약 리마인더를 자동 생성하는 함수가 완전히 구현되어 있지만, 이 함수를 주기적으로 호출하는 스케줄러(APScheduler, Celery, cron 등)가 없습니다.</p>
+      <pre><span class="c"># backend/app/routes/medication.py:81</span>
+<span class="k">def</span> <span class="f">dispatch_due_reminders</span>(db: Session, now=None) -> list[MedicationReminder]:
+    <span class="s">"""스케줄러가 호출하는 복약 푸시 대상 생성/재발송 대기열."""</span>
+    ...  <span class="c"># 완전히 구현되어 있음 — 그러나 이 함수를 부르는 곳이 없음 ❌</span></pre>
+      <ul>
+        <li>결과: <code>medication_reminder</code> 테이블에 행이 생성되지 않음</li>
+        <li>결과: <code>GET /medication/reminders/me</code>가 항상 빈 배열 반환</li>
+        <li>결과: 복약 푸시 알림 실제로 발송되지 않음</li>
+        <li>결과: 보호자 <code>MEDICATION</code> 알림도 미발송</li>
+      </ul>
+    </div>
+  </div>
+
+  <hr />
+
+  <!-- 3. 우선순위 -->
+  <h2>3. 수정 우선순위</h2>
+
+  <table class="priority-table">
+    <thead>
+      <tr>
+        <th style="width:8%">순위</th>
+        <th style="width:32%">항목</th>
+        <th style="width:40%">영향</th>
+        <th style="width:10%">난이도</th>
+        <th style="width:10%">파일</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="dot red"></span><strong>즉시</strong></td>
+        <td>알림센터 API 연결</td>
+        <td>백엔드 알림이 화면에 전혀 안 보임. 핵심 기능 미작동.</td>
+        <td><span class="badge-diff medium">중간</span></td>
+        <td><span class="file-ref">NotificationCenterPage.tsx</span></td>
+      </tr>
+      <tr>
+        <td><span class="dot red"></span><strong>즉시</strong></td>
+        <td>guardian_id 버그 제거</td>
+        <td>잘못된 UUID를 전송 중. 백엔드 로직 변경 시 오동작 위험.</td>
+        <td><span class="badge-diff easy">쉬움</span></td>
+        <td><span class="file-ref">medication.ts:66</span></td>
+      </tr>
+      <tr>
+        <td><span class="dot yellow"></span><strong>중요</strong></td>
+        <td>복약 수정 여러 시간대 처리</td>
+        <td>2회 이상 복용 약 수정 시 나머지 시간대 미업데이트.</td>
+        <td><span class="badge-diff medium">중간</span></td>
+        <td><span class="file-ref">MedicationFormPage.tsx:283</span></td>
+      </tr>
+      <tr>
+        <td><span class="dot yellow"></span><strong>중요</strong></td>
+        <td>리포트 REAL_API 조건 제거</td>
+        <td>음성분석 결과가 쌓여도 리포트에 안 보일 수 있음.</td>
+        <td><span class="badge-diff easy">쉬움</span></td>
+        <td><span class="file-ref">DashboardPage.tsx:12</span></td>
+      </tr>
+      <tr>
+        <td><span class="dot orange"></span><strong>나중</strong></td>
+        <td>긴급알림 DB 저장 엔드포인트</td>
+        <td>긴급 상황 감지 기록이 DB에 없음. 감사 로그 불가.</td>
+        <td><span class="badge-diff medium">중간</span></td>
+        <td>백엔드 신규 route 필요</td>
+      </tr>
+      <tr>
+        <td><span class="dot orange"></span><strong>나중</strong></td>
+        <td>복약 스케줄러 실행 연결</td>
+        <td>복약 리마인더 자동 생성 및 푸시 알림 미발송.</td>
+        <td><span class="badge-diff hard">어려움</span></td>
+        <td>스케줄러 인프라 필요</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr />
+
+  <!-- 4. 요약 -->
+  <h2>4. 한눈에 보는 연결 현황</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:28%">기능 그룹</th>
+        <th style="width:72%">상태 요약</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>인증 / 회원가입 / 초대</td>
+        <td class="ok">✅ 전체 정상 연결</td>
+      </tr>
+      <tr>
+        <td>공동보호자 (가족그룹)</td>
+        <td class="ok">✅ 전체 정상 연결</td>
+      </tr>
+      <tr>
+        <td>복약 목록 조회 / 삭제</td>
+        <td class="ok">✅ 정상 연결</td>
+      </tr>
+      <tr>
+        <td>복약 등록</td>
+        <td class="warn">⚠️ 작동은 되나 body에 잘못된 guardian_id 포함 (버그1)</td>
+      </tr>
+      <tr>
+        <td>복약 수정</td>
+        <td class="warn">⚠️ 단일 시간만 업데이트, 여러 시간대 미처리 (버그2)</td>
+      </tr>
+      <tr>
+        <td>병원일정 CRUD / 목록</td>
+        <td class="ok">✅ 전체 정상 연결</td>
+      </tr>
+      <tr>
+        <td>챗봇 / TTS / STT</td>
+        <td class="ok">✅ 정상 연결</td>
+      </tr>
+      <tr>
+        <td>음성 분석 → ML → DB</td>
+        <td class="ok">✅ 정상 연결</td>
+      </tr>
+      <tr>
+        <td>리포트 통계 / 추이</td>
+        <td class="warn">⚠️ EXPO_PUBLIC_AUTH_API_MODE=real 환경변수 있어야만 API 호출 (버그4)</td>
+      </tr>
+      <tr>
+        <td>알림센터</td>
+        <td class="err">❌ 백엔드 API 전혀 미사용, store만 사용 (미연결1)</td>
+      </tr>
+      <tr>
+        <td>복약 알림 응답</td>
+        <td class="ok">✅ 정상 연결</td>
+      </tr>
+      <tr>
+        <td>복약 리마인더 자동생성</td>
+        <td class="err">❌ 스케줄러 없어서 리마인더 row 생성 안 됨 (미실행)</td>
+      </tr>
+      <tr>
+        <td>긴급알림 감지 / 저장</td>
+        <td class="err">❌ 감지만 되고 DB 저장 없음, 백엔드 엔드포인트 없음 (미연결3)</td>
+      </tr>
+      <tr>
+        <td>월간 리포트 PDF 생성</td>
+        <td class="err">❌ PDF 생성 로직 없음, POST /report 저장 불가</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr />
+
+  <div style="text-align:center; padding:28px 0 8px; color:#aaa; font-size:12px;">
+    MOA 프로젝트 — 프론트-백엔드 연결 정밀 조사 — 2026.06.29
+  </div>
+
+</div>
+</body>
+</html>
