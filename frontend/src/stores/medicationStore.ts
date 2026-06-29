@@ -60,7 +60,6 @@ const makeMedication = (id: string, medicineName: string, times: string[], statu
   id, medicineName, cycleType: "daily", scheduleType: "daily", daysOfWeek: [], times, startDate: now.slice(0, 10), endDate: null, scheduledTime: times[0], isActive: true, status, reminderCount: 0, createdAt: now, updatedAt: now,
 });
 
-const positive = ["응", "먹었어", "먹었지", "복용했어", "했어"];
 const negative = ["안먹었어", "아직", "나중에", "까먹었어", "안했어"];
 
 const medicationStorage = createJSONStorage(() => ({
@@ -93,7 +92,6 @@ export const useMedicationStore = create<MedicationState>()(persist((set, get) =
   respond: (id, rawAnswer) => {
     const answer = rawAnswer.replace(/\s/g, "").toLowerCase(); const item = get().medications.find((medication) => medication.id === id);
     if (!item) return "unknown";
-    if (positive.some((word) => answer.includes(word))) { set((state) => ({ medications: state.medications.map((medication) => medication.id === id ? { ...medication, status: "completed", completedAt: new Date().toISOString() } : medication) })); return "completed"; }
     if (negative.some((word) => answer.includes(word)) && item.reminderCount < 1) { set((state) => ({ medications: state.medications.map((medication) => medication.id === id ? { ...medication, status: "reminder_scheduled", reminderCount: 1 } : medication) })); return "reminder_scheduled"; }
     return "unknown";
   },

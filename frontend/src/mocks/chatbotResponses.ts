@@ -13,6 +13,9 @@ export type UserIntent =
   | "start_recording"
   | "show_result"
   | "navigate_record"
+  | "medication_info"
+  | "hospital_info"
+  | "family_connect"
   | "wake_up"
   | "goodbye"
   | "unknown";
@@ -31,6 +34,7 @@ export interface ChatbotResponse {
     route?: string | null;
     conversation_topic?: string | null;
     question_index?: number;
+    session_id?: string;
   };
 }
 
@@ -41,6 +45,8 @@ export interface ChatbotApiParams {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   current_topic?: string | null;
   question_index?: number;
+  senior_id?: string;
+  session_id?: string | null;
   acoustic_meta: {
     duration_ms: number;
     pause_events: number;

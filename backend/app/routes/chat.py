@@ -22,12 +22,12 @@ from app.core.security import get_current_guardian, get_current_user_id, verify_
 from app.models.models import ChatSession, Guardian, UrgentAlert
 from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
+    ChatFrontendEnvelope,
     ChatMessageRequest,
-    ChatMessageResponseData,
     ChatSessionEndRequest,
     ChatSessionResponse,
 )
-from app.services.chatbot import chat_for_frontend, chat_with_gpt
+from app.services.chatbot import chat_for_frontend
 from app.services.deidentify import deidentify
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -54,6 +54,62 @@ class DevChatResponse(BaseModel):
     data: dict
 
 
+def _normalize_frontend_result(result: dict, session_id: UUID | None = None) -> dict:
+    """Return the single frontend chat contract, no legacy aliases."""
+    action = str(result.get("next_action") or "continue")
+    if action not in {"continue", "finish", "navigate", "urgent_alert"}:
+        action = "continue"
+
+    normalized = {
+        "reply": str(result.get("reply") or "말씀해 주셔서 고마워요. 조금 더 들려주세요."),
+        "user_intent": str(result.get("user_intent") or "unknown"),
+        "bot_emotion": str(result.get("bot_emotion") or "default"),
+        "next_action": action,
+        "route": result.get("route") if isinstance(result.get("route"), str) else None,
+        "conversation_topic": (
+            result.get("conversation_topic")
+            if isinstance(result.get("conversation_topic"), str)
+            else None
+        ),
+        "question_index": (
+            result.get("question_index")
+            if isinstance(result.get("question_index"), int)
+            else 0
+        ),
+    }
+    if session_id is not None:
+        normalized["session_id"] = str(session_id)
+    return normalized
+
+
+def _resolve_chat_senior_id(req: ChatMessageRequest, user_id: UUID, db: Session) -> UUID:
+    """Use the requested senior after verifying direct-user or linked-guardian access."""
+    verify_senior_access(user_id, req.senior_id, db)
+    return req.senior_id
+
+
+def _create_urgent_alert_if_needed(
+    result: dict,
+    senior_id: UUID,
+    session_id: UUID,
+    db: Session,
+) -> None:
+    if result.get("next_action") != "urgent_alert":
+        return
+
+    intent = str(result.get("user_intent") or "")
+    level = "SUICIDE_RISK" if intent == "negative_mood" else "MEDICAL_EMERGENCY"
+    rule_id = "CHAT_SUICIDE_RISK" if level == "SUICIDE_RISK" else "CHAT_MEDICAL_EMERGENCY"
+    db.add(
+        UrgentAlert(
+            senior_id=senior_id,
+            session_id=session_id,
+            level=level,
+            rule_id=rule_id,
+        )
+    )
+
+
 @router.post("/dev", response_model=DevChatResponse)
 def send_dev_message(req: DevChatRequest):
     """개발 테스트용 챗봇 라우트. 인증/DB 저장 없이 LLM 응답만 확인한다."""
@@ -67,16 +123,16 @@ def send_dev_message(req: DevChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
 
-    return {"status": "success", "data": result}
+    return {"status": "success", "data": _normalize_frontend_result(result)}
 
 
-@router.post("", response_model=ChatMessageResponseData)
+@router.post("", response_model=ChatFrontendEnvelope)
 def send_message(
     req: ChatMessageRequest,
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    senior_id = user_id  # 토큰의 본인 ID 사용 (guardian·senior 공통, req.senior_id는 신뢰하지 않음)
+    senior_id = _resolve_chat_senior_id(req, user_id, db)
 
     if req.session_id is not None:
         session = (
@@ -112,12 +168,28 @@ def send_message(
     ]
 
     try:
-        result = chat_with_gpt(req.message, history[:-1])  # 마지막(이번 입력)은 별도 전달
+        result = chat_for_frontend(
+            req.message,
+            history[:-1],
+            req.current_topic,
+            req.question_index,
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
+        result = {
+            "reply": "지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
+            "user_intent": "unknown",
+            "bot_emotion": "worried",
+            "next_action": "continue",
+            "route": None,
+            "conversation_topic": req.current_topic,
+            "question_index": req.question_index,
+        }
 
     # 3. 봇 응답도 비식별화(생년월일/주소/전화번호) 후 누적
-    reply = deidentify(result["message"])
+    reply = deidentify(result["reply"])
+    result["reply"] = reply
+    result = _normalize_frontend_result(result, session.session_id)
+    _create_urgent_alert_if_needed(result, senior_id, session.session_id, db)
     messages.append(
         {"user": BOT_SPEAKER, "content": reply, "time": datetime.utcnow().isoformat()}
     )
@@ -131,13 +203,7 @@ def send_message(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 세션 저장 실패: {str(e)}")
 
-    return ChatMessageResponseData(
-        session_id=session.session_id,
-        reply=reply,
-        emotion=result.get("emotion"),
-        score=result.get("score"),
-        status=result.get("status"),
-    )
+    return {"status": "success", "data": result}
 
 
 @router.post("/end", response_model=ChatSessionResponse)
@@ -149,8 +215,7 @@ def end_session(
     session = db.query(ChatSession).filter(ChatSession.session_id == req.session_id).first()
     if session is None:
         raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
-    if session.senior_id != user_id:
-        raise HTTPException(status_code=403, detail="본인의 대화 세션만 종료할 수 있습니다.")
+    verify_senior_access(user_id, session.senior_id, db)
 
     session.ended_at = datetime.utcnow()
     db.commit()
