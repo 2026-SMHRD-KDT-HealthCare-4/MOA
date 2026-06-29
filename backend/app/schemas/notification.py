@@ -45,27 +45,6 @@ class MedicationResponse(BaseModel):
         from_attributes = True
 
 
-# ---------- 복약 체크리스트 (MEDICATION_CHECK) ----------
-
-class MedicationCheckRequest(BaseModel):
-    medication_id: UUID
-    senior_id: UUID
-    check_date: Optional[date] = None  # 미지정 시 오늘
-    is_completed: bool = True
-
-
-class MedicationCheckResponse(BaseModel):
-    check_id: UUID
-    medication_id: UUID
-    senior_id: UUID
-    check_date: date
-    is_completed: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 # ---------- 알림 (NOTIFICATION) ----------
 
 NotificationTypeLiteral = Literal["RISK", "MEDICATION", "HOSPITAL", "INACTIVE"]
@@ -131,4 +110,3 @@ class NotificationSettingsUpdateRequest(BaseModel):
     push_enabled: Optional[bool] = None
     medication_push_enabled: Optional[bool] = None
     hospital_push_enabled: Optional[bool] = None
-
