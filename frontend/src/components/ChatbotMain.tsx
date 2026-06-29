@@ -29,7 +29,10 @@ import * as authApi from "../api/auth";
 import { replyToMedicationReminder } from "../api/medication";
 import { useMedicationStore } from "../stores/medicationStore";
 import * as Notifications from "expo-notifications";
-import { useMoaChat } from "../features/chatbot/useMoaChat";
+import {
+  splitIntoSentenceChunks,
+  useMoaChat,
+} from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
 import { analyzeVoice } from "../api/record";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
@@ -289,8 +292,7 @@ export default function ChatbotMain() {
   useEffect(() => {
     if (!wakePrompt) return;
 
-    setBotReply(wakePrompt);
-    setBotEmotion("happy");
+    void speakBotLine(wakePrompt, "happy");
     clearWakePrompt();
   }, [clearWakePrompt, wakePrompt]);
 
@@ -363,7 +365,7 @@ export default function ChatbotMain() {
     setShowConversationResult(visible);
   }
 
-  async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
+  async function speakSingleBotLine(text: string, emotion: BotEmotion = "happy") {
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
       typewriterTimerRef.current = null;
@@ -380,6 +382,14 @@ export default function ChatbotMain() {
 
     streamReplyCharacters();
     await Promise.all([speakText(text), wait(Math.max(500, text.length * 45))]);
+  }
+
+  async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
+    const chunks = splitIntoSentenceChunks(text);
+
+    for (const chunk of chunks) {
+      await speakSingleBotLine(chunk, emotion);
+    }
   }
 
   function handleChatTurn(text: string, turnDurationMs: number) {
@@ -468,12 +478,7 @@ export default function ChatbotMain() {
         });
       }
 
-      lastPromptRef.current = reply;
-      setBotReply(reply);
-      setBotEmotion(outcome === "completed" ? "happy" : "default");
-      setChatState("botSpeaking");
-
-      await speakText(reply);
+      await speakBotLine(reply, outcome === "completed" ? "happy" : "default");
 
       if (outcome === "completed") {
         localMedicationIdRef.current = null;
@@ -493,12 +498,10 @@ export default function ChatbotMain() {
     try {
       const result = await replyToMedicationReminder(reminderId, text);
 
-      lastPromptRef.current = result.reply;
-      setBotReply(result.reply);
-      setBotEmotion(result.status === "COMPLETED" ? "happy" : "default");
-      setChatState("botSpeaking");
-
-      await speakText(result.reply);
+      await speakBotLine(
+        result.reply,
+        result.status === "COMPLETED" ? "happy" : "default",
+      );
 
       if (result.status === "COMPLETED") {
         medicationReminderIdRef.current = null;
@@ -774,10 +777,7 @@ export default function ChatbotMain() {
     silenceRetryRef.current = 1;
     voiceModeRef.current = null;
     activeRecordingModeRef.current = null;
-    setBotReply(prompt);
-    setChatState("botSpeaking");
-
-    void speakText(prompt);
+    void speakBotLine(prompt, botEmotion);
   }, [botReply, isConversationActive, noSpeechDetected, resetRecorder, speakText]);
 
   useEffect(() => {
@@ -978,18 +978,12 @@ export default function ChatbotMain() {
           "다시 만나서 좋아요. 지금 기분은 어떠세요?",
         ];
 
-  return greetings[Math.floor(Math.random() * greetings.length)];
-}
+        return greetings[Math.floor(Math.random() * greetings.length)];
+      }
 
-const reply = getReturnGreeting();
+      const reply = getReturnGreeting();
       silenceRetryRef.current = 0;
-      lastPromptRef.current = reply;
-
-      setBotReply(reply);
-      setBotEmotion("happy");
-      setChatState("botSpeaking");
-
-      await speakText(reply);
+      await speakBotLine(reply, "happy");
 
       greetingInProgressRef.current = false;
       conversationActiveRef.current = true;
@@ -1114,13 +1108,7 @@ const reply = getReturnGreeting();
 
     try {
       silenceRetryRef.current = 0;
-      lastPromptRef.current = prompt;
-
-      setBotReply(prompt);
-      setBotEmotion("happy");
-      setChatState("botSpeaking");
-
-      await speakText(prompt);
+      await speakBotLine(prompt, "happy");
 
       greetingInProgressRef.current = false;
 
