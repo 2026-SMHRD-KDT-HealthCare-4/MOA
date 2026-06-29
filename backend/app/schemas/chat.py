@@ -30,6 +30,15 @@ class ChatMessageResponseData(BaseModel):
     emotion: Optional[str] = None
     score: Optional[int] = None
     status: Optional[str] = None
+
+
+class VoiceChatMessageResponseData(BaseModel):
+    session_id: UUID
+    reply: str
+    emotion: str
+    user_intent: str
+    user_message: str
+    audio_base64: str
     user_intent: Optional[str] = None
     bot_emotion: Optional[str] = None
     next_action: Optional[str] = None

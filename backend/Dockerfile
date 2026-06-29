@@ -9,12 +9,19 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# 파이썬 의존성 설치
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 파이썬 의존성 및 로컬 패키지 복사
+COPY backend/requirements.txt ./backend/requirements.txt
+COPY ml/serab-byols ./ml/serab-byols
 
-# 소스코드 전체 복사
-COPY . .
+# 의존성 설치 (requirements.txt 내부의 로컬 패키지 상대 경로 포함)
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# 전체 소스코드 복사
+COPY backend ./backend
+COPY ml ./ml
+
+# 백엔드 실행 경로 설정
+WORKDIR /app/backend
 
 EXPOSE 8000
 

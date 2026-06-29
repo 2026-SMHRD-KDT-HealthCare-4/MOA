@@ -198,6 +198,7 @@ export default function ChatbotMain() {
     route,
     clearRoute,
     sendMessage,
+    sendVoiceMessage,
     speakText,
     nextAction,
   } = useMoaChat();
@@ -217,6 +218,7 @@ export default function ChatbotMain() {
   } = useRecorder({
     autoStopOnSilence: true,
     keepAudio: true,
+    skipSTT: true,
   });
 
   const turnCountRef = useRef(0);
@@ -606,32 +608,18 @@ export default function ChatbotMain() {
   }
 
   useEffect(() => {
-    const text = transcript?.trim();
     const recordingMode = activeRecordingModeRef.current;
+    const turnAudioUri = audioUriRef.current;
 
-    console.log("[TRANSCRIPT_EFFECT]", {
-      transcript,
-      text,
-      voiceMode: voiceModeRef.current,
-      recordingMode,
-      submitting: submittingTranscriptRef.current,
-    });
-
-    if (!text) {
-      submittingTranscriptRef.current = false;
+    // 녹음 상태가 'done'이거나 오디오가 준비되었을 때만 제출을 시작한다.
+    if (recorderState !== "done" || !turnAudioUri) {
       return;
     }
 
     if (submittingTranscriptRef.current) return;
-
     submittingTranscriptRef.current = true;
 
-    if (SHOW_STT_DEBUG) {
-      setLastRecognizedText(text);
-    }
-
     const turnDurationMs = durationMs;
-    const turnAudioUri = audioUriRef.current;
     const currentFlowStep = flowStepRef.current;
     const isMedicationConversation =
       !!medicationReminderIdRef.current || !!localMedicationIdRef.current;
@@ -650,7 +638,6 @@ export default function ChatbotMain() {
         : "ok";
 
     console.log("[TURN_READY]", {
-      text,
       mode: recordingMode,
       durationMs: turnDurationMs,
       audioUri: turnAudioUri,
@@ -662,23 +649,11 @@ export default function ChatbotMain() {
           await saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus);
         }
 
-        if (turnAudioUri) {
-          console.log("[AUDIO_CLEAR]", turnAudioUri);
-          await clearAudio?.();
-        }
-
-        resetRecorder();
-
-        if (wakeTimeoutRef.current) {
-          clearTimeout(wakeTimeoutRef.current);
-        }
-
-        if (medicationReminderIdRef.current || localMedicationIdRef.current) {
-          await handleMedicationReminderAnswer(text);
-          return;
-        }
-
+        // 'sustainedVowel' (아~~~ 3초 측정) 모드
         if (recordingMode === "sustainedVowel") {
+          resetRecorder();
+          if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+
           if (turnDurationMs < SUSTAINED_VOWEL_MIN_MS) {
             console.warn("[SUSTAINED_VOWEL_TOO_SHORT]", {
               durationMs: turnDurationMs,
@@ -698,23 +673,42 @@ export default function ChatbotMain() {
           return;
         }
 
-        if (recordingMode !== "conversation") return;
-        if (!conversationActiveRef.current) return;
+        if (recordingMode !== "conversation") {
+          resetRecorder();
+          return;
+        }
+        if (!conversationActiveRef.current) {
+          resetRecorder();
+          return;
+        }
 
         if (currentFlowStep === "FIRST_FREE_TALK") {
+          resetRecorder();
           await startVoiceCheckAfterFreeTalk();
           return;
         }
 
-        handleChatTurn(text, turnDurationMs);
+        // 복약 대화 및 일반 대화 모두 백엔드 단일 통합 API로 원스톱 처리!
+        resetRecorder();
+        if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+
+        console.log("[SEND_VOICE_MESSAGE_START]", turnAudioUri);
+        await sendVoiceMessage(turnAudioUri, turnDurationMs);
+        console.log("[SEND_VOICE_MESSAGE_DONE]");
+      } catch (err) {
+        console.error("[VOICE_TURN_ERROR]", err);
+        resetRecorder();
       } finally {
         if (activeRecordingModeRef.current === recordingMode) {
           activeRecordingModeRef.current = null;
         }
         submittingTranscriptRef.current = false;
+        if (turnAudioUri) {
+          await clearAudio?.();
+        }
       }
     })();
-  }, [clearAudio, durationMs, resetRecorder, transcript]);
+  }, [clearAudio, durationMs, resetRecorder, recorderState]);
 
   useEffect(() => {
     if (
