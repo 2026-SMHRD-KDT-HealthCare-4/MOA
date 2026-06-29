@@ -118,19 +118,7 @@ The client does not provide an approved display name, so address the user withou
 """
 
 
-def chat_with_gpt(message: str, history: list = []) -> dict:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += history
-    messages.append({"role": "user", "content": message})
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        response_format={"type": "json_object"},
-    )
-
-    result = json.loads(response.choices[0].message.content)
-    return result
 
 
 def chat_for_frontend(

@@ -1,6 +1,10 @@
+import os
+import httpx
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+
+KAKAO_REST_KEY = os.getenv("KAKAO_REST_KEY", "c19535cd0cd962a7ddbc759cec982d36")
 
 from app.core.database import get_db
 from app.core.security import (
@@ -154,3 +158,66 @@ def delete_hospital_visit(
     db.delete(visit)
     db.commit()
     return {"status": "success", "message": "병원 일정이 삭제되었습니다."}
+
+
+@router.get("/geocode")
+async def geocode_address(address: str = Query(..., description="변환할 주소")):
+    """주소를 위도, 경도 좌표로 변환한다 (카카오 지오코딩 API 프록시)"""
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_KEY}"}
+    params = {"query": address}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.get(url, headers=headers, params=params, timeout=10)
+            if res.status_code != 200:
+                raise HTTPException(status_code=res.status_code, detail="카카오 주소 변환 API 호출 실패")
+            data = res.json()
+            documents = data.get("documents", [])
+            if not documents:
+                raise HTTPException(status_code=444, detail="해당 주소의 좌표를 찾을 수 없습니다.")
+            doc = documents[0]
+            return {"lat": float(doc["y"]), "lng": float(doc["x"])}
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"카카오 서비스 통신 오류: {str(exc)}")
+
+
+@router.get("/search-nearby")
+async def search_nearby_hospitals(
+    dept: str = Query(..., description="진료과 (예: 신경과, 내과)"),
+    lat: float = Query(..., description="위도"),
+    lng: float = Query(..., description="경도"),
+    radius: int = Query(2000, description="반경(m)")
+):
+    """위도/경도 기준 주변 병원을 검색한다 (카카오 키워드 검색 API 프록시)"""
+    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_KEY}"}
+    params = {
+        "query": dept,
+        "x": str(lng),
+        "y": str(lat),
+        "radius": str(radius),
+        "sort": "distance"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.get(url, headers=headers, params=params, timeout=10)
+            if res.status_code != 200:
+                raise HTTPException(status_code=res.status_code, detail="카카오 장소 검색 API 호출 실패")
+            data = res.json()
+            documents = data.get("documents", [])
+            
+            hospitals = []
+            for doc in documents:
+                hospitals.append({
+                    "id": doc.get("id"),
+                    "name": doc.get("place_name"),
+                    "address": doc.get("road_address_name") or doc.get("address_name") or "",
+                    "distance": doc.get("distance"),
+                    "phone": doc.get("phone") or None,
+                    "url": doc.get("place_url") or None
+                })
+            return hospitals
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"카카오 서비스 통신 오류: {str(exc)}")

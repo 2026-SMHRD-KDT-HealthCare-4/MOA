@@ -19,16 +19,16 @@ interface RecorderOptions {
    * 옵션을 켜지 않으면 기존과 동일하게 STT 직후 즉시 폐기된다.
    */
   keepAudio?: boolean;
+  /** 챗봇 단일 파이프라인 통합을 위해 프론트 STT 처리를 건너뛰고 파일만 수집할지 여부 */
+  skipSTT?: boolean;
 }
 
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
+// const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(
   /\/$/,
   "",
 );
 
-const MOCK_TRANSCRIPT =
-  "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
 const MAX_RECORDING_DURATION_MS = 8_000;
 const NO_SPEECH_TIMEOUT_MS = 6_000;
 
@@ -56,75 +56,34 @@ function isWhisperHallucination(raw: string): boolean {
 }
 
 async function whisperSTT(uri: string): Promise<string> {
-  async function createFormData() {
-    const form = new FormData();
+  const token = await getToken();
+  if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
 
-    if (Platform.OS === "web") {
-      const res = await fetch(uri);
-      const blob = await res.blob();
-      form.append("file", blob, "recording.webm");
-    } else {
-      // React Native FormData는 { uri, type, name } 객체를 Blob처럼 처리
-      form.append("file", {
-        uri,
-        type: "audio/m4a",
-        name: "recording.m4a",
-      } as unknown as Blob);
-    }
-
-    return form;
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const res = await fetch(uri);
+    const blob = await res.blob();
+    form.append("file", blob, "recording.webm");
+  } else {
+    // React Native FormData는 { uri, type, name } 객체를 Blob처럼 처리
+    form.append("file", {
+      uri,
+      type: "audio/m4a",
+      name: "recording.m4a",
+    } as unknown as Blob);
   }
 
-  if (getAuthApiMode() === "real") {
-    const token = await getToken();
-    if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
-
-    const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: await createFormData(),
-    });
-
-    if (!response.ok) {
-      throw new Error(`STT_BACKEND_FAILED_${response.status}`);
-    }
-
-    const data = (await response.json()) as { text?: string };
-    return data.text ?? "";
-  }
-
-  if (!OPENAI_API_KEY) return MOCK_TRANSCRIPT;
-
-  const form = await createFormData();
-  form.append("model", "whisper-1");
-  form.append("language", "ko");
-  // verbose_json으로 세그먼트별 무음 확률(no_speech_prob)을 받아 환각을 걸러낸다.
-  form.append("response_format", "verbose_json");
-  form.append("temperature", "0");
-
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
 
-  if (!response.ok) throw new Error("STT_FAILED");
+  if (!response.ok) {
+    throw new Error(`STT_BACKEND_FAILED_${response.status}`);
+  }
 
-  const data = (await response.json()) as {
-    text?: string;
-    segments?: Array<{ no_speech_prob?: number; avg_logprob?: number }>;
-  };
-
-  // 모든 세그먼트가 "무음 확률 높음 + 낮은 신뢰도"면 실제 발화가 없는 것으로 보고 버린다.
-  const segments = data.segments ?? [];
-  const looksLikeSilence =
-    segments.length > 0 &&
-    segments.every(
-      (segment) =>
-        (segment.no_speech_prob ?? 0) > 0.6 && (segment.avg_logprob ?? 0) < -0.8,
-    );
-  if (looksLikeSilence) return "";
-
+  const data = (await response.json()) as { text?: string };
   return data.text ?? "";
 }
 
@@ -132,6 +91,7 @@ export function useRecorder({
   autoStopOnSilence = false,
   manageWakeWord = true,
   keepAudio = false,
+  skipSTT = false,
 }: RecorderOptions = {}) {
   const [state, setState] = useState<RecordState>("idle");
   const [transcript, setTranscript] = useState<string | null>(null);
@@ -231,6 +191,16 @@ export function useRecorder({
   }
 
   async function completeTranscription(uri: string, isWeb = false) {
+    if (skipSTT) {
+      if (keepAudio) {
+        keptAudioRef.current = { uri, isWeb };
+        setAudioUri(uri);
+      }
+      setTranscript("");
+      setState("done");
+      if (manageWakeWord) enableWakeWord();
+      return;
+    }
     try {
       const text = (await whisperSTT(uri)).trim();
 
