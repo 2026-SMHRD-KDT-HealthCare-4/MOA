@@ -420,9 +420,14 @@ export function useMoaChat() {
   };
 }
 
-function splitIntoSentenceChunks(text: string): string[] {
-  const sentences = text.match(/[^.!?。]+[.!?。]?/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [text];
-  return sentences.filter(Boolean);
+export function splitIntoSentenceChunks(text: string): string[] {
+  const chunks = text
+    .split(/\r?\n+/)
+    .flatMap((line) => line.match(/[^.!?。！？]+[.!?。！？]?/g) ?? [line])
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+  return chunks.length > 0 ? chunks : [text.trim()].filter(Boolean);
 }
 
 function wait(ms: number) {
