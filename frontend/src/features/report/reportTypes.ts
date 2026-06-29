@@ -1,4 +1,4 @@
-// 보호자 리포트 타입 정의 + 라벨 상수. (mock 데이터는 제거됨 — 실데이터는 api/report.ts 사용)
+// 보호자 리포트 타입 정의 + 라벨 상수.
 // 금지 표현("진단/처방/치료/병명") 절대 사용 금지. "감지/변화/패턴/참고용"만 사용.
 import { type WeatherStatus } from "../../constants/weatherIcons";
 
@@ -50,5 +50,3 @@ export const STATUS_LABELS: Record<0 | 1 | 2, string> = {
   1: "주의",
   2: "변화감지",
 };
-
-

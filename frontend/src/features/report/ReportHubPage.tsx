@@ -12,7 +12,7 @@ import { useAuthStore } from "../../stores/authStore";
 import {
   type FamilyReport as FamilyReportData,
   type CheckinCalendar,
-} from "./mockReport";
+} from "./reportTypes";
 import { FamilyReport } from "./FamilyReport";
 import {
   getReportTrend,
