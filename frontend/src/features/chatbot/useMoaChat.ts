@@ -5,6 +5,7 @@ import { Audio } from "expo-av";
 import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse, type NextAction } from "../../mocks/chatbotResponses";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
+import { useAuthStore } from "../../stores/authStore";
 import { getToken } from "../../api/session";
 
 export interface ChatMessage {
@@ -19,6 +20,7 @@ export interface ChatMessage {
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 const OPENAI_CHAT_MODEL = process.env.EXPO_PUBLIC_OPENAI_CHAT_MODEL ?? "gpt-4o-mini";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
+const CHAT_API_MODE = process.env.EXPO_PUBLIC_CHAT_API_MODE === "prod" ? "prod" : "dev";
 
 const MOA_CHATBOT_INSTRUCTIONS = `
 Never invent, guess, or use a person's name. The caller does not provide an approved display name, so address the user without a name.
@@ -226,9 +228,13 @@ function extractResponseText(data: unknown): string | null {
 }
 
 function normalizeChatbotResponse(raw: unknown): ChatbotResponse {
-  const data = raw as Partial<ChatbotResponse["data"]>;
+  const envelope = raw as Partial<ChatbotResponse> & { data?: Partial<ChatbotResponse["data"]> };
+  const data = (envelope.data ?? raw) as Partial<ChatbotResponse["data"]>;
   const botEmotion = mapBotEmotion(String(data.bot_emotion ?? "default"));
-  const shouldEnd = Boolean(data.should_end);
+  const nextAction = (["continue", "finish", "navigate", "urgent_alert"].includes(String(data.next_action))
+    ? data.next_action
+    : undefined) as NextAction | undefined;
+  const shouldEnd = Boolean(data.should_end ?? nextAction === "finish");
 
   return {
     status: "success",
@@ -236,11 +242,26 @@ function normalizeChatbotResponse(raw: unknown): ChatbotResponse {
       reply: typeof data.reply === "string" ? data.reply : "그랬군요. 제가 조금 더 들어드릴게요.",
       user_intent: typeof data.user_intent === "string" ? data.user_intent : "unknown",
       bot_emotion: botEmotion,
-      next_action: shouldEnd ? "finish" : "continue",
+      next_action: nextAction ?? (shouldEnd ? "finish" : "continue"),
       chat_state: shouldEnd ? "completed" : "botSpeaking",
       should_end: shouldEnd,
+      route: typeof data.route === "string" ? data.route : null,
+      conversation_topic: typeof data.conversation_topic === "string" ? data.conversation_topic : null,
+      question_index: typeof data.question_index === "number" ? data.question_index : 0,
+      session_id: typeof data.session_id === "string" ? data.session_id : undefined,
     },
   } as ChatbotResponse;
+}
+
+function resolveChatSeniorId(): string | undefined {
+  const auth = useAuthStore.getState();
+  if (auth.role === "elder") return auth.userId ?? undefined;
+
+  if (auth.role === "guardian") {
+    return auth.links.find((link) => link.status === "ACTIVE")?.counterpartId;
+  }
+
+  return undefined;
 }
 
 async function callOpenAIChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
@@ -279,7 +300,7 @@ async function callOpenAIChatbotApi(params: ChatbotApiParams): Promise<ChatbotRe
   return normalizeChatbotResponse(JSON.parse(outputText));
 }
 
-async function callBackendChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
+async function callBackendDevChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
   const response = await fetch(`${API_BASE_URL}/chat/dev`, {
     method: "POST",
     headers: {
@@ -289,16 +310,56 @@ async function callBackendChatbotApi(params: ChatbotApiParams): Promise<ChatbotR
   });
 
   if (!response.ok) {
-    throw new Error("BACKEND_CHAT_REQUEST_FAILED");
+    throw new Error("BACKEND_DEV_CHAT_REQUEST_FAILED");
   }
 
-  return (await response.json()) as ChatbotResponse;
+  return normalizeChatbotResponse(await response.json());
+}
+
+async function callBackendProdChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
+  const token = await getToken();
+  const seniorId = params.senior_id ?? resolveChatSeniorId();
+
+  if (!token || token.startsWith("mock-token-")) {
+    throw new Error("BACKEND_PROD_CHAT_REQUIRES_AUTH_TOKEN");
+  }
+  if (!seniorId) {
+    throw new Error("BACKEND_PROD_CHAT_REQUIRES_SENIOR_ID");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      senior_id: seniorId,
+      session_id: params.session_id ?? null,
+      message: params.message,
+      history: params.history ?? [],
+      current_topic: params.current_topic ?? null,
+      question_index: params.question_index ?? 0,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("BACKEND_PROD_CHAT_REQUEST_FAILED");
+  }
+
+  return normalizeChatbotResponse(await response.json());
 }
 
 async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
   try {
-    return await callBackendChatbotApi(params);
+    return CHAT_API_MODE === "prod"
+      ? await callBackendProdChatbotApi(params)
+      : await callBackendDevChatbotApi(params);
   } catch (error) {
+    if (CHAT_API_MODE === "prod") {
+      console.warn("[MOA_CHATBOT_PROD_FAILED]", error);
+      throw error;
+    }
     console.warn("[MOA_CHATBOT_BACKEND_FALLBACK]", error);
     return mockChatbotApi(params);
   }
@@ -318,6 +379,7 @@ export function useMoaChat() {
   const validSpeechDurationRef = useRef(0);
   const conversationTopicRef = useRef<string | null>(null);
   const questionIndexRef = useRef(0);
+  const sessionIdRef = useRef<string | null>(null);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
   async function speakText(text: string) {
@@ -352,6 +414,8 @@ export function useMoaChat() {
         })),
         current_topic: conversationTopicRef.current,
         question_index: questionIndexRef.current,
+        senior_id: resolveChatSeniorId(),
+        session_id: sessionIdRef.current,
         acoustic_meta: { duration_ms: 0, pause_events: 0, ...acousticMeta },
       };
 
@@ -362,6 +426,7 @@ export function useMoaChat() {
       validSpeechDurationRef.current += params.acoustic_meta.duration_ms;
       conversationTopicRef.current = res.data.conversation_topic ?? conversationTopicRef.current;
       questionIndexRef.current = res.data.question_index ?? questionIndexRef.current;
+      sessionIdRef.current = res.data.session_id ?? sessionIdRef.current;
 
       const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);

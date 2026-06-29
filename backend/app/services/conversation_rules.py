@@ -7,7 +7,8 @@ from typing import Any
 INTENTS = {
     "meal_talk", "sleep_talk", "family_talk", "health_discomfort", "loneliness",
     "positive_mood", "negative_mood", "wake_up", "start_recording", "show_result",
-    "navigate_record", "goodbye", "unknown",
+    "navigate_record", "medication_info", "hospital_info", "family_connect",
+    "goodbye", "unknown",
 }
 EMOTIONS = {"default", "listening", "thinking", "happy", "worried", "clapping"}
 ACTIONS = {"continue", "finish", "navigate", "urgent_alert"}
@@ -49,8 +50,14 @@ def detect_rule(text: str) -> dict[str, Any] | None:
         return response("네, 기록 화면으로 이동할게요.", "show_result", "happy", "navigate", "/history")
     if _contains(text, ("결과 보여줘", "결과 페이지", "검사 결과")):
         return response("네, 결과 화면으로 이동할게요.", "show_result", "happy", "navigate", "/report")
-    if _contains(text, ("녹음하러 가자", "검사하러 가자", "녹음하기")):
-        return response("네, 녹음 화면으로 이동할게요.", "navigate_record", "happy", "navigate", "/record")
+    if _contains(text, ("오늘 약 뭐야", "오늘 먹을 약 뭐야", "약 뭐 있어", "약 알림 보여줘", "복약 알림 보여줘")):
+        return response("복약/병원 화면에서 오늘 예정된 내용을 확인해 볼게요.", "medication_info", "happy", "navigate", "/health")
+    if _contains(text, ("병원 언제야", "병원 일정 알려줘", "병원 일정 보여줘")):
+        return response("복약/병원 화면에서 병원 일정을 확인해 볼게요.", "hospital_info", "happy", "navigate", "/health")
+    if _contains(text, ("녹음하러 가자", "검사하러 가자", "녹음하기", "목소리 검사하자", "음성 검사하자", "오늘 검사 시작", "다시 검사할래")):
+        return response("좋아요. 목소리 검사 화면으로 이동할게요.", "navigate_record", "happy", "navigate", "/record")
+    if _contains(text, ("가족 연결하고 싶어", "가족 연결", "보호자 연결", "가족 연동")):
+        return response("가족 연결은 설정 화면에서 확인할 수 있어요.", "family_connect", "happy", "navigate", "/settings")
     if _contains(text, ("그만", "끝", "종료", "나갈래", "하기 싫어")):
         return response("오늘 이야기 들려주셔서 고마워요. 필요하시면 언제든 다시 불러주세요.", "goodbye", "default", "finish")
     if _contains(text, ("아파", "아프다", "불편하다", "어지럽다", "힘들다")):

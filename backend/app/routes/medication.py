@@ -54,6 +54,11 @@ def _reminder_response(reminder: MedicationReminder, reply: str | None = None) -
     return payload
 
 
+def _mark_completed(reminder: MedicationReminder, db: Session) -> None:
+    # 현재 MVP 복약 리마인드 흐름에서는 호출하지 않는다.
+    return None
+
+
 def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[MedicationReminder]:
     """스케줄러가 호출하는 복약 푸시 대상 생성/재발송 대기열.
 
@@ -314,12 +319,10 @@ def reply_to_medication_reminder(
 
     answer = req.answer.strip().lower().replace(" ", "")
     if any(keyword.replace(" ", "") in answer for keyword in POSITIVE_MEDICATION_ANSWERS):
-        reminder.status = "COMPLETED"
-        reminder.retry_at = None
-        reminder.completed_at = datetime.utcnow()
-        db.commit()
-        db.refresh(reminder)
-        return _reminder_response(reminder, "잘하셨어요. 체크해둘게요.")
+        return _reminder_response(
+            reminder,
+            "알려주셔서 고마워요. 복약 기록 저장은 하지 않고, 알림만 도와드릴게요.",
+        )
 
     if any(keyword.replace(" ", "") in answer for keyword in NEGATIVE_MEDICATION_ANSWERS):
         if reminder.reminder_count == 0 and reminder.status != "REMINDER_SCHEDULED":
