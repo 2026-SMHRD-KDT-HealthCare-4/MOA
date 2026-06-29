@@ -71,6 +71,17 @@ class SeniorRegisterRequest(BaseModel):
     biometric_consent_yn: bool = False
 
 
+class SeniorClaimRequest(BaseModel):
+    invite_token: str = Field(min_length=7, max_length=7)
+    birth_date: date
+    gender: Optional[Literal["M", "F"]] = None
+    phone: str
+    smoking_yn: Optional[bool] = None
+    bmi: Optional[float] = None
+    medical_history: Optional[str] = None
+    biometric_consent_yn: bool = False
+
+
 class SeniorResponse(BaseModel):
     senior_id: UUID
     email: EmailStr

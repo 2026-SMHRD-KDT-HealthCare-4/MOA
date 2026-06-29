@@ -52,6 +52,7 @@ from app.schemas.auth import (
     ReconnectResponse,
     SeniorRegisterRequest,
     SeniorResponse,
+    SeniorClaimRequest,
 )
 from app.schemas.notification import NotificationSettingsResponse, NotificationSettingsUpdateRequest
 
@@ -450,6 +451,81 @@ def register_senior(req: SeniorRegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"고령층 프로필 저장 실패: {e}")
 
     return senior
+
+
+@router.post("/senior/claim")
+def claim_senior(req: SeniorClaimRequest, db: Session = Depends(get_db)):
+    import uuid
+    normalized_token = req.invite_token.strip().upper()
+
+    invite = db.query(Invite).filter(Invite.token == normalized_token).first()
+
+    if invite is None:
+        raise HTTPException(status_code=404, detail="초대코드를 찾을 수 없습니다.")
+    if invite.is_used:
+        raise HTTPException(status_code=400, detail="이미 사용된 초대코드입니다.")
+    if invite.expired_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="만료된 초대코드입니다. 재발송을 요청해주세요.")
+
+    random_uuid = str(uuid.uuid4())
+    email = f"senior-{random_uuid}@moa.app"
+    password = f"moa-{random_uuid[:12]}"
+    senior_name = invite.senior_name if invite.senior_name else "직접사용자"
+
+    user = _supabase_sign_up(email, password, role="senior", name=senior_name)
+
+    senior = Senior(
+        senior_id=UUID(user.id),
+        email=email,
+        name=senior_name,
+        birth_date=req.birth_date,
+        gender=req.gender,
+        phone=req.phone,
+        smoking_yn=req.smoking_yn,
+        bmi=req.bmi,
+        medical_history=req.medical_history,
+        biometric_consent_yn=req.biometric_consent_yn,
+        consent_at=datetime.utcnow() if req.biometric_consent_yn else None,
+    )
+
+    try:
+        db.add(senior)
+        db.flush()
+
+        link = GuardianSenior(
+            guardian_id=invite.guardian_id,
+            senior_id=senior.senior_id,
+            link_status=LinkStatus.ACTIVE.value,
+            linked_at=datetime.utcnow(),
+        )
+        db.add(link)
+
+        invite.is_used = True
+        db.add(invite)
+
+        db.commit()
+        db.refresh(senior)
+    except Exception as e:
+        db.rollback()
+        _supabase_delete_user(user.id)
+        raise HTTPException(status_code=400, detail=f"고령층 프로필 저장 실패: {e}")
+
+    try:
+        res = supabase.auth.sign_in_with_password(
+            {"email": email, "password": password}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"가입 후 자동 로그인 실패: {e}")
+
+    return {
+        "status": "success",
+        "data": {
+            "access_token": res.session.access_token,
+            "refresh_token": res.session.refresh_token,
+            "role": "senior",
+            "name": senior.name,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

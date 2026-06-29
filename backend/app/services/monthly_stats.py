@@ -74,30 +74,12 @@ def aggregate_monthly_stats(db: Session, senior_id: UUID, report_month: str) -> 
         .scalar()
     ) or 0
 
-    # 4. 질환별 평균 위험도 (RISK_PREDICTION)
-    avg_row = (
-        db.query(
-            func.avg(RiskPrediction.parkinson_score),
-            func.avg(RiskPrediction.dementia_score),
-            func.avg(RiskPrediction.depression_score),
-            func.avg(RiskPrediction.diabetes_score),
-        )
-        .filter(
-            RiskPrediction.senior_id == senior_id,
-            RiskPrediction.created_at >= start,
-            RiskPrediction.created_at < end,
-        )
-        .first()
-    )
-
-    def _round(v):
-        return round(float(v), 3) if v is not None else None
-
+    # 4. 질환별 평균 위험도 (마스킹 정책: 의료 진단 오인 방지를 위해 무조건 None 반환)
     avg_risk = {
-        "parkinson": _round(avg_row[0]) if avg_row else None,
-        "dementia": _round(avg_row[1]) if avg_row else None,
-        "depression": _round(avg_row[2]) if avg_row else None,
-        "diabetes": _round(avg_row[3]) if avg_row else None,
+        "parkinson": None,
+        "dementia": None,
+        "depression": None,
+        "diabetes": None,
     }
 
     # 5. 체크인 참여 일수 / 분모(총 일수) — 합의 3: 가입일 기준.

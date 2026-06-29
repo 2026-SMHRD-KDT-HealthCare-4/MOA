@@ -7,6 +7,7 @@ import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
 import { useAuthStore } from "../../stores/authStore";
 import { getToken } from "../../api/session";
+import { getAuthApiMode } from "../../api/auth";
 
 export interface ChatMessage {
   id: string;
@@ -255,7 +256,8 @@ async function callBackendProdChatbotApi(params: ChatbotApiParams): Promise<Chat
 }
 
 async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
-  return CHAT_API_MODE === "prod"
+  const isRealMode = getAuthApiMode() === "real";
+  return isRealMode
     ? await callBackendProdChatbotApi(params)
     : await callBackendDevChatbotApi(params);
 }

@@ -878,6 +878,47 @@ export async function claimSenior({
   consent,
 }: ClaimSeniorPayload): Promise<ApiEnvelope<ClaimSeniorData>> {
   const normalizedToken = normalizeSeniorPairingCode(token);
+
+  if (AUTH_API_MODE === "real") {
+    const res = await apiFetch<{
+      access_token: string;
+      refresh_token: string;
+      role: string;
+      name: string;
+    }>("/auth/senior/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        invite_token: normalizedToken,
+        birth_date: birth_date,
+        phone: phone,
+        biometric_consent_yn: !!consent,
+      }),
+    });
+
+    const userId = parseJwtSub(res.access_token) || "senior-user";
+    const user: SessionUser = {
+      id: userId,
+      name: res.name,
+      role: "elder",
+      token: res.access_token,
+    };
+    realCurrentUser = user;
+    await saveToken(res.access_token);
+    if (res.refresh_token) await saveRefreshToken(res.refresh_token);
+
+    return {
+      success: true,
+      data: {
+        user,
+        refreshToken: res.refresh_token,
+        consentDone: !!consent,
+        familyGroup: null,
+        links: [],
+        guardianMembers: [],
+      },
+    };
+  }
+
   const verify = await verifyInvite(normalizedToken);
   if (!verify.data.valid) {
     const reason = verify.data.reason;
@@ -906,10 +947,7 @@ export async function claimSenior({
   }
 
   const refreshToken = (await getRefreshToken()) ?? "";
-  const familyState =
-    AUTH_API_MODE === "real"
-      ? { familyGroup: null, links: [], guardianMembers: [] }
-      : familyStateForUser(user);
+  const familyState = familyStateForUser(user);
   return {
     success: true,
     data: { user, refreshToken, consentDone, ...familyState },
