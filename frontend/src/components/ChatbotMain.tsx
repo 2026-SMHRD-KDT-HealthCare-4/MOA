@@ -554,10 +554,10 @@ export default function ChatbotMain() {
 
     await speakBotLine("조금만 더 길게 해볼게요.", "happy");
     await speakBotLine(
-      "제가 셋을 세면 '아~~~'를 3초 정도 이어서 말씀해주세요.",
+      "제가 셋을 세면 '아' 소리를 3초 정도 이어서 말씀해주세요.",
       "happy",
     );
-    await speakBotLine("삼, 이, 일", "happy");
+    await speakBotLine("셋. 둘. 하나.", "happy");
     beginSustainedVowelRecording();
   }
 
@@ -570,7 +570,7 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
     setBotEmotion("listening");
     setChatState("listening");
-    setBotReply("3초 동안 '아~~~' 하고 말해주세요");
+    setBotReply("3초 동안 '아' 소리를 내어주세요");
 
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
@@ -600,7 +600,7 @@ export default function ChatbotMain() {
       await speakBotLine(intro, "happy");
       await speakBotLine(checkPrompt, "happy");
       await speakBotLine("제가 셋을 세면 시작해볼게요.", "happy");
-      await speakBotLine("삼, 이, 일", "happy");
+      await speakBotLine("셋. 둘. 하나.", "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
