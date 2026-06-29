@@ -371,7 +371,7 @@ export function useMoaChat() {
 
       const turnId = `turn_${Date.now()}`;
       const chunks = splitIntoSentenceChunks(res.data.reply);
-      const typingDelayMs = 48;
+      const typingDelayMs = 40;
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index];
         setMessages((prev) => [

@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
+import { getAuthApiMode } from "../../api/auth";
 import { getToken } from "../../api/session";
 
 export type RecordState = "idle" | "recording" | "processing" | "done";
@@ -21,12 +22,38 @@ interface RecorderOptions {
 }
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
+  /\/$/,
+  "",
+);
 
 const MOCK_TRANSCRIPT =
   "오늘 날씨가 맑고 기분이 좋아요. 아침에 일어나서 산책도 하고 밥도 잘 먹었어요.";
-const MAX_RECORDING_DURATION_MS = 30_000;
-const NO_SPEECH_TIMEOUT_MS = 8_000;
+const MAX_RECORDING_DURATION_MS = 8_000;
+const NO_SPEECH_TIMEOUT_MS = 6_000;
+
+// 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
+// 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
+// "시청해주셔서 감사합니다", "구독과 좋아요" 등). 사용자가 말하지 않았는데 이런
+// 문장이 잡히면 발화로 처리하지 않고 무발화(no-speech)로 돌린다.
+const HALLUCINATION_PATTERNS: RegExp[] = [
+  /(MBC|KBS|SBS|YTN|JTBC|TV\s*조선|채널\s*A|연합뉴스)/i,
+  /뉴스\s*(입니다|였습니다|데스크|룸)/,
+  /기자\s*(입니다|였습니다)/,
+  /앵커/,
+  /시청\s*(해|해주|해 주)/,
+  /구독|좋아요|알림\s*설정/,
+  /(자막|번역)\s*(제공|제작|by)/i,
+  /한글\s*자막/,
+  /다음\s*(영상|시간)에서\s*(만나|뵙)/,
+  /오늘도\s*(함께|시청)/,
+];
+
+function isWhisperHallucination(raw: string): boolean {
+  const text = raw.trim();
+  if (!text) return false;
+  return HALLUCINATION_PATTERNS.some((pattern) => pattern.test(text));
+}
 
 async function whisperSTT(uri: string): Promise<string> {
   async function createFormData() {
@@ -48,22 +75,22 @@ async function whisperSTT(uri: string): Promise<string> {
     return form;
   }
 
-  const token = await getToken();
-  const hasRealSession = Boolean(token && !token.startsWith("mock-token-"));
-  if (hasRealSession) {
-    try {
-      const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: await createFormData(),
-      });
-      if (response.ok) {
-        const data = (await response.json()) as { text?: string };
-        return data.text ?? "";
-      }
-    } catch {
-      // 서버 연결 실패 시 개발용 직접 호출 경로로 이어진다.
+  if (getAuthApiMode() === "real") {
+    const token = await getToken();
+    if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
+
+    const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: await createFormData(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`STT_BACKEND_FAILED_${response.status}`);
     }
+
+    const data = (await response.json()) as { text?: string };
+    return data.text ?? "";
   }
 
   if (!OPENAI_API_KEY) return MOCK_TRANSCRIPT;
@@ -71,6 +98,9 @@ async function whisperSTT(uri: string): Promise<string> {
   const form = await createFormData();
   form.append("model", "whisper-1");
   form.append("language", "ko");
+  // verbose_json으로 세그먼트별 무음 확률(no_speech_prob)을 받아 환각을 걸러낸다.
+  form.append("response_format", "verbose_json");
+  form.append("temperature", "0");
 
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -80,7 +110,21 @@ async function whisperSTT(uri: string): Promise<string> {
 
   if (!response.ok) throw new Error("STT_FAILED");
 
-  const data = (await response.json()) as { text?: string };
+  const data = (await response.json()) as {
+    text?: string;
+    segments?: Array<{ no_speech_prob?: number; avg_logprob?: number }>;
+  };
+
+  // 모든 세그먼트가 "무음 확률 높음 + 낮은 신뢰도"면 실제 발화가 없는 것으로 보고 버린다.
+  const segments = data.segments ?? [];
+  const looksLikeSilence =
+    segments.length > 0 &&
+    segments.every(
+      (segment) =>
+        (segment.no_speech_prob ?? 0) > 0.6 && (segment.avg_logprob ?? 0) < -0.8,
+    );
+  if (looksLikeSilence) return "";
+
   return data.text ?? "";
 }
 
@@ -151,14 +195,14 @@ export function useRecorder({
         console.log("[VAD] rms:", rms.toFixed(4));
         const now = Date.now();
 
-        if (rms > 0.008) {
+        if (rms > 0.035) {
           heardSpeech = true;
           lastSpeechAt = now;
           lastSpeechAtRef.current = now - startedAt;
         }
 
         // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
-        if (heardSpeech && now - lastSpeechAt >= 800 && now - startedAt >= 700) {
+        if (heardSpeech && now - lastSpeechAt >= 700 && now - startedAt >= 900) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;
@@ -188,7 +232,30 @@ export function useRecorder({
 
   async function completeTranscription(uri: string, isWeb = false) {
     try {
-      const text = await whisperSTT(uri);
+      const text = (await whisperSTT(uri)).trim();
+
+      // 무음/잡음 구간의 Whisper 환각이나 빈 결과는 발화로 처리하지 않고
+      // 무발화(no-speech) 경로로 보낸다 → ChatbotMain이 재안내/종료를 담당한다.
+      if (!text || isWhisperHallucination(text)) {
+        if (!isWeb) {
+          await FileSystem.deleteAsync(uri, { idempotent: true });
+        }
+
+        setTranscript(null);
+        setNoSpeechDetected(true);
+        setState("idle");
+
+        if (manageWakeWord) {
+          enableWakeWord();
+        }
+
+        setTimeout(() => {
+          setNoSpeechDetected(false);
+        }, 3000);
+
+        return;
+      }
+
       if (keepAudio) {
         // 폐기하지 않고 보관 → audioUri로 노출 (해제는 clearAudio가 담당)
         keptAudioRef.current = { uri, isWeb };
@@ -229,7 +296,10 @@ export function useRecorder({
     updateDuration();
     // 100ms 단위 갱신으로 SVG 링이 30초 동안 자연스럽게 채워진다.
     timerRef.current = setInterval(updateDuration, 100);
-    const timeoutMs = autoStopOnSilence ? NO_SPEECH_TIMEOUT_MS : MAX_RECORDING_DURATION_MS;
+    const timeoutMs =
+    autoStopOnSilence
+        ? NO_SPEECH_TIMEOUT_MS
+        : MAX_RECORDING_DURATION_MS;
     maxDurationTimeoutRef.current = setTimeout(() => {
       setDurationMs(timeoutMs);
       void finishRecording(autoStopOnSilence && lastSpeechAtRef.current === 0);
@@ -312,7 +382,10 @@ export function useRecorder({
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
         const shouldCommitFromSilence =
-          typeof metering === "number" && duration >= 1000 && lastSpeechAtRef.current > 0 && silenceElapsed >= 1100;
+          typeof metering === "number" &&
+          duration >= 1000 &&
+          lastSpeechAtRef.current > 0 &&
+          silenceElapsed >= 1000;
         const fallbackTurnLimit = 30000;
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
@@ -371,6 +444,10 @@ export function useRecorder({
         setTranscript(null);
         setNoSpeechDetected(true);
         setState("idle");
+
+        setTimeout(() => {
+          setNoSpeechDetected(false);
+        }, 3000);
         if (manageWakeWord) enableWakeWord();
         return;
       }

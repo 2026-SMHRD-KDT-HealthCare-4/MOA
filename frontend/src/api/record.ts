@@ -38,9 +38,13 @@ export async function saveScriptRecord(scriptId: string, seniorId: string): Prom
 export async function analyzeVoice(
   audioUri: string,
   collectType: "SCRIPT" | "CHATBOT",
+  sampleType?: "free_speech_intro" | "sustained_vowel" | "normal_chat",
+  sampleStatus?: "ok" | "too_short" | "failed",
 ): Promise<void> {
   const form = new FormData();
   form.append("collect_type", collectType);
+  if (sampleType) form.append("sample_type", sampleType);
+  if (sampleStatus) form.append("sample_status", sampleStatus);
   if (Platform.OS === "web") {
     const blob = await (await fetch(audioUri)).blob();
     form.append("file", blob, "recording.webm");
