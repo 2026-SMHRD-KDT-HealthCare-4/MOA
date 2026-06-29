@@ -380,6 +380,7 @@ export function useMoaChat() {
       const token = await getToken();
       if (!token) throw new Error("AUTH_TOKEN_MISSING");
 
+      // 1. STT (Transcribe) 호출
       const formData = new FormData();
       if (Platform.OS === "web") {
         const res = await fetch(audioUri);
@@ -399,11 +400,7 @@ export function useMoaChat() {
         });
       }
 
-      if (sessionIdRef.current) {
-        formData.append("session_id", sessionIdRef.current);
-      }
-
-      const response = await fetch(`${API_BASE_URL}/chat/voice`, {
+      const transcribeResponse = await fetch(`${API_BASE_URL}/speech/transcribe`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -412,20 +409,14 @@ export function useMoaChat() {
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error("VOICE_CHAT_API_FAILED");
+      if (!transcribeResponse.ok) {
+        throw new Error("TRANSCRIBE_API_FAILED");
       }
 
-      const res = (await response.json()) as {
-        session_id: string;
-        reply: string;
-        emotion: string;
-        user_intent: string;
-        user_message: string;
-        audio_base64: string;
-      };
+      const transcribeRes = (await transcribeResponse.json()) as { text: string };
+      const userMessageText = transcribeRes.text?.trim() ?? "";
 
-      if (!res.user_message || !res.reply) {
+      if (!userMessageText) {
         setIsBotTyping(false);
         enableWakeWord();
         sendingMessageRef.current = false;
@@ -441,24 +432,50 @@ export function useMoaChat() {
         return;
       }
 
-      sessionIdRef.current = res.session_id;
-
+      // 사용자 발화 말풍선 추가
       const userMsg: ChatMessage = {
         id: `u_${Date.now()}`,
         role: "user",
-        text: res.user_message,
+        text: userMessageText,
       };
       setMessages((prev) => [...prev, userMsg]);
 
-      const emotion = mapBotEmotion(res.emotion);
+      // 2. Chat API 호출 (기존 sendMessage 파이프라인 매개변수 적용)
+      const params: ChatbotApiParams = {
+        message: userMessageText,
+        conversation_turn: conversationTurnRef.current,
+        valid_speech_duration_ms: validSpeechDurationRef.current,
+        history: messages.slice(-8).map((message) => ({
+          role: message.role === "user" ? "user" : "assistant",
+          content: message.text,
+        })),
+        current_topic: conversationTopicRef.current,
+        question_index: questionIndexRef.current,
+        senior_id: resolveChatSeniorId(),
+        session_id: sessionIdRef.current,
+        acoustic_meta: { duration_ms: durationMs, pause_events: 0 },
+      };
+
+      const res: ChatbotResponse = await callChatbotApi(params);
+      setRoute(res.data.route ?? null);
+      setNextAction(res.data.next_action ?? "continue");
+      conversationTurnRef.current += 1;
+      validSpeechDurationRef.current += durationMs;
+      conversationTopicRef.current = res.data.conversation_topic ?? conversationTopicRef.current;
+      questionIndexRef.current = res.data.question_index ?? questionIndexRef.current;
+      sessionIdRef.current = res.data.session_id ?? sessionIdRef.current;
+
+      const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);
+
       setIsBotSpeaking(true);
       setIsBotTyping(false);
 
       const turnId = `turn_${Date.now()}`;
-      const chunks = splitIntoSentenceChunks(res.reply);
+      const chunks = splitIntoSentenceChunks(res.data.reply);
       const typingDelayMs = 40;
 
+      // 3. 문장 단위로 분절 후 순차적 음성 합성(TTS) 및 재생 (Pipelining)
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index];
         setMessages((prev) => [
@@ -472,19 +489,8 @@ export function useMoaChat() {
             typingDelayMs,
           },
         ]);
-      }
-
-      if (res.audio_base64) {
-        const base64Uri = `data:audio/mpeg;base64,${res.audio_base64}`;
-        if (soundRef.current) {
-          await soundRef.current.unloadAsync();
-        }
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: base64Uri },
-          { shouldPlay: true }
-        );
-        soundRef.current = sound;
-        await wait(Math.max(1000, res.reply.length * 200));
+        await wait(0);
+        await playTTS(chunk, soundRef, webAudioRef);
       }
       setIsBotSpeaking(false);
     } catch (err) {

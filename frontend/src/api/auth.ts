@@ -285,7 +285,10 @@ function seniorPairingCodeMatches(a: string, b: string): boolean {
 function toSession(acc: MockAccount): SessionUser {
   return { id: acc.id, name: acc.name, email: acc.email, role: acc.role, token: makeToken(acc.id) };
 }
-
+export function generateSeniorCredential(): { email: string; password: string } {
+  const uuid = makeUuid();
+  return { email: `senior-${uuid}@moa.app`, password: `moa-${makeUuid().slice(0, 12)}` };
+}
 
 
 function groupForGuardian(guardianId: string): FamilyGroup | null {
@@ -763,6 +766,98 @@ export interface RegisterSeniorData {
   senior: SessionUser;
   link: FamilyLink;
 }
+
+interface BackendSeniorResponse {
+  senior_id: string;
+  name: string;
+}
+
+async function registerSeniorMock({
+  invite_token,
+  email,
+  password,
+  name,
+}: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
+  const normalized = normalizeSeniorPairingCode(invite_token);
+  const invite = mockDb.invites.find((i) => seniorPairingCodeMatches(i.token, normalized));
+  if (!invite) throw new Error("초대 코드를 확인해 주세요.");
+  if (invite.isUsed) throw new Error("이미 사용된 초대 코드예요.");
+  if (new Date(invite.expiredAt).getTime() < Date.now()) {
+    throw new Error("만료된 초대 코드예요. 보호자에게 재발송을 요청해 주세요.");
+  }
+
+  const senior: MockAccount = {
+    id: makeUuid(),
+    name: name.trim(),
+    email: email.trim().toLowerCase(),
+    password,
+    role: "elder",
+  };
+  mockDb.accounts.push(senior);
+
+  const link: FamilyLink = {
+    linkId: makeUuid(),
+    familyGroupId: invite.familyGroupId,
+    counterpartId: senior.id,
+    counterpartName: senior.name,
+    relation: "elder",
+    status: "ACTIVE",
+    linkedAt: nowIso(),
+  };
+  mockDb.familyLinks.push(link);
+  invite.isUsed = true;
+  saveMockDb();
+
+  return { success: true, data: { senior: toSession(senior), link } };
+}
+
+async function registerSeniorReal({
+  invite_token,
+  email,
+  password,
+  name,
+  birth_date,
+  phone,
+  consent,
+}: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
+  const normalizedInviteToken = normalizeSeniorPairingCode(invite_token);
+  const senior = await apiFetch<BackendSeniorResponse>("/auth/senior/register", {
+    method: "POST",
+    body: JSON.stringify({
+      invite_token: normalizedInviteToken,
+      email: email.trim().toLowerCase(),
+      password,
+      name: name.trim(),
+      birth_date,
+      phone,
+      biometric_consent_yn: Boolean(consent),
+    }),
+  });
+  const user = await loginReal({ email, password });
+  const pending = loadRealPendingInvites().filter((i) => !seniorPairingCodeMatches(i.token, normalizedInviteToken));
+  saveRealPendingInvites(pending);
+  return {
+    success: true,
+    data: {
+      senior: user,
+      link: {
+        linkId: `link-${senior.senior_id}`,
+        counterpartId: senior.senior_id,
+        counterpartName: senior.name,
+        relation: "elder",
+        status: "ACTIVE",
+        linkedAt: nowIso(),
+      },
+    },
+  };
+}
+
+export async function registerSenior(
+  payload: RegisterSeniorPayload,
+): Promise<ApiEnvelope<RegisterSeniorData>> {
+  return AUTH_API_MODE === "real" ? registerSeniorReal(payload) : registerSeniorMock(payload);
+}
+
 
 
 

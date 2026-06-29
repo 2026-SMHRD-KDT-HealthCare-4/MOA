@@ -254,7 +254,7 @@ export default function RecordPage() {
               )}
               <TouchableOpacity
                 style={[styles.recordButton, isRecording && styles.recordButtonActive]}
-                onPress={isRecording ? stop : start}
+                onPress={isRecording ? () => stop() : () => start()}
                 disabled={isProcessing}
                 activeOpacity={0.85}
                 accessibilityLabel={isRecording ? "녹음 중지" : "녹음 시작"}
