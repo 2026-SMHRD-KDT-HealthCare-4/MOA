@@ -13,6 +13,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, MapPin, Phone, Info } from "lucide-react-native";
 import { colors } from "../../styles/tokens";
+import { getToken } from "../../api/session";
+
+// const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(
+  /\/$/,
+  "",
+);
 
 // 컬러는 tokens.ts 만 참조 (하드코딩 금지). 경고/강조는 앰버 단독, 레드 금지.
 const C = {
@@ -28,11 +35,7 @@ const C = {
   noticeBg: colors.guardian.cardPeach, // 앰버/피치 톤 배경 (레드 아님)
 };
 
-// 카카오 로컬 REST 키는 환경변수로만 주입 (하드코딩 절대 금지).
-const KAKAO_REST_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_KEY ?? "";
-
-const KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json";
-const KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json";
+// 카카오 API 호출 키와 로직은 백엔드로 전면 이관되었습니다.
 const SEARCH_RADIUS = 2000; // 반경 2km
 
 const DEPARTMENTS = ["신경과", "정신건강의학과", "내과"] as const;
@@ -69,28 +72,26 @@ interface KakaoDocument {
 // 이 함수 '호출 전에' 주소를 불러오는 코드만 추가하면 되고 이 함수와 이후 로직은
 // 그대로 재사용한다. 좌표를 찾으면 {lat,lng}, 못 찾으면 null.
 async function getCoordsByAddress(address: string): Promise<Coords | null> {
-  const url = `${KAKAO_ADDRESS_URL}?query=${encodeURIComponent(address)}`;
+  const token = await getToken();
+  const url = `${API_BASE_URL}/hospital/geocode?address=${encodeURIComponent(address)}`;
   const res = await fetch(url, {
-    headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) return null;
-  const json = (await res.json()) as { documents?: { x: string; y: string }[] };
-  const doc = json.documents?.[0];
-  if (!doc) return null;
-  return { lat: Number(doc.y), lng: Number(doc.x) };
+  const json = (await res.json()) as { lat: number; lng: number };
+  return { lat: json.lat, lng: json.lng };
 }
 
 // === 좌표 기준 병원 검색 (카카오 키워드 검색) ===============================
 async function searchHospitals(dept: Department, coords: Coords): Promise<Hospital[]> {
-  const url =
-    `${KAKAO_KEYWORD_URL}?query=${encodeURIComponent(dept)}` +
-    `&x=${coords.lng}&y=${coords.lat}&radius=${SEARCH_RADIUS}&sort=distance`;
+  const token = await getToken();
+  const url = `${API_BASE_URL}/hospital/search-nearby?dept=${encodeURIComponent(dept)}&lat=${coords.lat}&lng=${coords.lng}&radius=${SEARCH_RADIUS}`;
   const res = await fetch(url, {
-    headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) throw new Error("hospital search failed");
-  const json = (await res.json()) as { documents?: KakaoDocument[] };
-  return (json.documents ?? []).map(toHospital);
+  const json = (await res.json()) as Hospital[];
+  return json;
 }
 
 function formatDistance(meters: number): string {
@@ -121,7 +122,7 @@ export default function NearbyHospitalsPage() {
   const [address, setAddress] = useState("");
   const [coords, setCoords] = useState<Coords | null>(null);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [phase, setPhase] = useState<Phase>(KAKAO_REST_KEY ? "idle" : "noKey");
+  const [phase, setPhase] = useState<Phase>("idle");
 
   // 좌표가 정해진 뒤 진료과로 병원 목록을 갱신한다(지오코딩 재호출 없음).
   const loadHospitals = useCallback(async (targetDept: Department, c: Coords) => {
@@ -145,10 +146,6 @@ export default function NearbyHospitalsPage() {
   // ▲▲
   const runSearch = useCallback(
     async (addr: string, targetDept: Department) => {
-      if (!KAKAO_REST_KEY) {
-        setPhase("noKey");
-        return;
-      }
       if (!addr.trim()) {
         setPhase("idle");
         return;

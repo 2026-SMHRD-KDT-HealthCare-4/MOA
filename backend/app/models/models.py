@@ -28,6 +28,8 @@ from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
+from pgvector.sqlalchemy import Vector
+
 # PostgreSQL에서는 JSONB, 그 외(테스트용 SQLite 등)에서는 JSON으로 동작하도록 variant 처리
 JSONB_OR_JSON = JSONB().with_variant(JSON(), "sqlite")
 
@@ -258,6 +260,34 @@ class ChatSession(Base):
     ended_at = Column(DateTime, nullable=True)
     messages = Column(JSONB_OR_JSON, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+ 
+class ChatMemory(Base):
+    """챗봇 장기 기억 (CHAT_MEMORY).
+ 
+    매 사용자 발화를 실시간으로 임베딩하여 저장한다. 새 대화에서 pgvector
+    유사도 검색으로 관련 과거 기억을 찾아 챗봇 프롬프트에 주입하는 용도다.
+ 
+    [정책 합의 결과 — 2026-06-26]
+    - 정책1(범위): 대화 전부 저장 (필터 없음)
+    - 정책2(보관): created_at 기준 30일 경과분은 스케줄러가 자동 삭제
+    - 정책3(삭제): 능동 삭제 API 미구현. 단, 탈퇴 시 애플리케이션 코드에서 함께 삭제
+    - 정책4(접근): 챗봇 응답 생성에만 사용. 보호자/화면에 직접 노출 금지
+    - 정책5(고지): 처리방침에 '대화 기억 저장' 명시
+ 
+    [설계 메모] chat_session 과 동일하게 senior_id 에 FK 를 걸지 않는다.
+    추후 챗봇 데이터를 물리 분리할 때를 대비한 것으로, 탈퇴 시 cascade 는
+    DB 제약이 아니라 애플리케이션 코드(삭제 쿼리)로 처리한다.
+    VOICE_FEATURE / RISK_PREDICTION 과 JOIN 하지 않는다.
+    """
+    __tablename__ = "chat_memory"
+ 
+    memory_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    senior_id = Column(UUID(as_uuid=True), nullable=False, index=True)  # FK 미설정 (물리 분리 대비)
+    session_id = Column(UUID(as_uuid=True), nullable=True)  # 어느 대화 세션의 발화인지 (선택)
+    content = Column(String, nullable=False)  # 발화 원문 (또는 요약)
+    embedding = Column(Vector(1536), nullable=False)  # text-embedding-3-small 차원
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 class NotificationType(str, enum.Enum):

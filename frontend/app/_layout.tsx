@@ -5,6 +5,10 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as Notifications from "expo-notifications";
+import * as SplashScreen from "expo-splash-screen";
+
+// 폰트가 완전히 로딩되기 전에 스플래시 화면이 자동으로 꺼지는 것을 방지
+SplashScreen.preventAutoHideAsync().catch(() => undefined);
 import { useAuthStore } from "../src/stores/authStore";
 import { GlobalWakeWordListener } from "../src/components/GlobalWakeWordListener";
 import { useMedicationStore } from "../src/stores/medicationStore";
@@ -57,13 +61,21 @@ function useAuthGuard() {
 
 export default function RootLayout() {
   const router = useRouter();
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Jua: require("../assets/fonts/BMJUA.ttf"),
     "Pretendard-Light": require("../assets/fonts/Pretendard-Light.ttf"),
     "Pretendard-Medium": require("../assets/fonts/Pretendard-Medium.ttf"),
     "Pretendard-Bold": require("../assets/fonts/Pretendard-Bold.ttf"),
     "Pretendard-ExtraBold": require("../assets/fonts/Pretendard-ExtraBold.ttf"),
   });
+
+  // 폰트 로딩이 끝났거나(에러 포함) 준비되면 스플래시 화면을 완전히 숨김
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync().catch(() => undefined);
+    }
+  }, [fontsLoaded, fontError]);
+
   // 앱 시작 시 저장된 토큰으로 세션 복원 → 가드가 분기.
   const hydrate = useAuthStore((s) => s.hydrate);
   useEffect(() => {
@@ -89,7 +101,7 @@ export default function RootLayout() {
 
   useAuthGuard();
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <SafeAreaProvider>

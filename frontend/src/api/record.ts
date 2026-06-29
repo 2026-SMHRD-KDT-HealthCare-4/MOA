@@ -4,7 +4,8 @@ import { Platform } from "react-native";
 import { apiFetch } from "./auth";
 import { getToken } from "./session";
 
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+// const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(
   /\/$/,
   "",
 );

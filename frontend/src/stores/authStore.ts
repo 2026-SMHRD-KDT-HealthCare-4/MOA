@@ -96,12 +96,7 @@ const MOCK_GUARDIAN_SESSION: SessionUser = {
 //   env 는 번들 타임에 주입되므로, 값을 바꾸면 dev 서버를 재시작해야 반영된다.
 //   (.env.local 은 추적되지 않으니 다른 프론트엔드 작업자에겐 영향이 없다.)
 const DEV_AUTOLOGIN = process.env.EXPO_PUBLIC_DEV_AUTOLOGIN;
-const DEV_MOCK_SESSION: SessionUser | null =
-  DEV_AUTOLOGIN === "elder"
-    ? MOCK_ELDER_SESSION
-    : DEV_AUTOLOGIN === "guardian"
-      ? MOCK_GUARDIAN_SESSION
-      : null;
+const DEV_MOCK_SESSION: SessionUser | null = null;
 const DEV_MOCK_FAMILY_GROUP: FamilyGroup = {
   id: "family-dev",
   name: "김순자 가족",
@@ -268,15 +263,7 @@ const sessionState = (user: SessionUser, opts?: SetSessionOptions) => {
   };
 };
 
-const initialState = DEV_MOCK_SESSION
-  ? sessionState(DEV_MOCK_SESSION, {
-      consentDone: true,
-      onboardingDone: true, // DEV 자동로그인은 온보딩 게이트를 건너뛴다.
-      familyGroup: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_FAMILY_GROUP : null,
-      links: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_LINKS : [],
-      guardianMembers: DEV_MOCK_SESSION.role === "guardian" ? DEV_MOCK_GUARDIAN_MEMBERS : [],
-    })
-  : loggedOutState;
+const initialState = loggedOutState;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   ...initialState,

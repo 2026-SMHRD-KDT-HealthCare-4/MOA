@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Platform } from "react-native";
 import { Audio } from "expo-av";
 
-import { mockChatbotApi, type ChatbotApiParams, type ChatbotResponse, type NextAction } from "../../mocks/chatbotResponses";
+import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "./chatbotTypes";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -17,72 +17,12 @@ export interface ChatMessage {
   typingDelayMs?: number;
 }
 
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const OPENAI_CHAT_MODEL = process.env.EXPO_PUBLIC_OPENAI_CHAT_MODEL ?? "gpt-4o-mini";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+// const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const CHAT_API_MODE = process.env.EXPO_PUBLIC_CHAT_API_MODE === "prod" ? "prod" : "dev";
 
-const MOA_CHATBOT_INSTRUCTIONS = `
-Never invent, guess, or use a person's name. The caller does not provide an approved display name, so address the user without a name.
-Primary goal: collect a rich, voluntary daily-life narrative for later analysis, not merely to give advice.
-For every normal turn, respond with exactly one short, natural Korean sentence that fits within two UI lines (preferably 20 Korean characters or fewer). Do not write a paragraph or combine multiple sentences.
-Do not combine empathy/acknowledgment and a follow-up question in the same response: choose one conversational purpose per reply. Prefer sequence, time, place, people, feelings, or a memorable example when asking a question.
-Never rely on splitting a sentence mid-way to fit the UI; shorten or rephrase it instead. Avoid ellipses, yes/no questions, generic "anything else?", multiple questions in one turn, and ending early.
-Rotate naturally across sleep, meals, movement, social contact, routine, mood, memories, and discomfort. Give advice only when asked or when a safety concern is present.
-당신은 '모아'라는 이름의 AI 돌봄 친구입니다.
-노년층 사용자가 편하게 말한 한국어 문장을 이해하고, 따뜻하고 짧게 응답하세요.
 
-규칙:
-- 사용자의 표현을 키워드 하나로만 판단하지 말고 문맥과 감정을 함께 보세요.
-- 답변은 1~2문장, 쉬운 한국어로 말하세요.
-- 통증, 심한 피로, 어지러움, 위험 신호가 있으면 공감하고 쉬도록 안내하며 가족에게 알리라고 말하세요.
-- 외로움/우울/불안은 다그치지 말고 들어주겠다고 말하세요.
-- 식사/일상/좋은 일은 자연스럽게 후속 질문을 해 대화를 이어가세요.
-- 의료 진단이나 처방처럼 말하지 마세요.
-
-반드시 JSON만 반환하세요.
-`;
-
-const MOA_CHATBOT_RESPONSE_FORMAT = {
-  type: "json_schema",
-  name: "moa_chatbot_response",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["reply", "user_intent", "bot_emotion", "next_action", "chat_state", "should_end"],
-    properties: {
-      reply: { type: "string" },
-      user_intent: {
-        type: "string",
-        enum: [
-          "greeting",
-          "daily_talk",
-          "family_talk",
-          "meal_talk",
-          "positive_mood",
-          "negative_mood",
-          "health_discomfort",
-          "loneliness",
-          "start_recording",
-          "show_result",
-          "goodbye",
-          "unknown",
-        ],
-      },
-      bot_emotion: {
-        type: "string",
-        enum: ["default", "listening", "thinking", "happy", "worried", "clapping"],
-      },
-      next_action: { type: "string", enum: ["continue", "finish"] },
-      chat_state: {
-        type: "string",
-        enum: ["idle", "botSpeaking", "listening", "thinking", "completed", "error"],
-      },
-      should_end: { type: "boolean" },
-    },
-  },
-} as const;
 
 async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buffer);
@@ -264,42 +204,6 @@ function resolveChatSeniorId(): string | undefined {
   return undefined;
 }
 
-async function callOpenAIChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
-  if (!OPENAI_API_KEY) return mockChatbotApi(params);
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: OPENAI_CHAT_MODEL,
-      instructions: MOA_CHATBOT_INSTRUCTIONS,
-      input: [
-        ...(params.history ?? []),
-        { role: "user", content: params.message },
-      ],
-      text: {
-        format: MOA_CHATBOT_RESPONSE_FORMAT,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error("LLM_REQUEST_FAILED");
-  }
-
-  const data = await response.json();
-  const outputText = extractResponseText(data);
-
-  if (!outputText) {
-    throw new Error("LLM_EMPTY_RESPONSE");
-  }
-
-  return normalizeChatbotResponse(JSON.parse(outputText));
-}
-
 async function callBackendDevChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
   const response = await fetch(`${API_BASE_URL}/chat/dev`, {
     method: "POST",
@@ -351,18 +255,9 @@ async function callBackendProdChatbotApi(params: ChatbotApiParams): Promise<Chat
 }
 
 async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
-  try {
-    return CHAT_API_MODE === "prod"
-      ? await callBackendProdChatbotApi(params)
-      : await callBackendDevChatbotApi(params);
-  } catch (error) {
-    if (CHAT_API_MODE === "prod") {
-      console.warn("[MOA_CHATBOT_PROD_FAILED]", error);
-      throw error;
-    }
-    console.warn("[MOA_CHATBOT_BACKEND_FALLBACK]", error);
-    return mockChatbotApi(params);
-  }
+  return CHAT_API_MODE === "prod"
+    ? await callBackendProdChatbotApi(params)
+    : await callBackendDevChatbotApi(params);
 }
 
 export function useMoaChat() {
@@ -472,6 +367,128 @@ export function useMoaChat() {
     }
   }
 
+  async function sendVoiceMessage(audioUri: string, durationMs: number) {
+    if (sendingMessageRef.current) return;
+    sendingMessageRef.current = true;
+    disableWakeWord();
+    setIsBotTyping(true);
+    setBotEmotion("thinking");
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("AUTH_TOKEN_MISSING");
+
+      const formData = new FormData();
+      const filename = audioUri.split("/").pop() || "recording.m4a";
+      const match = /\.(\w+)$/.exec(filename);
+      const ext = match ? match[1] : "m4a";
+      const type = `audio/${ext}`;
+
+      // @ts-ignore
+      formData.append("file", {
+        uri: Platform.OS === "ios" ? audioUri.replace("file://", "") : audioUri,
+        name: filename,
+        type,
+      });
+
+      if (sessionIdRef.current) {
+        formData.append("session_id", sessionIdRef.current);
+      }
+
+      const response = await fetch(`${API_BASE_URL}/chat/voice`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("VOICE_CHAT_API_FAILED");
+      }
+
+      const res = (await response.json()) as {
+        session_id: string;
+        reply: string;
+        emotion: string;
+        user_intent: string;
+        user_message: string;
+        audio_base64: string;
+      };
+
+      if (!res.user_message || !res.reply) {
+        setIsBotTyping(false);
+        enableWakeWord();
+        sendingMessageRef.current = false;
+        return;
+      }
+
+      sessionIdRef.current = res.session_id;
+
+      const userMsg: ChatMessage = {
+        id: `u_${Date.now()}`,
+        role: "user",
+        text: res.user_message,
+      };
+      setMessages((prev) => [...prev, userMsg]);
+
+      const emotion = mapBotEmotion(res.emotion);
+      setBotEmotion(emotion);
+      setIsBotSpeaking(true);
+      setIsBotTyping(false);
+
+      const turnId = `turn_${Date.now()}`;
+      const chunks = splitIntoSentenceChunks(res.reply);
+      const typingDelayMs = 40;
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `b_${turnId}_${index}`,
+            turnId,
+            role: "bot",
+            text: chunk,
+            emotion,
+            typingDelayMs,
+          },
+        ]);
+      }
+
+      if (res.audio_base64) {
+        const base64Uri = `data:audio/mpeg;base64,${res.audio_base64}`;
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+        }
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: base64Uri },
+          { shouldPlay: true }
+        );
+        soundRef.current = sound;
+        await wait(Math.max(1000, res.reply.length * 200));
+      }
+      setIsBotSpeaking(false);
+    } catch (err) {
+      console.warn("sendVoiceMessage failed:", err);
+      setBotEmotion("worried");
+      const fallbackMsg: ChatMessage = {
+        id: `b_${Date.now()}`,
+        role: "bot",
+        text: "미안해요. 지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
+        emotion: "worried",
+      };
+      setMessages((prev) => [...prev, fallbackMsg]);
+      setIsBotTyping(false);
+      setIsBotSpeaking(false);
+    } finally {
+      sendingMessageRef.current = false;
+      setIsBotTyping(false);
+      enableWakeWord();
+    }
+  }
+
   return {
     messages,
     isBotTyping,
@@ -481,6 +498,7 @@ export function useMoaChat() {
     route,
     clearRoute: () => setRoute(null),
     sendMessage,
+    sendVoiceMessage,
     speakText,
   };
 }
