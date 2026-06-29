@@ -16,7 +16,6 @@
     },
     "android": {
       "package": "com.nayohyun.moa",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#FAF7F2",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -40,7 +39,16 @@
       "expo-notifications",
       "expo-video",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-splash-screen"
     ],
     "extra": {
       "router": {},
