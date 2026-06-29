@@ -75,8 +75,8 @@ const VOICE_CHECK_DONE_PROMPTS = [
 ];
 
 const NORMAL_CHAT_START_PROMPTS = [
-  "그럼 오늘 있었던 이야기를 조금 더 들려주세요.",
-  "오늘 가장 기억에 남는 일이 있었나요?",
+  "오늘 점심은 맛있게 드셨어요? 어떤 반찬이랑 드셨는지 궁금해요.",
+  "오늘 아침이나 낮에 가볍게 동네 산책은 다녀오셨어요?",
 ];
 
 type BotEmotion =
@@ -129,22 +129,22 @@ function getTimeBasedGreeting() {
   const hour = new Date().getHours();
 
   if (hour >= 5 && hour < 11) {
-    return "좋은 아침이에요. 잠은 잘 주무셨어요?";
+    return "좋은 아침이에요. 어제 주무실 때 춥지는 않으셨어요?";
   }
 
   if (hour >= 11 && hour < 15) {
-    return "점심은 맛있게 드셨어요?";
+    return "점심 식사는 맛있게 드셨어요?";
   }
 
   if (hour >= 15 && hour < 18) {
-    return "오후는 어떻게 보내고 계세요?";
+    return "오늘 낮에 따뜻한 물 한 잔 드시며 편히 쉬셨나요?";
   }
 
   if (hour >= 18 && hour < 22) {
-    return "오늘 하루는 어떠셨어요?";
+    return "오늘 저녁은 든든하게 챙겨드셨나요?";
   }
 
-  return "늦은 시간이네요. 오늘은 편안하셨나요?";
+  return "늦은 시간이네요. 오늘 잠자리는 편안하신가요?";
 }
 
 export default function ChatbotMain() {
@@ -1223,7 +1223,7 @@ export default function ChatbotMain() {
     setIsConversationActive(false);
     setChatState("idle");
     setBotEmotion("default");
-    setBotReply("오늘은 어떤 하루였나요?");
+    setBotReply("오늘 저녁은 맛있게 챙겨드셨나요?");
     flowStepRef.current = "IDLE";
     setFlowStep("IDLE");
 
