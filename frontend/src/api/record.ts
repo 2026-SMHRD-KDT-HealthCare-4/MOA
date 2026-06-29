@@ -33,14 +33,28 @@ export async function saveScriptRecord(scriptId: string, seniorId: string): Prom
   return { recordId: res.record_id, measuredAt: res.measured_at };
 }
 
+// GET /record/script-record/{seniorId} — 지정문구 낭독 측정 이력(최근 30건).
+// 본인 또는 연동 보호자만. 원본 음성은 저장되지 않으므로 측정 시각만 내려온다(ZDR).
+export async function listScriptRecords(seniorId: string): Promise<ScriptRecord[]> {
+  const res = await apiFetch<ScriptRecordResponseDto[]>(`/record/script-record/${seniorId}`, {
+    method: "GET",
+    auth: true,
+  });
+  return (res ?? []).map((r) => ({ recordId: r.record_id, measuredAt: r.measured_at }));
+}
+
 // POST /analyze — 녹음 음성을 멀티파트로 전송해 음성 특징/위험도를 서버에 저장한다.
 // multipart라 apiFetch(JSON 전용) 대신 직접 fetch. 업로드 후 사용 측에서 오디오를 즉시 해제해야 함(ZDR).
 export async function analyzeVoice(
   audioUri: string,
   collectType: "SCRIPT" | "CHATBOT",
+  sampleType?: "free_speech_intro" | "sustained_vowel" | "normal_chat",
+  sampleStatus?: "ok" | "too_short" | "failed",
 ): Promise<void> {
   const form = new FormData();
   form.append("collect_type", collectType);
+  if (sampleType) form.append("sample_type", sampleType);
+  if (sampleStatus) form.append("sample_status", sampleStatus);
   if (Platform.OS === "web") {
     const blob = await (await fetch(audioUri)).blob();
     form.append("file", blob, "recording.webm");

@@ -1,11 +1,45 @@
+import { useRouter } from "expo-router";
 import { View, Text, Image, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { ChevronLeft, ChevronRight } from "lucide-react-native";
-import { useState } from "react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MessageCircle,
+  Mic,
+  ChevronRight as ArrowRight,
+} from "lucide-react-native";
+import { useEffect, useState } from "react";
 import { WEATHER_IMAGE } from "../constants/weatherIcons";
+import { useAuthStore } from "../stores/authStore";
+import { getReportTrend } from "../api/report";
+import { listScriptRecords } from "../api/record";
+
+// real 모드에서만 서버 조회. 그 외(mock)·조회 실패 시 아래 MOCK_HISTORY로 폴백한다.
+const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
 
 type DayStatus = "sunny" | "cloudy" | "rainy" | null;
+type HistoryRecordType = "conversation" | "record";
+
+interface HistoryRecord {
+  id: string;
+  type: HistoryRecordType;
+  time: string;
+  duration: string;
+  status: NonNullable<DayStatus>;
+  summary: string;
+}
+
+interface DailyHistory {
+  status: NonNullable<DayStatus>;
+  records: HistoryRecord[];
+}
+
+const NAVY = "#173F73";
+const BEIGE = "#F7D6AC";
+const IVORY = "#FFF9F1";
+const BROWN = "#6F5A49";
+const BORDER = "rgba(23,63,115,0.12)";
 
 const WEATHER_LABEL: Record<NonNullable<DayStatus>, string> = {
   sunny: "맑음",
@@ -13,17 +47,161 @@ const WEATHER_LABEL: Record<NonNullable<DayStatus>, string> = {
   rainy: "비",
 };
 
-// mock — 실제 연동 시 API 응답으로 교체
-const MOCK_HISTORY: Record<string, DayStatus> = {
-  "2026-06-01": "sunny",
-  "2026-06-02": "sunny",
-  "2026-06-03": "cloudy",
-  "2026-06-05": "sunny",
-  "2026-06-07": "rainy",
-  "2026-06-09": "sunny",
-  "2026-06-10": "cloudy",
-  "2026-06-11": "sunny",
-  "2026-06-12": "sunny",
+const RECORD_TYPE_LABEL: Record<HistoryRecordType, string> = {
+  conversation: "모아와 대화",
+  record: "지정문구 녹음",
+};
+
+const MOCK_HISTORY: Record<string, DailyHistory> = {
+  "2026-06-01": {
+    status: "sunny",
+    records: [
+      {
+        id: "2026-06-01-chat-1",
+        type: "conversation",
+        time: "오전 10:30",
+        duration: "4분 12초",
+        status: "sunny",
+        summary: "편안한 목소리 흐름이에요.",
+      },
+      {
+        id: "2026-06-01-record-1",
+        type: "record",
+        time: "오후 7:20",
+        duration: "지정문구 2회",
+        status: "sunny",
+        summary: "최근 검사와 비슷해요.",
+      },
+    ],
+  },
+  "2026-06-02": {
+    status: "sunny",
+    records: [
+      {
+        id: "2026-06-02-record-1",
+        type: "record",
+        time: "오전 9:10",
+        duration: "지정문구 1회",
+        status: "sunny",
+        summary: "맑은 편이에요.",
+      },
+    ],
+  },
+  "2026-06-03": {
+    status: "cloudy",
+    records: [
+      {
+        id: "2026-06-03-chat-1",
+        type: "conversation",
+        time: "오후 2:15",
+        duration: "3분 40초",
+        status: "cloudy",
+        summary: "평소보다 조금 낮은 흐름이에요.",
+      },
+    ],
+  },
+  "2026-06-05": {
+    status: "sunny",
+    records: [
+      {
+        id: "2026-06-05-chat-1",
+        type: "conversation",
+        time: "오전 11:05",
+        duration: "5분 02초",
+        status: "sunny",
+        summary: "안정적인 흐름이에요.",
+      },
+      {
+        id: "2026-06-05-record-1",
+        type: "record",
+        time: "오후 6:45",
+        duration: "지정문구 2회",
+        status: "sunny",
+        summary: "뚜렷하게 잘 들렸어요.",
+      },
+      {
+        id: "2026-06-05-chat-2",
+        type: "conversation",
+        time: "오후 8:30",
+        duration: "2분 58초",
+        status: "sunny",
+        summary: "최근 검사와 비슷해요.",
+      },
+    ],
+  },
+  "2026-06-07": {
+    status: "rainy",
+    records: [
+      {
+        id: "2026-06-07-record-1",
+        type: "record",
+        time: "오후 5:30",
+        duration: "지정문구 1회",
+        status: "rainy",
+        summary: "평소보다 조금 흐린 편이에요.",
+      },
+    ],
+  },
+  "2026-06-09": {
+    status: "sunny",
+    records: [
+      {
+        id: "2026-06-09-chat-1",
+        type: "conversation",
+        time: "오전 10:00",
+        duration: "4분 25초",
+        status: "sunny",
+        summary: "맑은 편이에요.",
+      },
+    ],
+  },
+  "2026-06-10": {
+    status: "cloudy",
+    records: [
+      {
+        id: "2026-06-10-record-1",
+        type: "record",
+        time: "오후 7:15",
+        duration: "지정문구 2회",
+        status: "cloudy",
+        summary: "조금 낮은 흐름이에요.",
+      },
+    ],
+  },
+  "2026-06-11": {
+    status: "sunny",
+    records: [
+      {
+        id: "2026-06-11-chat-1",
+        type: "conversation",
+        time: "오전 9:45",
+        duration: "3분 55초",
+        status: "sunny",
+        summary: "안정적인 목소리예요.",
+      },
+    ],
+  },
+  "2026-06-12": {
+    status: "sunny",
+    records: [
+      {
+        id: "2026-06-12-chat-1",
+        type: "conversation",
+        time: "오전 10:30",
+        duration: "4분 12초",
+        status: "sunny",
+        summary: "최근 검사와 비슷한 흐름이에요.",
+      },
+      {
+        id: "2026-06-12-record-1",
+        type: "record",
+        time: "오후 7:20",
+        duration: "지정문구 2회",
+        status: "sunny",
+        summary: "특별한 변화는 없어요.",
+      },
+    ],
+  },
 };
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -35,42 +213,159 @@ function dateKey(year: number, month: number, day: number) {
 function buildCalendar(year: number, month: number): (number | null)[][] {
   const totalDays = new Date(year, month + 1, 0).getDate();
   const firstWeekDay = new Date(year, month, 1).getDay();
+
   const cells: (number | null)[] = [
     ...Array(firstWeekDay).fill(null),
     ...Array.from({ length: totalDays }, (_, i) => i + 1),
   ];
+
   const weeks: (number | null)[][] = [];
+
   for (let i = 0; i < cells.length; i += 7) {
     weeks.push(cells.slice(i, i + 7).concat(Array(7).fill(null)).slice(0, 7));
   }
+
   return weeks;
+}
+
+function getKoreanDay(year: number, month: number, day: number) {
+  return WEEKDAYS[new Date(year, month, day).getDay()];
+}
+
+function formatTime(d: Date): string {
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h < 12 ? "오전" : "오후";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${ampm} ${h}:${String(m).padStart(2, "0")}`;
+}
+
+// 실데이터(추이 날씨 + 낭독 이력)를 기록 탭 모델로 변환.
+// real: 캘린더 날씨·기록 유무·기록 시각/유형 / mock 유지: 기록별 요약 문구(백엔드 미지원).
+function buildRealHistory(
+  trend: { date: string; status: NonNullable<DayStatus> }[],
+  records: { recordId: string; measuredAt: string }[],
+): Record<string, DailyHistory> {
+  const statusByDate: Record<string, NonNullable<DayStatus>> = {};
+  trend.forEach((p) => {
+    statusByDate[p.date] = p.status;
+  });
+
+  const map: Record<string, DailyHistory> = {};
+  records.forEach((r) => {
+    const d = new Date(r.measuredAt);
+    const key = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+    const status = statusByDate[key] ?? "sunny";
+    const entry = map[key] ?? { status, records: [] };
+    entry.records.push({
+      id: r.recordId,
+      type: "record",
+      time: formatTime(d),
+      duration: "지정문구 낭독",
+      status,
+      // 요약 문구는 백엔드 미지원 → 중립 placeholder(임의 관찰 생성 금지)
+      summary: "기록이 저장되었어요.",
+    });
+    entry.status = status;
+    map[key] = entry;
+  });
+
+  // 측정은 있으나 낭독 이력이 없는 날도 캘린더 날씨는 보이도록 채운다.
+  Object.entries(statusByDate).forEach(([key, status]) => {
+    if (!map[key]) map[key] = { status, records: [] };
+  });
+
+  return map;
 }
 
 export default function HistoryPage() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const today = new Date();
+
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
+  const [selectedDay, setSelectedDay] = useState(today.getDate());
+
+  // real 모드: 본인(직접사용자) 기록을 서버에서 조회. 실패 시 null → mock 폴백.
+  const seniorId = useAuthStore((s) => s.userId);
+  const [realHistory, setRealHistory] = useState<Record<string, DailyHistory> | null>(null);
+  useEffect(() => {
+    if (!REAL_API || !seniorId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [trend, records] = await Promise.all([
+          getReportTrend(seniorId, 31),
+          listScriptRecords(seniorId),
+        ]);
+        if (alive) setRealHistory(buildRealHistory(trend, records));
+      } catch {
+        // 조회 실패 — mock 폴백 유지
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [seniorId]);
+
+  const history = realHistory ?? MOCK_HISTORY;
 
   const weeks = buildCalendar(year, month);
-  const sunnyCount = Object.values(MOCK_HISTORY).filter((v) => v === "sunny").length;
+  const selectedKey = dateKey(year, month, selectedDay);
+  const selectedHistory = history[selectedKey] ?? null;
+  const selectedRecords = selectedHistory?.records ?? [];
+
+  const monthlyKeys = Object.keys(history).filter((key) =>
+    key.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)
+  );
+
+  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status === "sunny").length;
+  const isThisMonth = year === today.getFullYear() && month === today.getMonth();
 
   function prevMonth() {
-    if (month === 0) { setMonth(11); setYear((y) => y - 1); }
-    else setMonth((m) => m - 1);
-  }
-  function nextMonth() {
-    if (month === 11) { setMonth(0); setYear((y) => y + 1); }
-    else setMonth((m) => m + 1);
+    if (month === 0) {
+      setMonth(11);
+      setYear((y) => y - 1);
+    } else {
+      setMonth((m) => m - 1);
+    }
+
+    setSelectedDay(1);
   }
 
-  const isThisMonth = year === today.getFullYear() && month === today.getMonth();
+  function nextMonth() {
+    if (isThisMonth) return;
+
+    if (month === 11) {
+      setMonth(0);
+      setYear((y) => y + 1);
+    } else {
+      setMonth((m) => m + 1);
+    }
+
+    setSelectedDay(1);
+  }
+
+  function openRecordResult(record: HistoryRecord) {
+    router.push({
+      pathname: "/done",
+      params: {
+        date: selectedKey,
+        status: record.status,
+        origin: "history",
+        type: "history",
+        recordId: record.id,
+        recordType: record.type,
+      },
+    });
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <LinearGradient colors={["#F7D6AC", "#FFF2DE", "#F7D6AC"]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={[BEIGE, "#FFF2DE", BEIGE]} style={StyleSheet.absoluteFill} />
 
-      {/* 헤더 */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>기록 돌아보기</Text>
         <Text style={styles.headerSub}>날씨로 건강 흐름을 살펴봐요</Text>
@@ -78,69 +373,150 @@ export default function HistoryPage() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 28 }]}
       >
-
-        {/* 월 네비게이션 */}
         <View style={styles.monthNav}>
           <TouchableOpacity style={styles.navBtn} onPress={prevMonth} accessibilityLabel="이전 달">
-            <ChevronLeft size={22} color="#8b7871" />
+            <ChevronLeft size={23} color={NAVY} />
           </TouchableOpacity>
+
           <Text style={styles.monthText}>
             {year}년 {month + 1}월
           </Text>
+
           <TouchableOpacity
             style={styles.navBtn}
             onPress={nextMonth}
             disabled={isThisMonth}
             accessibilityLabel="다음 달"
           >
-            <ChevronRight size={22} color={isThisMonth ? "#d9cdc9" : "#8b7871"} />
+            <ChevronRight size={23} color={isThisMonth ? "#C9BDB5" : NAVY} />
           </TouchableOpacity>
         </View>
 
-        {/* 요일 헤더 */}
-        <View style={styles.weekdayRow}>
-          {WEEKDAYS.map((d) => (
-            <Text key={d} style={styles.weekday}>{d}</Text>
+        <View style={styles.calendarCard}>
+          <View style={styles.weekdayRow}>
+            {WEEKDAYS.map((d) => (
+              <Text key={d} style={styles.weekday}>
+                {d}
+              </Text>
+            ))}
+          </View>
+
+          <View style={styles.grid}>
+            {weeks.map((week, wi) => (
+              <View key={wi} style={styles.weekRow}>
+                {week.map((day, di) => {
+                  if (!day) return <View key={di} style={styles.dayCell} />;
+
+                  const key = dateKey(year, month, day);
+                  const status = history[key]?.status ?? null;
+                  const isSelected = day === selectedDay;
+
+                  return (
+                    <TouchableOpacity
+                      key={di}
+                      style={[styles.dayCell, isSelected && styles.selectedCell]}
+                      onPress={() => setSelectedDay(day)}
+                      activeOpacity={0.78}
+                    >
+                      <Text style={[styles.dayNum, isSelected && styles.selectedNum]}>{day}</Text>
+
+                      {status ? (
+                        <Image
+                          source={WEATHER_IMAGE[status]}
+                          style={styles.weatherIcon}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={[styles.emptyDot, isSelected && styles.selectedEmptyDot]} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.legend}>
+          {(["sunny", "cloudy", "rainy"] as NonNullable<DayStatus>[]).map((s) => (
+            <View key={s} style={styles.legendItem}>
+              <Image source={WEATHER_IMAGE[s]} style={styles.legendEmoji} resizeMode="contain" />
+              <Text style={styles.legendLabel}>{WEATHER_LABEL[s]}</Text>
+            </View>
           ))}
         </View>
 
-        {/* 날짜 그리드 */}
-        <View style={styles.grid}>
-          {weeks.map((week, wi) => (
-            <View key={wi} style={styles.weekRow}>
-              {week.map((day, di) => {
-                if (!day) return <View key={di} style={styles.dayCell} />;
-                const key = dateKey(year, month, day);
-                const status = MOCK_HISTORY[key] ?? null;
-                const isToday = isThisMonth && day === today.getDate();
+        {selectedRecords.length > 0 ? (
+          <View style={styles.recordCard}>
+            <View style={styles.recordHeader}>
+              <View>
+                <Text style={styles.recordDate}>
+                  {month + 1}월 {selectedDay}일 ({getKoreanDay(year, month, selectedDay)})
+                </Text>
+                <Text style={styles.recordSub}>총 {selectedRecords.length}개의 기록이 있어요</Text>
+              </View>
+
+              {selectedHistory?.status && (
+                <Image
+                  source={WEATHER_IMAGE[selectedHistory.status]}
+                  style={styles.headerWeatherIcon}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+
+            <View style={styles.divider} />
+
+            <Text style={styles.sectionTitle}>오늘의 기록</Text>
+
+            <View style={styles.recordList}>
+              {selectedRecords.map((record, index) => {
+                const isConversation = record.type === "conversation";
+
                 return (
-                  <View key={di} style={[styles.dayCell, isToday && styles.todayCell]}>
-                    <Text style={[styles.dayNum, isToday && styles.todayNum]}>{day}</Text>
-                    {status ? (
-                      <Image source={WEATHER_IMAGE[status]} style={styles.weatherIcon} resizeMode="contain" />
-                    ) : (
-                      <View style={styles.emptyDot} />
-                    )}
-                  </View>
+                  <TouchableOpacity
+                    key={record.id}
+                    style={[
+                      styles.recordItem,
+                      index !== selectedRecords.length - 1 && styles.recordItemDivider,
+                    ]}
+                    activeOpacity={0.82}
+                    onPress={() => openRecordResult(record)}
+                  >
+                    <View style={styles.resultIconCircle}>
+                      {isConversation ? (
+                        <MessageCircle size={20} color={NAVY} />
+                      ) : (
+                        <Mic size={20} color={NAVY} />
+                      )}
+                    </View>
+
+                    <View style={styles.resultTextWrap}>
+                      <Text style={styles.resultTitle}>{RECORD_TYPE_LABEL[record.type]}</Text>
+                      <Text style={styles.resultDesc}>
+                        {record.time} · {record.duration}
+                      </Text>
+                      <Text style={styles.resultSummary}>{record.summary}</Text>
+                    </View>
+
+                    <ArrowRight size={22} color={NAVY} />
+                  </TouchableOpacity>
                 );
               })}
             </View>
-          ))}
-        </View>
+          </View>
+        ) : (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>
+              {month + 1}월 {selectedDay}일
+            </Text>
+            <Text style={styles.emptyText}>이 날은 아직 기록이 없어요.</Text>
+            <Text style={styles.emptySub}>기록이 있는 날짜를 눌러 확인해보세요.</Text>
+          </View>
+        )}
 
-        {/* 범례 */}
-        <View style={styles.legend}>
-          {(["sunny", "cloudy", "rainy"] as DayStatus[]).filter(Boolean).map((s) => (
-            <View key={s!} style={styles.legendItem}>
-              <Image source={WEATHER_IMAGE[s!]} style={styles.legendEmoji} resizeMode="contain" />
-              <Text style={styles.legendLabel}>{WEATHER_LABEL[s!]}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* 이번 달 요약 카드 */}
         {isThisMonth && (
           <View style={styles.summaryCard}>
             <Text style={styles.summaryEmoji}>🎈</Text>
@@ -150,7 +526,6 @@ export default function HistoryPage() {
             </Text>
           </View>
         )}
-
       </ScrollView>
     </View>
   );
@@ -158,90 +533,325 @@ export default function HistoryPage() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   header: {
     paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 16,
+    paddingTop: 22,
+    paddingBottom: 14,
     gap: 7,
   },
-  headerTitle: { fontSize: 31, lineHeight: 38, fontWeight: "900", color: "#3F2A1D" },
-  headerSub: { fontSize: 19, lineHeight: 25, fontWeight: "800", color: "#6F5A49" },
-  scroll: { paddingHorizontal: 16 },
+
+  headerTitle: {
+    fontSize: 31,
+    lineHeight: 38,
+    fontWeight: "900",
+    color: NAVY,
+  },
+
+  headerSub: {
+    fontSize: 19,
+    lineHeight: 25,
+    fontWeight: "800",
+    color: BROWN,
+  },
+
+  scroll: {
+    paddingHorizontal: 16,
+  },
+
   monthNav: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 4,
+    marginTop: 2,
+    marginBottom: 12,
     paddingHorizontal: 10,
-    paddingVertical: 12,
+    paddingVertical: 9,
     borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,249,241,0.88)",
     borderWidth: 1,
-    borderColor: "rgba(117,76,42,0.08)",
+    borderColor: BORDER,
   },
-  navBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  monthText: { fontSize: 21, fontWeight: "900", color: "#3B2318" },
+
+  navBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  monthText: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: NAVY,
+  },
+
+  calendarCard: {
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 8,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,249,241,0.84)",
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+
   weekdayRow: {
     flexDirection: "row",
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 7,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(117,76,42,0.10)",
+    borderBottomColor: "rgba(23,63,115,0.10)",
     marginBottom: 4,
   },
+
   weekday: {
     flex: 1,
     textAlign: "center",
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#80675C",
+    fontSize: 14,
+    fontWeight: "900",
+    color: BROWN,
   },
-  grid: { gap: 4 },
-  weekRow: { flexDirection: "row" },
-  dayCell: {
-    flex: 1,
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
+
+  grid: {
     gap: 2,
   },
-  todayCell: { backgroundColor: "#FFF9F1", borderWidth: 1.5, borderColor: "#173F73" },
-  dayNum: { fontSize: 14, color: "#5f4c45", fontWeight: "700" },
-  todayNum: { color: "#173F73", fontWeight: "800" },
-  weatherIcon: { width: 24, height: 24 },
-  emptyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#ede4df" },
+
+  weekRow: {
+    flexDirection: "row",
+  },
+
+  dayCell: {
+    flex: 1,
+    aspectRatio: 0.92,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+    gap: 1,
+  },
+
+  selectedCell: {
+    backgroundColor: NAVY,
+  },
+
+  dayNum: {
+    fontSize: 14,
+    color: "#5F4C45",
+    fontWeight: "800",
+  },
+
+  selectedNum: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+  },
+
+  weatherIcon: {
+    width: 23,
+    height: 23,
+  },
+
+  emptyDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#E4D7CF",
+  },
+
+  selectedEmptyDot: {
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+
   legend: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 24,
-    marginTop: 16,
-    padding: 14,
-    backgroundColor: "rgba(255,255,255,0.78)",
+    gap: 22,
+    marginTop: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(255,249,241,0.88)",
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(117,76,42,0.08)",
+    borderColor: BORDER,
   },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendEmoji: { width: 22, height: 22 },
-  legendLabel: { fontSize: 16, color: "#8b7871" },
+
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  legendEmoji: {
+    width: 22,
+    height: 22,
+  },
+
+  legendLabel: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: BROWN,
+  },
+
   summaryCard: {
-    marginTop: 16,
-    padding: 20,
-    backgroundColor: "rgba(255,255,255,0.82)",
-    borderRadius: 18,
+    marginTop: 13,
+    padding: 18,
+    backgroundColor: "rgba(255,249,241,0.9)",
+    borderRadius: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     borderWidth: 1,
-    borderColor: "rgba(117,76,42,0.08)",
-    shadowColor: "#c0a99f",
+    borderColor: BORDER,
+    shadowColor: "#9D806F",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 2,
   },
-  summaryEmoji: { fontSize: 36 },
-  summaryText: { flex: 1, fontSize: 18, color: "#40332D", lineHeight: 28 },
-  summaryHighlight: { color: "#173F73", fontWeight: "800" },
+
+  summaryEmoji: {
+    fontSize: 34,
+  },
+
+  summaryText: {
+    flex: 1,
+    fontSize: 18,
+    color: "#40332D",
+    lineHeight: 28,
+    fontWeight: "700",
+  },
+
+  summaryHighlight: {
+    color: NAVY,
+    fontWeight: "900",
+  },
+
+  recordCard: {
+    marginTop: 13,
+    padding: 19,
+    backgroundColor: IVORY,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    shadowColor: "#9D806F",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+
+  recordHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  recordDate: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: NAVY,
+  },
+
+  recordSub: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#8B7871",
+  },
+
+  headerWeatherIcon: {
+    width: 44,
+    height: 44,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(23,63,115,0.10)",
+    marginVertical: 15,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: NAVY,
+    marginBottom: 4,
+  },
+
+  recordList: {
+    marginTop: 4,
+  },
+
+  recordItem: {
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+  },
+
+  recordItemDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(23,63,115,0.09)",
+  },
+
+  resultIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(23,63,115,0.10)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  resultTextWrap: {
+    flex: 1,
+  },
+
+  resultTitle: {
+    fontSize: 17,
+    fontWeight: "900",
+    color: "#3F332E",
+  },
+
+  resultDesc: {
+    marginTop: 3,
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#7E6B63",
+  },
+
+  resultSummary: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#8B7871",
+  },
+
+  emptyCard: {
+    marginTop: 13,
+    padding: 22,
+    backgroundColor: IVORY,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: "center",
+  },
+
+  emptyTitle: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: NAVY,
+    marginBottom: 9,
+  },
+
+  emptyText: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#3F332E",
+    marginBottom: 5,
+  },
+
+  emptySub: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#8B7871",
+  },
 });

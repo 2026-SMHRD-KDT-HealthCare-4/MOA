@@ -10,6 +10,7 @@
 """
 
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -29,6 +30,11 @@ router = APIRouter(prefix="/analyze", tags=["analyze"])
 @router.post("", response_model=AnalyzeResponseData)
 async def analyze_voice(
     collect_type: str = Form(..., description="SCRIPT 또는 CHATBOT"),
+    sample_type: Optional[str] = Form(
+        None,
+        description="free_speech_intro, sustained_vowel, normal_chat",
+    ),
+    sample_status: Optional[str] = Form(None, description="ok, too_short, failed"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     senior: Senior = Depends(get_current_senior),
@@ -55,6 +61,10 @@ async def analyze_voice(
     try:
         # 2. 특징 벡터 추출 (VOICE_FEATURE 저장용) — 내부 임시파일은 함수 종료 시 즉시 삭제됨
         features = extract_features(audio_bytes)
+        if sample_type:
+            features["_sample_type"] = sample_type
+        if sample_status:
+            features["_sample_status"] = sample_status
 
         # 3. ML 위험도 추론 (음성 원본 바이트 + 사용자정보 → 4개 질환 score/level)
         #    ML팀 통합 엔진(MOAInferenceEngine.predict_all)을 다리(ml_inference)를 통해 호출한다.

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -160,6 +160,10 @@ export function FamilyReport({ report, onToast }: FamilyReportProps) {
   const [month, setMonth] = useState(report.month);
   const [monthOpen, setMonthOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+
+  useEffect(() => {
+    setMonth(report.month);
+  }, [report.month]);
 
   function toggleCalendar() {
     LayoutAnimation.easeInEaseOut();
