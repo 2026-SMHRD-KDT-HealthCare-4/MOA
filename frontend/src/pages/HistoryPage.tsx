@@ -14,8 +14,9 @@ import { WEATHER_IMAGE } from "../constants/weatherIcons";
 import { useAuthStore } from "../stores/authStore";
 import { getReportTrend } from "../api/report";
 import { listScriptRecords } from "../api/record";
+import { colors } from "../styles/tokens";
 
-// real 모드에서만 서버 조회. 그 외(mock)·조회 실패 시 아래 MOCK_HISTORY로 폴백한다.
+// real 모드에서만 서버 조회. 실패/미로딩 시 빈 객체 → 빈 상태 UI(mock 폴백 없음).
 const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
 
 type DayStatus = "sunny" | "cloudy" | "rainy" | null;
@@ -52,157 +53,6 @@ const RECORD_TYPE_LABEL: Record<HistoryRecordType, string> = {
   record: "지정문구 녹음",
 };
 
-const MOCK_HISTORY: Record<string, DailyHistory> = {
-  "2026-06-01": {
-    status: "sunny",
-    records: [
-      {
-        id: "2026-06-01-chat-1",
-        type: "conversation",
-        time: "오전 10:30",
-        duration: "4분 12초",
-        status: "sunny",
-        summary: "편안한 목소리 흐름이에요.",
-      },
-      {
-        id: "2026-06-01-record-1",
-        type: "record",
-        time: "오후 7:20",
-        duration: "지정문구 2회",
-        status: "sunny",
-        summary: "최근 검사와 비슷해요.",
-      },
-    ],
-  },
-  "2026-06-02": {
-    status: "sunny",
-    records: [
-      {
-        id: "2026-06-02-record-1",
-        type: "record",
-        time: "오전 9:10",
-        duration: "지정문구 1회",
-        status: "sunny",
-        summary: "맑은 편이에요.",
-      },
-    ],
-  },
-  "2026-06-03": {
-    status: "cloudy",
-    records: [
-      {
-        id: "2026-06-03-chat-1",
-        type: "conversation",
-        time: "오후 2:15",
-        duration: "3분 40초",
-        status: "cloudy",
-        summary: "평소보다 조금 낮은 흐름이에요.",
-      },
-    ],
-  },
-  "2026-06-05": {
-    status: "sunny",
-    records: [
-      {
-        id: "2026-06-05-chat-1",
-        type: "conversation",
-        time: "오전 11:05",
-        duration: "5분 02초",
-        status: "sunny",
-        summary: "안정적인 흐름이에요.",
-      },
-      {
-        id: "2026-06-05-record-1",
-        type: "record",
-        time: "오후 6:45",
-        duration: "지정문구 2회",
-        status: "sunny",
-        summary: "뚜렷하게 잘 들렸어요.",
-      },
-      {
-        id: "2026-06-05-chat-2",
-        type: "conversation",
-        time: "오후 8:30",
-        duration: "2분 58초",
-        status: "sunny",
-        summary: "최근 검사와 비슷해요.",
-      },
-    ],
-  },
-  "2026-06-07": {
-    status: "rainy",
-    records: [
-      {
-        id: "2026-06-07-record-1",
-        type: "record",
-        time: "오후 5:30",
-        duration: "지정문구 1회",
-        status: "rainy",
-        summary: "평소보다 조금 흐린 편이에요.",
-      },
-    ],
-  },
-  "2026-06-09": {
-    status: "sunny",
-    records: [
-      {
-        id: "2026-06-09-chat-1",
-        type: "conversation",
-        time: "오전 10:00",
-        duration: "4분 25초",
-        status: "sunny",
-        summary: "맑은 편이에요.",
-      },
-    ],
-  },
-  "2026-06-10": {
-    status: "cloudy",
-    records: [
-      {
-        id: "2026-06-10-record-1",
-        type: "record",
-        time: "오후 7:15",
-        duration: "지정문구 2회",
-        status: "cloudy",
-        summary: "조금 낮은 흐름이에요.",
-      },
-    ],
-  },
-  "2026-06-11": {
-    status: "sunny",
-    records: [
-      {
-        id: "2026-06-11-chat-1",
-        type: "conversation",
-        time: "오전 9:45",
-        duration: "3분 55초",
-        status: "sunny",
-        summary: "안정적인 목소리예요.",
-      },
-    ],
-  },
-  "2026-06-12": {
-    status: "sunny",
-    records: [
-      {
-        id: "2026-06-12-chat-1",
-        type: "conversation",
-        time: "오전 10:30",
-        duration: "4분 12초",
-        status: "sunny",
-        summary: "최근 검사와 비슷한 흐름이에요.",
-      },
-      {
-        id: "2026-06-12-record-1",
-        type: "record",
-        time: "오후 7:20",
-        duration: "지정문구 2회",
-        status: "sunny",
-        summary: "특별한 변화는 없어요.",
-      },
-    ],
-  },
-};
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -310,7 +160,9 @@ export default function HistoryPage() {
     };
   }, [seniorId]);
 
-  const history = realHistory ?? MOCK_HISTORY;
+  // real 조회분만 사용. 실패/미로딩 시 빈 객체 → 빈 상태 UI 표시(mock 폴백 없음).
+  const history = realHistory ?? {};
+  const hasAnyHistory = Object.keys(history).length > 0;
 
   const weeks = buildCalendar(year, month);
   const selectedKey = dateKey(year, month, selectedDay);
@@ -448,7 +300,13 @@ export default function HistoryPage() {
           ))}
         </View>
 
-        {selectedRecords.length > 0 ? (
+        {!hasAnyHistory ? (
+          <View style={styles.noDataCard}>
+            <Text style={styles.noDataIcon}>☀️</Text>
+            <Text style={styles.noDataTitle}>아직 대화 기록이 없어요</Text>
+            <Text style={styles.noDataText}>음성 기록이 쌓이면 여기에서 확인할 수 있어요</Text>
+          </View>
+        ) : selectedRecords.length > 0 ? (
           <View style={styles.recordCard}>
             <View style={styles.recordHeader}>
               <View>
@@ -853,5 +711,32 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#8B7871",
+  },
+
+  // 전체 기록 없음(미로딩·조회 실패) 빈 상태 — tokens.ts 색상만 사용
+  noDataCard: {
+    marginTop: 13,
+    paddingVertical: 36,
+    paddingHorizontal: 24,
+    backgroundColor: colors.guardian.cardPeach,
+    borderRadius: 24,
+    alignItems: "center",
+    gap: 10,
+  },
+  noDataIcon: {
+    fontSize: 44,
+    lineHeight: 54,
+  },
+  noDataTitle: {
+    fontSize: 21,
+    fontWeight: "900",
+    color: colors.guardian.coral,
+    textAlign: "center",
+  },
+  noDataText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text.muted,
+    textAlign: "center",
   },
 });
