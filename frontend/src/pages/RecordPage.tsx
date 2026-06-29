@@ -21,6 +21,7 @@ import { useRecorder } from "../features/record/useRecorder";
 import * as authApi from "../api/auth";
 import { analyzeVoice, saveScriptRecord } from "../api/record";
 import { useAuthStore } from "../stores/authStore";
+import { enqueueOfflineTask, syncOfflineQueue } from "../utils/offlineSync";
 
 const RECORD_SECONDS = 30;
 const RING_SIZE = 114;
@@ -54,11 +55,14 @@ export default function RecordPage() {
     reset,
     audioUri,
     clearAudio,
-  } = useRecorder({ keepAudio: REAL_API });
+  } = useRecorder({ keepAudio: REAL_API, maxDurationMs: RECORD_SECONDS * 1000, disableEchoCancellation: true });
   const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
 
   useEffect(() => {
     let mounted = true;
+    // 마운트 시점에 밀려있던 오프라인 백업 큐 동기화 작동
+    void syncOfflineQueue();
+
     void authApi
       .getTodayScript()
       .then((result) => {
@@ -111,8 +115,11 @@ export default function RecordPage() {
       try {
         if (audioUri) await analyzeVoice(audioUri, "SCRIPT");
         await saveScriptRecord(dailyScript.script_id, user.id);
-      } catch {
-        // 저장 실패 — 다음 동기화에서 보완 (흐름 유지)
+      } catch (err) {
+        console.warn("실시간 분석 서버 전송 실패, 오프라인 로컬 큐잉 적재:", err);
+        if (audioUri) {
+          await enqueueOfflineTask(audioUri, "SCRIPT", user.id, dailyScript.script_id);
+        }
       } finally {
         await clearAudio();
         setSaving(false);

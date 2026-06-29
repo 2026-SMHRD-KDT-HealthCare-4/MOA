@@ -54,9 +54,7 @@ def _reminder_response(reminder: MedicationReminder, reply: str | None = None) -
     return payload
 
 
-def _mark_completed(reminder: MedicationReminder, db: Session) -> None:
-    # 현재 MVP 복약 리마인드 흐름에서는 호출하지 않는다.
-    return None
+
 
 
 def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[MedicationReminder]:

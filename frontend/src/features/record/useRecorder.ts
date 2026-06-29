@@ -21,6 +21,10 @@ interface RecorderOptions {
   keepAudio?: boolean;
   /** 챗봇 단일 파이프라인 통합을 위해 프론트 STT 처리를 건너뛰고 파일만 수집할지 여부 */
   skipSTT?: boolean;
+  /** 최대 녹음 제한 시간 (ms 단위) */
+  maxDurationMs?: number;
+  /** 정밀 오디오 분석을 위해 에코 캔슬 및 노이즈 제거를 끌지 여부 (기본 false) */
+  disableEchoCancellation?: boolean;
 }
 
 // const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
@@ -92,6 +96,8 @@ export function useRecorder({
   manageWakeWord = true,
   keepAudio = false,
   skipSTT = false,
+  maxDurationMs,
+  disableEchoCancellation = false,
 }: RecorderOptions = {}) {
   const [state, setState] = useState<RecordState>("idle");
   const [transcript, setTranscript] = useState<string | null>(null);
@@ -114,6 +120,7 @@ export function useRecorder({
   const webAudioContextRef = useRef<AudioContext | null>(null);
   const webSilenceStreamRef = useRef<MediaStream | null>(null);
   const webSilenceFrameRef = useRef<number | null>(null);
+  const silenceTimeoutMsRef = useRef<number | null>(null);
 
   function stopWebSilenceMonitor(stopTracks = true) {
     if (webSilenceFrameRef.current !== null) {
@@ -126,8 +133,8 @@ export function useRecorder({
     webAudioContextRef.current = null;
   }
 
-  function startWebSilenceMonitor(stream: MediaStream) {
-    if (!autoStopOnSilence || Platform.OS !== "web") return;
+  function startWebSilenceMonitor(stream: MediaStream, disableVAD = false) {
+    if (!autoStopOnSilence || disableVAD || Platform.OS !== "web") return;
 
     try {
       const context = new AudioContext();
@@ -161,8 +168,10 @@ export function useRecorder({
           lastSpeechAtRef.current = now - startedAt;
         }
 
-        // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
-        if (heardSpeech && now - lastSpeechAt >= 700 && now - startedAt >= 900) {
+        const webSilenceThreshold = silenceTimeoutMsRef.current ?? 1500;
+        const webSpeechDurationThreshold = Math.max(700, webSilenceThreshold - 200);
+
+        if (heardSpeech && now - lastSpeechAt >= webSpeechDurationThreshold && now - startedAt >= webSilenceThreshold) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;
@@ -259,8 +268,9 @@ export function useRecorder({
 
   function startDurationTimer() {
     recordingStartedAtRef.current = Date.now();
+    const limitMs = maxDurationMs ?? MAX_RECORDING_DURATION_MS;
     const updateDuration = () => {
-      setDurationMs(Math.min(Date.now() - recordingStartedAtRef.current, MAX_RECORDING_DURATION_MS));
+      setDurationMs(Math.min(Date.now() - recordingStartedAtRef.current, limitMs));
     };
 
     updateDuration();
@@ -269,20 +279,40 @@ export function useRecorder({
     const timeoutMs =
     autoStopOnSilence
         ? NO_SPEECH_TIMEOUT_MS
-        : MAX_RECORDING_DURATION_MS;
+        : limitMs;
     maxDurationTimeoutRef.current = setTimeout(() => {
       setDurationMs(timeoutMs);
       void finishRecording(autoStopOnSilence && lastSpeechAtRef.current === 0);
     }, timeoutMs);
   }
 
-  async function start() {
+  async function start(silenceTimeoutMs?: number, disableVAD = false) {
+    silenceTimeoutMsRef.current = silenceTimeoutMs ?? null;
     try {
       if (Platform.OS === "web") {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+          audio: { 
+            echoCancellation: !disableEchoCancellation, 
+            noiseSuppression: !disableEchoCancellation, 
+            autoGainControl: true 
+          },
         });
-        const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+        
+        let mimeType = "audio/webm";
+        if (typeof MediaRecorder.isTypeSupported === "function") {
+          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+            mimeType = "audio/webm;codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+            mimeType = "audio/webm";
+          } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+            mimeType = "audio/ogg;codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+            mimeType = "audio/mp4";
+          } else if (MediaRecorder.isTypeSupported("audio/aac")) {
+            mimeType = "audio/aac";
+          }
+        }
+        const recorder = new MediaRecorder(stream, { mimeType });
         webRecorderRef.current = recorder;
         webChunksRef.current = [];
         lastSpeechAtRef.current = 0;
@@ -301,7 +331,6 @@ export function useRecorder({
           stream.getTracks().forEach((track) => track.stop());
           webRecorderRef.current = null;
           void completeTranscription(uri, true).finally(() => {
-            // keepAudio면 보관해야 하므로 여기서 revoke하지 않는다(clearAudio가 해제).
             if (!keepAudio) URL.revokeObjectURL(uri);
           });
         };
@@ -310,7 +339,7 @@ export function useRecorder({
         setDurationMs(0);
         setState("recording");
         startDurationTimer();
-        startWebSilenceMonitor(stream);
+        startWebSilenceMonitor(stream, disableVAD);
         return;
       }
 
@@ -321,17 +350,23 @@ export function useRecorder({
       }
       setPermissionDenied(false);
       setError(null);
-      if (manageWakeWord) disableWakeWord(); // UC-01a 시작 — 호출어 감지 중단
+      if (manageWakeWord) disableWakeWord();
+
+      // 글로벌 웨이크 워드 리스너의 마이크 리소스가 완전히 언로드(unload)될 수 있도록 대기 시간을 늘립니다 (250ms -> 400ms).
+      // 리소스 점유가 풀리기 전에 새로운 오디오 녹음 세션을 만들면 OS 수준에서 예외가 발생합니다.
+      await new Promise((resolve) => setTimeout(resolve, 400));
 
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
       });
 
       const { recording } = await Audio.Recording.createAsync(
         {
           ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-          // Native VAD needs metering; without it foreground wake listening waits for the 30s limit.
           isMeteringEnabled: true,
         },
       );
@@ -341,21 +376,21 @@ export function useRecorder({
       setNoSpeechDetected(false);
       recording.setProgressUpdateInterval(200);
       recording.setOnRecordingStatusUpdate((status) => {
-        if (!autoStopOnSilence || autoStoppingRef.current || !status.isRecording) return;
+        if (!autoStopOnSilence || disableVAD || autoStoppingRef.current || !status.isRecording) return;
 
         const duration = status.durationMillis;
         const metering = status.metering;
-        // Native에서는 실제 dBFS 값을 사용한다. 웹은 별도 Web Audio VAD를 사용한다.
-        if (typeof metering === "number" && metering > -45) {
+        if (typeof metering === "number" && metering > -42) {
           lastSpeechAtRef.current = duration;
         }
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
+        const silenceThreshold = silenceTimeoutMsRef.current ?? 1500;
         const shouldCommitFromSilence =
           typeof metering === "number" &&
           duration >= 1000 &&
           lastSpeechAtRef.current > 0 &&
-          silenceElapsed >= 1000;
+          silenceElapsed >= silenceThreshold;
         const fallbackTurnLimit = 30000;
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
@@ -439,7 +474,11 @@ export function useRecorder({
       const recording = recordingRef.current;
       recordingRef.current = null;
       void recording.stopAndUnloadAsync().catch(() => undefined);
-      void Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      // [주의] 여기서 allowsRecordingIOS: false 를 비동기로 동시 호출하면 
+      // 새로 시작하려는 화면 단의 오디오 세션(allowsRecordingIOS: true)을 
+      // 뒤늦게 덮어써버려 마이크 오작동(인식 실패)의 치명적인 원인이 됩니다.
+      // 따라서 전역 오디오 모드 복원 처리는 정상 녹음 완료 시점인 finishRecording 에서만 제어하도록 격리합니다.
+      // void Audio.setAudioModeAsync({ allowsRecordingIOS: false });
     }
     if (webRecorderRef.current?.state === "recording") {
       webRecorderRef.current.onstop = null;

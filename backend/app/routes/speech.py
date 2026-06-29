@@ -91,6 +91,11 @@ def synthesize_with_typecast(text: str) -> bytes:
     if not api_key:
         raise HTTPException(status_code=503, detail="Typecast TTS service is not configured.")
 
+    # 카운트다운 관련 단어 여부와 관계없이 속도는 0.9로 고정하되,
+    # '셋', '둘', '하나' 등 단독 카운트다운 단어 뒤에 휴지기(쉼표 및 말줄임표)를 추가하여 대기 시간을 늘립니다.
+    tempo = 0.9
+    text = re.sub(r"\b(셋|둘|하나|삼|이|일)\b", r"\1... , ,", text)
+
     payload = {
         "voice_id": TYPECAST_VOICE_ID,
         "text": text,
@@ -101,7 +106,7 @@ def synthesize_with_typecast(text: str) -> bytes:
             "emotion_intensity": 1.0,
             "expressivity": 0.2,
         },
-        "output": {"audio_format": "mp3", "audio_tempo": 0.9},
+        "output": {"audio_format": "mp3", "audio_tempo": tempo},
     }
     request = Request(
         TYPECAST_TTS_URL,
@@ -142,29 +147,7 @@ def text_to_speech(
     audio = synthesize_with_typecast(req.text)
     return StreamingResponse(iter([audio]), media_type="audio/mpeg")
 
-    # Legacy OpenAI implementation retained below temporarily for a focused provider swap.
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="음성 합성 서비스를 현재 사용할 수 없습니다.")
 
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.audio.speech.create(
-            # ballad 같은 최신 음성은 gpt-4o-mini-tts 모델에서 지원한다.
-            model=os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts"),
-            voice=req.voice,
-            input=req.text,
-        )
-        return StreamingResponse(response.iter_bytes(), media_type="audio/mpeg")
-    except Exception:
-        raise HTTPException(status_code=502, detail="음성 합성 요청을 처리하지 못했습니다.")
-
-
-@router.post("/dev/tts")
-def dev_text_to_speech(req: TTSRequest):
-    """Local mock-login route. Production clients must use authenticated /speech/tts."""
-    audio = synthesize_with_typecast(req.text)
-    return StreamingResponse(iter([audio]), media_type="audio/mpeg")
 
 
 @router.post("/transcribe", response_model=TranscriptionResponse)

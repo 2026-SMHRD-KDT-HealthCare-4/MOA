@@ -61,10 +61,10 @@ const SUSTAINED_VOWEL_MIN_MS = 2_500;
 const SUSTAINED_VOWEL_MAX_MS = 5_000;
 
 const VOICE_CHECK_PROMPTS = [
-  "오늘 목소리 상태를 잠깐 확인해볼게요. '아~~~'를 3초 정도 이어서 말씀해주세요.",
-  "목소리가 잘 들리는지 확인해볼게요. 편하게 '아~~~' 하고 이어서 말씀해주세요.",
-  "마이크도 잘 들리는지 같이 확인할게요. '아~~~'를 잠깐 이어서 말씀해주세요.",
-  "오늘도 목소리를 잠깐 확인해볼게요. 편하게 '아~~~'를 이어서 말씀해주세요.",
+  "오늘 목소리 상태를 잠깐 확인해볼게요. '아' 소리를 3초 정도 이어서 말씀해주세요.",
+  "목소리가 잘 들리는지 확인해볼게요. 편하게 '아' 소리를 이어서 말씀해주세요.",
+  "마이크도 잘 들리는지 같이 확인할게요. '아' 소리를 잠깐 이어서 말씀해주세요.",
+  "오늘도 목소리를 잠깐 확인해볼게요. 편하게 '아' 소리를 이어서 말씀해주세요.",
 ];
 
 const VOICE_CHECK_DONE_PROMPTS = [
@@ -75,8 +75,8 @@ const VOICE_CHECK_DONE_PROMPTS = [
 ];
 
 const NORMAL_CHAT_START_PROMPTS = [
-  "그럼 오늘 있었던 이야기를 조금 더 들려주세요.",
-  "오늘 가장 기억에 남는 일이 있었나요?",
+  "오늘 점심은 맛있게 드셨어요? 어떤 반찬이랑 드셨는지 궁금해요.",
+  "오늘 아침이나 낮에 가볍게 동네 산책은 다녀오셨어요?",
 ];
 
 type BotEmotion =
@@ -129,22 +129,22 @@ function getTimeBasedGreeting() {
   const hour = new Date().getHours();
 
   if (hour >= 5 && hour < 11) {
-    return "좋은 아침이에요. 잠은 잘 주무셨어요?";
+    return "좋은 아침이에요. 어제 주무실 때 춥지는 않으셨어요?";
   }
 
   if (hour >= 11 && hour < 15) {
-    return "점심은 맛있게 드셨어요?";
+    return "점심 식사는 맛있게 드셨어요?";
   }
 
   if (hour >= 15 && hour < 18) {
-    return "오후는 어떻게 보내고 계세요?";
+    return "오늘 낮에 따뜻한 물 한 잔 드시며 편히 쉬셨나요?";
   }
 
   if (hour >= 18 && hour < 22) {
-    return "오늘 하루는 어떠셨어요?";
+    return "오늘 저녁은 든든하게 챙겨드셨나요?";
   }
 
-  return "늦은 시간이네요. 오늘은 편안하셨나요?";
+  return "늦은 시간이네요. 오늘 잠자리는 편안하신가요?";
 }
 
 export default function ChatbotMain() {
@@ -410,11 +410,8 @@ export default function ChatbotMain() {
   }
 
   async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
-    const chunks = splitIntoSentenceChunks(text);
-
-    for (const chunk of chunks) {
-      await speakSingleBotLine(chunk, emotion);
-    }
+    // 문장을 쪼개지 않고 통째로 전달하여 문장 간 API 딜레이 렉을 제거하고 한 호흡으로 낭독합니다.
+    await speakSingleBotLine(text, emotion);
   }
 
   function handleChatTurn(text: string, turnDurationMs: number) {
@@ -534,9 +531,10 @@ export default function ChatbotMain() {
       : "목소리 확인은 여기까지 할게요.";
     const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
 
+    const fullText = `${donePrompt} ${nextPrompt}`;
+
     try {
-      await speakBotLine(donePrompt, "happy");
-      await speakBotLine(nextPrompt, "happy");
+      await speakBotLine(fullText, "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
@@ -554,10 +552,10 @@ export default function ChatbotMain() {
 
     await speakBotLine("조금만 더 길게 해볼게요.", "happy");
     await speakBotLine(
-      "제가 셋을 세면 '아~~~'를 3초 정도 이어서 말씀해주세요.",
+      "제가 셋을 세면 '아' 소리를 3초 정도 이어서 말씀해주세요.",
       "happy",
     );
-    await speakBotLine("3, 2, 1", "happy");
+    await speakBotLine("셋. 둘. 하나.", "happy");
     beginSustainedVowelRecording();
   }
 
@@ -570,12 +568,12 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
     setBotEmotion("listening");
     setChatState("listening");
-    setBotReply("3초 동안 '아~~~' 하고 말해주세요");
+    setBotReply("3초 동안 '아' 소리를 내어주세요");
 
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
 
-      void startRecording();
+      void startRecording(900, true);
 
       sustainedStopTimeoutRef.current = setTimeout(() => {
         if (
@@ -585,7 +583,7 @@ export default function ChatbotMain() {
           void stopRecording();
         }
       }, SUSTAINED_VOWEL_MAX_MS);
-    }, 80);
+    }, 350);
   }
 
   async function startVoiceCheckAfterFreeTalk() {
@@ -596,11 +594,10 @@ export default function ChatbotMain() {
     const intro = "이야기 들려주셔서 고마워요.";
     const checkPrompt = pickRandom(VOICE_CHECK_PROMPTS);
 
+    const fullText = `${intro} ${checkPrompt} 제가 셋을 세면 시작해볼게요. 셋. 둘. 하나.`;
+
     try {
-      await speakBotLine(intro, "happy");
-      await speakBotLine(checkPrompt, "happy");
-      await speakBotLine("제가 셋을 세면 시작해볼게요.", "happy");
-      await speakBotLine("3, 2, 1", "happy");
+      await speakBotLine(fullText, "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
@@ -1180,8 +1177,8 @@ export default function ChatbotMain() {
 
     setTimeout(() => {
       console.log("[START_RECORDING]", voiceModeRef.current);
-      void startRecording();
-    }, 80);
+      void startRecording(1500);
+    }, 350);
   }
 
   function handleConversationVoice() {
@@ -1223,7 +1220,7 @@ export default function ChatbotMain() {
     setIsConversationActive(false);
     setChatState("idle");
     setBotEmotion("default");
-    setBotReply("오늘은 어떤 하루였나요?");
+    setBotReply("오늘 저녁은 맛있게 챙겨드셨나요?");
     flowStepRef.current = "IDLE";
     setFlowStep("IDLE");
 

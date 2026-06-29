@@ -286,10 +286,7 @@ function toSession(acc: MockAccount): SessionUser {
   return { id: acc.id, name: acc.name, email: acc.email, role: acc.role, token: makeToken(acc.id) };
 }
 
-export function generateSeniorCredential(): { email: string; password: string } {
-  const uuid = makeUuid();
-  return { email: `senior-${uuid}@moa.app`, password: `moa-${makeUuid().slice(0, 12)}` };
-}
+
 
 function groupForGuardian(guardianId: string): FamilyGroup | null {
   const member = mockDb.guardianMembers.find(
@@ -767,91 +764,7 @@ export interface RegisterSeniorData {
   link: FamilyLink;
 }
 
-async function registerSeniorMock({
-  invite_token,
-  email,
-  password,
-  name,
-}: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
-  const normalized = normalizeSeniorPairingCode(invite_token);
-  const invite = mockDb.invites.find((i) => seniorPairingCodeMatches(i.token, normalized));
-  if (!invite) throw new Error("초대 코드를 확인해 주세요.");
-  if (invite.isUsed) throw new Error("이미 사용된 초대 코드예요.");
-  if (new Date(invite.expiredAt).getTime() < Date.now()) {
-    throw new Error("만료된 초대 코드예요. 보호자에게 재발송을 요청해 주세요.");
-  }
 
-  const senior: MockAccount = {
-    id: makeUuid(),
-    name: name.trim(),
-    email: email.trim().toLowerCase(),
-    password,
-    role: "elder",
-  };
-  mockDb.accounts.push(senior);
-
-  const link: FamilyLink = {
-    linkId: makeUuid(),
-    familyGroupId: invite.familyGroupId,
-    counterpartId: senior.id,
-    counterpartName: senior.name,
-    relation: "elder",
-    status: "ACTIVE",
-    linkedAt: nowIso(),
-  };
-  mockDb.familyLinks.push(link);
-  invite.isUsed = true;
-  saveMockDb();
-
-  return { success: true, data: { senior: toSession(senior), link } };
-}
-
-async function registerSeniorReal({
-  invite_token,
-  email,
-  password,
-  name,
-  birth_date,
-  phone,
-  consent,
-}: RegisterSeniorPayload): Promise<ApiEnvelope<RegisterSeniorData>> {
-  const normalizedInviteToken = normalizeSeniorPairingCode(invite_token);
-  const senior = await apiFetch<BackendSeniorResponse>("/auth/senior/register", {
-    method: "POST",
-    body: JSON.stringify({
-      invite_token: normalizedInviteToken,
-      email: email.trim().toLowerCase(),
-      password,
-      name: name.trim(),
-      birth_date,
-      phone,
-      biometric_consent_yn: Boolean(consent),
-    }),
-  });
-  const user = await loginReal({ email, password });
-  const pending = loadRealPendingInvites().filter((i) => !seniorPairingCodeMatches(i.token, normalizedInviteToken));
-  saveRealPendingInvites(pending);
-  return {
-    success: true,
-    data: {
-      senior: user,
-      link: {
-        linkId: `link-${senior.senior_id}`,
-        counterpartId: senior.senior_id,
-        counterpartName: senior.name,
-        relation: "elder",
-        status: "ACTIVE",
-        linkedAt: nowIso(),
-      },
-    },
-  };
-}
-
-export async function registerSenior(
-  payload: RegisterSeniorPayload,
-): Promise<ApiEnvelope<RegisterSeniorData>> {
-  return AUTH_API_MODE === "real" ? registerSeniorReal(payload) : registerSeniorMock(payload);
-}
 
 export interface ClaimSeniorPayload {
   token: string;
@@ -878,6 +791,47 @@ export async function claimSenior({
   consent,
 }: ClaimSeniorPayload): Promise<ApiEnvelope<ClaimSeniorData>> {
   const normalizedToken = normalizeSeniorPairingCode(token);
+
+  if (AUTH_API_MODE === "real") {
+    const res = await apiFetch<{
+      access_token: string;
+      refresh_token: string;
+      role: string;
+      name: string;
+    }>("/auth/senior/claim", {
+      method: "POST",
+      body: JSON.stringify({
+        invite_token: normalizedToken,
+        birth_date: birth_date,
+        phone: phone,
+        biometric_consent_yn: !!consent,
+      }),
+    });
+
+    const userId = parseJwtSub(res.access_token) || "senior-user";
+    const user: SessionUser = {
+      id: userId,
+      name: res.name,
+      role: "elder",
+      token: res.access_token,
+    };
+    realCurrentUser = user;
+    await saveToken(res.access_token);
+    if (res.refresh_token) await saveRefreshToken(res.refresh_token);
+
+    return {
+      success: true,
+      data: {
+        user,
+        refreshToken: res.refresh_token,
+        consentDone: !!consent,
+        familyGroup: null,
+        links: [],
+        guardianMembers: [],
+      },
+    };
+  }
+
   const verify = await verifyInvite(normalizedToken);
   if (!verify.data.valid) {
     const reason = verify.data.reason;
@@ -906,10 +860,7 @@ export async function claimSenior({
   }
 
   const refreshToken = (await getRefreshToken()) ?? "";
-  const familyState =
-    AUTH_API_MODE === "real"
-      ? { familyGroup: null, links: [], guardianMembers: [] }
-      : familyStateForUser(user);
+  const familyState = familyStateForUser(user);
   return {
     success: true,
     data: { user, refreshToken, consentDone, ...familyState },

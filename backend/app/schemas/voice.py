@@ -23,7 +23,7 @@ class ScriptResponse(BaseModel):
 # ---------- 지정문구 녹음 기록 (SCRIPT_RECORD) ----------
 
 class ScriptRecordCreateRequest(BaseModel):
-    senior_id: UUID
+    senior_id: Optional[UUID] = None  # 토큰 세션 기반 자동 매핑하므로 생략 가능
     script_id: UUID
     measured_at: Optional[datetime] = None  # 미지정 시 서버 현재시각 사용
 
