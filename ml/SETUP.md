@@ -61,7 +61,20 @@ pip install -e ml/serab-byols
 pip uninstall -y pathlib
 ```
 
-### 4. 백엔드 재기동 (← 여기서만 `backend/`로 이동)
+### 3.5. ffmpeg 설치 (오디오 디코딩 + 언어 피처)
+없으면 `/analyze`에서 `언어 피처 추출 실패: WinError 2`가 뜨고, 오디오 디코딩이 librosa 폴백으로 떨어진다.
+
+- **Windows** (winget, 관리자 권한 불필요):
+  ```bash
+  winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+  ```
+- **mac**: `brew install ffmpeg`   /   **Linux**: `sudo apt install ffmpeg`
+
+> ⚠️ 설치 후 PATH 갱신은 **새 터미널(새 프로세스)부터** 적용된다. 이미 떠 있던 백엔드/터미널은
+> ffmpeg를 못 보므로, **새 터미널에서 백엔드를 재기동**해야 `/analyze`가 ffmpeg를 쓴다.
+> (그 터미널에서 `ffmpeg -version`이 보이면 OK)
+
+### 4. 백엔드 재기동 (← 여기서만 `backend/`로 이동, ffmpeg 반영된 새 터미널에서)
 ```bash
 cd backend
 uvicorn main:app --reload
@@ -82,6 +95,8 @@ uvicorn main:app --reload
   안 깔면 백엔드 sys.path에서 `serab_byols`를 못 찾는다.
 - **`pathlib` 백포트 제거**: serab_byols의 `setup.py`가 잘못 끌어옴. Python 3.4+ 표준 `pathlib`을
   덮어써서 다른 코드가 깨질 수 있으므로 반드시 제거.
+- **ffmpeg 설치 + 새 터미널 재기동**: 없으면 `언어 피처 추출 실패: WinError 2`. 설치 후 PATH는
+  새 프로세스부터 적용되므로 백엔드를 새 터미널에서 다시 띄워야 함(3.5 참고).
 - **버전 관찰 항목** (import는 되지만 런타임 재확인 권장):
   - `transformers 5.x` (ml은 4.x 기대) — HuBERT 첫 실행 시(HF 모델 다운로드, 네트워크 필요) 동작 확인
   - `torchaudio 2.11 ↔ torch 2.12` 버전 불일치 — 실제 사용 시 문제없는지 관찰
