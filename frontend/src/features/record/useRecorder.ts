@@ -323,9 +323,15 @@ export function useRecorder({
       setError(null);
       if (manageWakeWord) disableWakeWord(); // UC-01a 시작 — 호출어 감지 중단
 
+      // 백그라운드 리스너(GlobalWakeWordListener)가 마이크를 안전하게 해제(stopAndUnloadAsync)할 수 있도록 250ms 딜레이 대기
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
       });
 
       const { recording } = await Audio.Recording.createAsync(

@@ -585,7 +585,7 @@ export default function ChatbotMain() {
           void stopRecording();
         }
       }, SUSTAINED_VOWEL_MAX_MS);
-    }, 80);
+    }, 350);
   }
 
   async function startVoiceCheckAfterFreeTalk() {
@@ -1181,7 +1181,7 @@ export default function ChatbotMain() {
     setTimeout(() => {
       console.log("[START_RECORDING]", voiceModeRef.current);
       void startRecording();
-    }, 80);
+    }, 350);
   }
 
   function handleConversationVoice() {
