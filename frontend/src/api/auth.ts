@@ -24,7 +24,7 @@ type BackendRole = "guardian" | "senior" | "elder";
 
 const AUTH_API_MODE: AuthApiMode =
   process.env.EXPO_PUBLIC_AUTH_API_MODE === "real" ? "real" : "mock";
-const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000").replace(
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22").replace(
   /\/$/,
   "",
 );

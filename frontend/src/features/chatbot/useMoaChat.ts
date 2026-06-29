@@ -18,7 +18,7 @@ export interface ChatMessage {
 
 const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 const OPENAI_CHAT_MODEL = process.env.EXPO_PUBLIC_OPENAI_CHAT_MODEL ?? "gpt-4o-mini";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
 
 const MOA_CHATBOT_INSTRUCTIONS = `
 Never invent, guess, or use a person's name. The caller does not provide an approved display name, so address the user without a name.

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "모아",
-    "slug": "moa-rn",
+    "slug": "moa",
     "scheme": "moa",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,11 +9,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.nayohyun.moa",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "목소리로 건강을 기록하기 위해 마이크가 필요해요."
       }
     },
     "android": {
+      "package": "com.nayohyun.moa",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#FAF7F2",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -23,7 +26,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -37,6 +41,13 @@
       "expo-video",
       "expo-secure-store",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6c608141-cf37-4695-aeba-d8faafaffca9"
+      }
+    },
+    "owner": "nayohyuns-organization"
   }
 }

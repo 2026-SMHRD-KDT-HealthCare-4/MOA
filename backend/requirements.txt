@@ -18,3 +18,19 @@ opensmile
 firebase-admin
 apscheduler
 
+# ML(음성분석) 관련 추가 의존성
+openai-whisper
+transformers
+catboost
+xgboost
+imbalanced-learn
+torch
+torchaudio
+easydict
+einops
+scikit-learn==1.6.1
+ffmpeg-python
+
+# serab-byols 로컬 패키지 자동 설치
+-e ../ml/serab-byols
+
