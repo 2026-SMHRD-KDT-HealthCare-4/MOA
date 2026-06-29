@@ -245,8 +245,8 @@ def extract_language_features(wav_path: str, lang: str = "ko") -> dict:
             print("⚠️ Whisper 전사 결과 없음 — 언어 피처 0으로 채움")
             return {k: 0.0 for k in _keys}
 
-        print(f"=== Whisper 전사: {text[:80]} ===")
-        print(f"=== 단어 수: {len(words)}, 고유 단어: {len(set(words))} ===")
+        # ZDR: 사용자 발화 원문은 콘솔/로그에 남기지 않는다. 길이 통계만 출력한다.
+        print(f"=== 언어 피처: 단어 {len(words)}개, 고유 {len(set(words))}개 ===")
 
         try:
             y_tmp, sr_tmp = librosa.load(wav_path, sr=16000)
