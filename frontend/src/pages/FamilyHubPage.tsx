@@ -14,9 +14,31 @@ import {
 } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { useAuthStore, type GuardianMember } from "../stores/authStore";
-import { getParentMeta, PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
+import { PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
 import * as authApi from "../api/auth";
+import { getReportTrend } from "../api/report";
 import { colors } from "../styles/tokens";
+
+// 카드별 실데이터(오늘 상태 + 마지막 활동 시각). 백엔드 추이(RISK_PREDICTION) 최신값에서 산출.
+// status "nodata": 분석 기록이 아직 없음 → 근거 없는 "안정적" 단정을 피하기 위한 중립 상태.
+interface ParentLive {
+  status: ParentStatus | "nodata";
+  lastGreeting: string;
+}
+
+// 최신 추이 시각(ISO) → "오늘 09:42" / "어제 20:10" / "6월 14일" 표기.
+function formatLastGreeting(iso?: string): string {
+  if (!iso) return "아직 기록 없음";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "아직 기록 없음";
+  const now = new Date();
+  const hhmm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return `오늘 ${hhmm}`;
+  if (d.toDateString() === yesterday.toDateString()) return `어제 ${hhmm}`;
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
 
 export default function FamilyHubPage() {
   const insets = useSafeAreaInsets();
@@ -46,6 +68,35 @@ export default function FamilyHubPage() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const active = links.filter((l) => l.status === "ACTIVE");
+
+  // 카드별 실데이터(오늘 상태 + 마지막 인사). 연동된 직접사용자별 최신 추이로 채운다.
+  const [liveById, setLiveById] = useState<Record<string, ParentLive>>({});
+  useEffect(() => {
+    let alive = true;
+    links
+      .filter((l) => l.status === "ACTIVE")
+      .forEach((link) => {
+        (async () => {
+          try {
+            const trend = await getReportTrend(link.counterpartId, 30);
+            if (!alive) return;
+            const latest = trend.length ? trend[trend.length - 1] : null;
+            setLiveById((prev) => ({
+              ...prev,
+              [link.counterpartId]: {
+                status: !latest ? "nodata" : latest.status === "rainy" ? "caution" : "normal",
+                lastGreeting: formatLastGreeting(latest?.recordedAt),
+              },
+            }));
+          } catch {
+            // 조회 실패 — 표시 보류(확인 중 유지)
+          }
+        })();
+      });
+    return () => {
+      alive = false;
+    };
+  }, [links]);
 
   useEffect(() => {
     return () => {
@@ -218,7 +269,7 @@ export default function FamilyHubPage() {
         ) : null}
 
         {active.map((link) => {
-          const meta = getParentMeta(link.counterpartName);
+          const live = liveById[link.counterpartId];
           return (
             <View key={link.linkId} style={styles.memberCard}>
               <TouchableOpacity
@@ -237,13 +288,13 @@ export default function FamilyHubPage() {
                     <Text style={styles.memberName}>{link.counterpartName} 님</Text>
                     <View style={styles.lastRow}>
                       <Clock size={13} color="#9B8A7D" />
-                      <Text style={styles.lastText}>마지막 인사 {meta.lastGreeting}</Text>
+                      <Text style={styles.lastText}>마지막 인사 {live?.lastGreeting ?? "확인 중…"}</Text>
                     </View>
                   </View>
                   <ChevronRight size={20} color="#9B8A7D" />
                 </View>
 
-                <StatusPill status={meta.status} />
+                <StatusPill status={live?.status ?? "loading"} />
                 <View style={styles.reportLinkRow}>
                   <Text style={styles.reportLinkText}>리포트 보기</Text>
                   <ChevronRight size={18} color="#4F76A8" strokeWidth={2.4} />
@@ -505,7 +556,17 @@ function GuardianMemberRow({
   );
 }
 
-function StatusPill({ status }: { status: ParentStatus }) {
+function StatusPill({ status }: { status: ParentStatus | "loading" | "nodata" }) {
+  // 실데이터 로딩 전: 중립 '확인 중' / 기록 없음: 중립 '기록 없음' (거짓 '안정적' 방지)
+  if (status === "loading" || status === "nodata") {
+    const label = status === "loading" ? "확인 중" : "아직 기록 없음";
+    return (
+      <View style={[styles.statusPill, { backgroundColor: "#EEF0F2" }]}>
+        <Clock size={16} color="#9B8A7D" strokeWidth={2.4} />
+        <Text style={[styles.statusPillText, { color: "#9B8A7D" }]}>오늘 상태 · {label}</Text>
+      </View>
+    );
+  }
   const normal = status === "normal";
   // 안정 상태는 따뜻한 세이지 그린(병원식 채도 높은 초록 대신), 주의는 앰버
   const color = normal ? "#6F9C7A" : "#C9793F";
