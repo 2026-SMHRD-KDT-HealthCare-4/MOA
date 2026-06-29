@@ -43,12 +43,42 @@ type ChatState =
   | "completed"
   | "error";
 
-type VoiceMode = "wake" | "waitingCommand" | "conversation" | null;
+type VoiceMode = "wake" | "waitingCommand" | "conversation" | "sustainedVowel" | null;
+type ChatFlowStep =
+  | "IDLE"
+  | "GREETING"
+  | "FIRST_FREE_TALK"
+  | "VOICE_CHECK_INTRO"
+  | "SUSTAINED_VOWEL_RECORDING"
+  | "VOICE_CHECK_DONE"
+  | "NORMAL_CHAT";
+type VoiceSampleType = "free_speech_intro" | "sustained_vowel" | "normal_chat";
 
 const SHOW_STT_DEBUG =
   __DEV__ || process.env.EXPO_PUBLIC_SHOW_STT_DEBUG === "true";
 
 const RETURN_GREETING_COOLDOWN_MS = 40 * 1000;
+const SUSTAINED_VOWEL_MIN_MS = 2_500;
+const SUSTAINED_VOWEL_MAX_MS = 5_000;
+
+const VOICE_CHECK_PROMPTS = [
+  "오늘 목소리 상태를 잠깐 확인해볼게요. '아~~~'를 3초 정도 이어서 말씀해주세요.",
+  "목소리가 잘 들리는지 확인해볼게요. 편하게 '아~~~' 하고 이어서 말씀해주세요.",
+  "마이크도 잘 들리는지 같이 확인할게요. '아~~~'를 잠깐 이어서 말씀해주세요.",
+  "오늘도 목소리를 잠깐 확인해볼게요. 편하게 '아~~~'를 이어서 말씀해주세요.",
+];
+
+const VOICE_CHECK_DONE_PROMPTS = [
+  "잘하셨어요! 목소리 확인이 끝났어요.",
+  "감사해요. 오늘 목소리도 잘 확인했어요.",
+  "좋아요! 이제 편하게 이야기 이어가 볼까요?",
+  "아주 잘하셨어요. 이제 오늘 이야기를 더 들려주세요.",
+];
+
+const NORMAL_CHAT_START_PROMPTS = [
+  "그럼 오늘 있었던 이야기를 조금 더 들려주세요.",
+  "오늘 가장 기억에 남는 일이 있었나요?",
+];
 
 type BotEmotion =
   | "default"
@@ -85,6 +115,10 @@ function chatStateToMood(
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
 function formatDuration(ms: number) {
@@ -156,6 +190,7 @@ export default function ChatbotMain() {
   const [lastRecognizedText, setLastRecognizedText] = useState("");
   const [showConversationResult, setShowConversationResult] = useState(false);
   const [replyTypingVersion, setReplyTypingVersion] = useState(0);
+  const [flowStep, setFlowStep] = useState<ChatFlowStep>("IDLE");
 
   const {
     messages,
@@ -178,6 +213,7 @@ export default function ChatbotMain() {
     noSpeechDetected,
     audioUri,
     start: startRecording,
+    stop: stopRecording,
     reset: resetRecorder,
     clearAudio,
   } = useRecorder({
@@ -211,6 +247,9 @@ export default function ChatbotMain() {
   const recorderStateRef = useRef(recorderState);
   const finishActionPendingRef = useRef(false);
   const showConversationResultRef = useRef(false);
+  const flowStepRef = useRef<ChatFlowStep>("IDLE");
+  const sustainedRetryRef = useRef(0);
+  const sustainedStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mood = chatStateToMood(chatState, botEmotion);
   const recordHref =
@@ -225,6 +264,10 @@ export default function ChatbotMain() {
   useEffect(() => {
     recorderStateRef.current = recorderState;
   }, [recorderState]);
+
+  useEffect(() => {
+    flowStepRef.current = flowStep;
+  }, [flowStep]);
 
   useEffect(() => {
     if (!route) return;
@@ -299,6 +342,7 @@ export default function ChatbotMain() {
   function isCapturePending() {
     return (
       activeRecordingModeRef.current === "conversation" ||
+      activeRecordingModeRef.current === "sustainedVowel" ||
       recorderStateRef.current === "recording" ||
       recorderStateRef.current === "processing" ||
       submittingTranscriptRef.current
@@ -317,6 +361,25 @@ export default function ChatbotMain() {
   function setConversationResultVisible(visible: boolean) {
     showConversationResultRef.current = visible;
     setShowConversationResult(visible);
+  }
+
+  async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
+    if (typewriterTimerRef.current) {
+      clearTimeout(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+
+    lastPromptRef.current = text;
+    streamedReplyRef.current = text;
+    displayedReplyRef.current = "";
+    typewriterDelayRef.current = 40;
+
+    setBotReply("");
+    setBotEmotion(emotion);
+    setChatState("botSpeaking");
+
+    streamReplyCharacters();
+    await Promise.all([speakText(text), wait(Math.max(500, text.length * 45))]);
   }
 
   function handleChatTurn(text: string, turnDurationMs: number) {
@@ -359,6 +422,9 @@ export default function ChatbotMain() {
     () => () => {
       if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
       if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+      if (sustainedStopTimeoutRef.current) {
+        clearTimeout(sustainedStopTimeoutRef.current);
+      }
     },
     [],
   );
@@ -450,6 +516,114 @@ export default function ChatbotMain() {
     }
   }
 
+  async function saveChatbotVoiceSample(
+    audioUriToSave: string | null,
+    sampleType: VoiceSampleType,
+    sampleStatus: "ok" | "too_short" | "failed" = "ok",
+  ) {
+    if (!audioUriToSave) return;
+
+    try {
+      await analyzeVoice(audioUriToSave, "CHATBOT", sampleType, sampleStatus);
+    } catch (error) {
+      console.warn("[CHATBOT_VOICE_SAMPLE_SAVE_FAILED]", {
+        sampleType,
+        error,
+      });
+    }
+  }
+
+  async function finishVoiceCheck(succeeded: boolean) {
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+
+    greetingInProgressRef.current = true;
+    flowStepRef.current = "VOICE_CHECK_DONE";
+    setFlowStep("VOICE_CHECK_DONE");
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    sustainedRetryRef.current = 0;
+
+    const donePrompt = succeeded
+      ? pickRandom(VOICE_CHECK_DONE_PROMPTS)
+      : "목소리 확인은 여기까지 할게요.";
+    const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
+
+    try {
+      await speakBotLine(donePrompt, "happy");
+      await speakBotLine(nextPrompt, "happy");
+    } finally {
+      greetingInProgressRef.current = false;
+    }
+    flowStepRef.current = "NORMAL_CHAT";
+    setFlowStep("NORMAL_CHAT");
+    conversationActiveRef.current = true;
+    setIsConversationActive(true);
+    setChatState("listening");
+
+    beginConversationListening();
+  }
+
+  async function retrySustainedVowel() {
+    sustainedRetryRef.current = 1;
+
+    await speakBotLine("조금만 더 길게 해볼게요.", "happy");
+    await speakBotLine(
+      "제가 셋을 세면 '아~~~'를 3초 정도 이어서 말씀해주세요.",
+      "happy",
+    );
+    await speakBotLine("3, 2, 1", "happy");
+    beginSustainedVowelRecording();
+  }
+
+  function beginSustainedVowelRecording() {
+    flowStepRef.current = "SUSTAINED_VOWEL_RECORDING";
+    setFlowStep("SUSTAINED_VOWEL_RECORDING");
+    voiceModeRef.current = "sustainedVowel";
+    activeRecordingModeRef.current = "sustainedVowel";
+    conversationActiveRef.current = true;
+    setIsConversationActive(true);
+    setBotEmotion("listening");
+    setChatState("listening");
+    setBotReply("3초 동안 '아~~~' 하고 말해주세요");
+
+    setTimeout(() => {
+      if (voiceModeRef.current !== "sustainedVowel") return;
+
+      void startRecording();
+
+      sustainedStopTimeoutRef.current = setTimeout(() => {
+        if (
+          voiceModeRef.current === "sustainedVowel" &&
+          recorderStateRef.current === "recording"
+        ) {
+          void stopRecording();
+        }
+      }, SUSTAINED_VOWEL_MAX_MS);
+    }, 80);
+  }
+
+  async function startVoiceCheckAfterFreeTalk() {
+    flowStepRef.current = "VOICE_CHECK_INTRO";
+    setFlowStep("VOICE_CHECK_INTRO");
+    greetingInProgressRef.current = true;
+
+    const intro = "이야기 들려주셔서 고마워요.";
+    const checkPrompt = pickRandom(VOICE_CHECK_PROMPTS);
+
+    try {
+      await speakBotLine(intro, "happy");
+      await speakBotLine(checkPrompt, "happy");
+      await speakBotLine("제가 셋을 세면 시작해볼게요.", "happy");
+      await speakBotLine("3, 2, 1", "happy");
+    } finally {
+      greetingInProgressRef.current = false;
+    }
+    beginSustainedVowelRecording();
+  }
+
   useEffect(() => {
     const text = transcript?.trim();
     const recordingMode = activeRecordingModeRef.current;
@@ -477,6 +651,22 @@ export default function ChatbotMain() {
 
     const turnDurationMs = durationMs;
     const turnAudioUri = audioUriRef.current;
+    const currentFlowStep = flowStepRef.current;
+    const isMedicationConversation =
+      !!medicationReminderIdRef.current || !!localMedicationIdRef.current;
+    const sampleType: VoiceSampleType | null = isMedicationConversation
+      ? null
+      : recordingMode === "sustainedVowel"
+        ? "sustained_vowel"
+        : currentFlowStep === "FIRST_FREE_TALK"
+          ? "free_speech_intro"
+          : recordingMode === "conversation"
+            ? "normal_chat"
+            : null;
+    const sampleStatus =
+      recordingMode === "sustainedVowel" && turnDurationMs < SUSTAINED_VOWEL_MIN_MS
+        ? "too_short"
+        : "ok";
 
     console.log("[TURN_READY]", {
       text,
@@ -487,6 +677,10 @@ export default function ChatbotMain() {
 
     void (async () => {
       try {
+        if (turnAudioUri && sampleType) {
+          await saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus);
+        }
+
         if (turnAudioUri) {
           console.log("[AUDIO_CLEAR]", turnAudioUri);
           await clearAudio?.();
@@ -503,12 +697,39 @@ export default function ChatbotMain() {
           return;
         }
 
+        if (recordingMode === "sustainedVowel") {
+          if (turnDurationMs < SUSTAINED_VOWEL_MIN_MS) {
+            console.warn("[SUSTAINED_VOWEL_TOO_SHORT]", {
+              durationMs: turnDurationMs,
+              retry: sustainedRetryRef.current,
+            });
+
+            if (sustainedRetryRef.current < 1) {
+              await retrySustainedVowel();
+              return;
+            }
+
+            await finishVoiceCheck(false);
+            return;
+          }
+
+          await finishVoiceCheck(true);
+          return;
+        }
+
         if (recordingMode !== "conversation") return;
         if (!conversationActiveRef.current) return;
 
+        if (currentFlowStep === "FIRST_FREE_TALK") {
+          await startVoiceCheckAfterFreeTalk();
+          return;
+        }
+
         handleChatTurn(text, turnDurationMs);
       } finally {
-        activeRecordingModeRef.current = null;
+        if (activeRecordingModeRef.current === recordingMode) {
+          activeRecordingModeRef.current = null;
+        }
         submittingTranscriptRef.current = false;
       }
     })();
@@ -558,6 +779,34 @@ export default function ChatbotMain() {
 
     void speakText(prompt);
   }, [botReply, isConversationActive, noSpeechDetected, resetRecorder, speakText]);
+
+  useEffect(() => {
+    if (
+      !isConversationActive ||
+      !noSpeechDetected ||
+      voiceModeRef.current !== "sustainedVowel"
+    ) {
+      return;
+    }
+
+    if (
+      recorderStateRef.current === "recording" ||
+      recorderStateRef.current === "processing" ||
+      submittingTranscriptRef.current
+    ) {
+      return;
+    }
+
+    resetRecorder();
+
+    if (sustainedRetryRef.current < 1) {
+      void retrySustainedVowel();
+      return;
+    }
+
+    console.warn("[SUSTAINED_VOWEL_FAILED_AFTER_RETRY]");
+    void finishVoiceCheck(false);
+  }, [isConversationActive, noSpeechDetected, resetRecorder]);
 
   useEffect(() => {
     if (!isConversationActive) return;
@@ -685,20 +934,18 @@ export default function ChatbotMain() {
     greetingInProgressRef.current = true;
 
     try {
+      flowStepRef.current = "GREETING";
+      setFlowStep("GREETING");
       const firstReply = `안녕하세요. ${getTimeBasedGreeting()}`;
 
       silenceRetryRef.current = 0;
-      lastPromptRef.current = firstReply;
-
-      setBotReply(firstReply);
-      setBotEmotion("happy");
-      setChatState("botSpeaking");
-
-      await speakText(firstReply);
+      await speakBotLine(firstReply, "happy");
 
       greetingInProgressRef.current = false;
       conversationActiveRef.current = true;
       setIsConversationActive(true);
+      flowStepRef.current = "FIRST_FREE_TALK";
+      setFlowStep("FIRST_FREE_TALK");
       setChatState("listening");
 
       beginConversationListening();
@@ -799,6 +1046,8 @@ const reply = getReturnGreeting();
         setChatState("idle");
         setBotEmotion("default");
         setBotReply(getTimeBasedGreeting());
+        flowStepRef.current = "IDLE";
+        setFlowStep("IDLE");
         setConversationResultVisible(false);
       }
 
@@ -835,6 +1084,8 @@ const reply = getReturnGreeting();
         conversationRunningRef.current = false;
         conversationActiveRef.current = false;
         submittingTranscriptRef.current = false;
+        flowStepRef.current = "IDLE";
+        setFlowStep("IDLE");
       };
     }, [
       localMedicationId,
@@ -896,6 +1147,8 @@ const reply = getReturnGreeting();
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
+    flowStepRef.current = "IDLE";
+    setFlowStep("IDLE");
 
     void startMedicationReminderConversation();
   }, [
@@ -917,6 +1170,8 @@ const reply = getReturnGreeting();
     resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
+    flowStepRef.current = "IDLE";
+    setFlowStep("IDLE");
 
     void startFirstGreeting();
   }, [resetRecorder, startFirstGreeting, startedFromIntro]);
@@ -934,6 +1189,8 @@ const reply = getReturnGreeting();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
     setConversationResultVisible(false);
+    flowStepRef.current = "IDLE";
+    setFlowStep("IDLE");
 
     void startFirstGreeting();
   }
@@ -987,6 +1244,8 @@ const reply = getReturnGreeting();
     finishActionPendingRef.current = false;
     setIsConversationActive(false);
     setConversationResultVisible(false);
+    flowStepRef.current = "IDLE";
+    setFlowStep("IDLE");
     resetRecorder();
 
     router.push(recordHref);
@@ -1005,6 +1264,8 @@ const reply = getReturnGreeting();
     setChatState("idle");
     setBotEmotion("default");
     setBotReply("오늘은 어떤 하루였나요?");
+    flowStepRef.current = "IDLE";
+    setFlowStep("IDLE");
 
     resetRecorder();
   }
@@ -1068,6 +1329,10 @@ const reply = getReturnGreeting();
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);
+  const recordingInstruction =
+    flowStep === "SUSTAINED_VOWEL_RECORDING"
+      ? "3초 동안 '아~~~' 하고 말해주세요"
+      : null;
 
   if (showConversationResult) {
     console.log("[RESULT_COMPLETE_RENDER]", {
@@ -1218,7 +1483,9 @@ const reply = getReturnGreeting();
             <View style={styles.recordingStatusBar}>
               <Waveform color="#6F9C62" animated />
               <Text style={styles.recordingTime}>
-                {formatDuration(durationMs)}
+                {recordingInstruction
+                  ? `${recordingInstruction} · ${formatDuration(durationMs)}`
+                  : formatDuration(durationMs)}
               </Text>
             </View>
           )}
