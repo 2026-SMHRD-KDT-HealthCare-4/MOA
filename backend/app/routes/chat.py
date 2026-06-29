@@ -10,126 +10,26 @@ AI 챗봇 안부 대화 라우터 — 요구사항 6, 13, 14번
   별도 쿼리로 조회한 뒤 애플리케이션 코드에서 병합한다.
 """
 
-import base64
-import os
-import json
 from datetime import datetime
 from uuid import UUID
-from openai import OpenAI
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
-
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_classic.memory import ConversationBufferWindowMemory
-from langchain_community.vectorstores import SupabaseVectorStore
-from supabase import create_client, Client
 
 from app.core.database import get_db
 from app.core.security import get_current_guardian, get_current_user_id, verify_senior_access
 from app.models.models import ChatSession, Guardian, UrgentAlert
 from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
-    ChatFrontendEnvelope,
     ChatMessageRequest,
+    ChatMessageResponseData,
     ChatSessionEndRequest,
     ChatSessionResponse,
-    VoiceChatMessageResponseData,
 )
-from app.services.chatbot import chat_for_frontend, FRONTEND_CHAT_PROMPT
+from app.services.chatbot import chat_for_frontend
 from app.services.deidentify import deidentify
-from app.routes.speech import is_silent_segments, is_hallucinated_text, synthesize_with_typecast
-
-# Supabase Vector Store 클라이언트 초기화
-supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-supabase_client: Client = create_client(supabase_url, supabase_key)
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-vector_store = SupabaseVectorStore(
-    client=supabase_client,
-    embedding=embeddings,
-    table_name="documents",
-    query_name="match_documents"
-)
-
-# LLM 구조화된 출력을 보장하는 스키마 Pydantic 정의
-class DevChatResponseFormatSchema(BaseModel):
-    reply: str = sa_Field if 'sa_Field' in globals() else Field(description="고령자에게 출력할 챗봇 응답 한국어 한문장")
-    bot_emotion: str = sa_Field if 'sa_Field' in globals() else Field(description="모아 챗봇의 감정 (happy|worried|thinking|default|listening|clapping)")
-    user_intent: str = sa_Field if 'sa_Field' in globals() else Field(description="사용자 발화 의도 (greeting|daily_talk|family_talk|meal_talk|positive_mood|negative_mood|health_discomfort|loneliness|goodbye|unknown)")
-    should_end: bool = sa_Field if 'sa_Field' in globals() else Field(description="대화를 완전히 끝낼지 여부")
-
-
-def _run_langchain_rag_inference(
-    user_message: str,
-    session: ChatSession,
-    senior_id: UUID,
-    db: Session,
-) -> DevChatResponseFormatSchema:
-    """Supabase Vector Store RAG와 LangChain ChatOpenAI를 활용하여 사용자 발화에 대한 응답을 생성합니다."""
-    # 1. Supabase RAG 처리 (과거 기억 맥락 로드)
-    context_str = ""
-    try:
-        docs = vector_store.similarity_search(user_message, k=2)
-        context_str = "\n".join([doc.page_content for doc in docs])
-    except Exception as e:
-        print(f"⚠️ Supabase RAG 검색 실패: {e}")
-
-    # 2. 슬라이딩 윈도우 메모리 구성
-    memory = ConversationBufferWindowMemory(k=5, return_messages=True)
-    messages_history = list(session.messages or [])
-    for msg in messages_history[-10:]:
-        role = "user" if msg["user"] == USER_SPEAKER else "assistant"
-        memory.chat_memory.add_message(
-            {"role": role, "content": msg["content"]}
-        )
-
-    # 3. LangChain ChatOpenAI 구동
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="API_KEY_NOT_FOUND")
-
-    llm = ChatOpenAI(
-        model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-        temperature=0.55,
-        openai_api_key=api_key
-    )
-
-    topic_instruction = f"\n[과거 나눈 기억 맥락]\n{context_str}\n"
-    system_instruction = FRONTEND_CHAT_PROMPT + topic_instruction
-
-    # GPT 발신 메시지 조립
-    from langchain_core.messages import SystemMessage, HumanMessage
-    chat_msgs = [SystemMessage(content=system_instruction)]
-    chat_msgs += memory.load_memory_variables({})["history"]
-    chat_msgs.append(HumanMessage(content=user_message))
-
-    try:
-        # Pydantic 응답 스키마 강제 바인딩 (구조화된 출력)
-        structured_llm = llm.with_structured_output(DevChatResponseFormatSchema)
-        llm_reply = structured_llm.invoke(chat_msgs)
-    except Exception:
-        # 구조화에 실패할 경우 수동 폴백
-        fallback_res = llm.invoke(chat_msgs)
-        try:
-            parsed = json.loads(fallback_res.content)
-            llm_reply = DevChatResponseFormatSchema(
-                reply=parsed.get("reply", fallback_res.content),
-                bot_emotion=parsed.get("bot_emotion", "default"),
-                user_intent=parsed.get("user_intent", "daily_talk"),
-                should_end=parsed.get("should_end", False)
-            )
-        except Exception:
-            llm_reply = DevChatResponseFormatSchema(
-                reply=fallback_res.content,
-                bot_emotion="default",
-                user_intent="daily_talk",
-                should_end=False
-            )
-    return llm_reply
-
+from app.services.long_term_memory import get_recent_memory, build_memory_context
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -155,62 +55,6 @@ class DevChatResponse(BaseModel):
     data: dict
 
 
-def _normalize_frontend_result(result: dict, session_id: UUID | None = None) -> dict:
-    """Return the single frontend chat contract, no legacy aliases."""
-    action = str(result.get("next_action") or "continue")
-    if action not in {"continue", "finish", "navigate", "urgent_alert"}:
-        action = "continue"
-
-    normalized = {
-        "reply": str(result.get("reply") or "말씀해 주셔서 고마워요. 조금 더 들려주세요."),
-        "user_intent": str(result.get("user_intent") or "unknown"),
-        "bot_emotion": str(result.get("bot_emotion") or "default"),
-        "next_action": action,
-        "route": result.get("route") if isinstance(result.get("route"), str) else None,
-        "conversation_topic": (
-            result.get("conversation_topic")
-            if isinstance(result.get("conversation_topic"), str)
-            else None
-        ),
-        "question_index": (
-            result.get("question_index")
-            if isinstance(result.get("question_index"), int)
-            else 0
-        ),
-    }
-    if session_id is not None:
-        normalized["session_id"] = str(session_id)
-    return normalized
-
-
-def _resolve_chat_senior_id(req: ChatMessageRequest, user_id: UUID, db: Session) -> UUID:
-    """Use the requested senior after verifying direct-user or linked-guardian access."""
-    verify_senior_access(user_id, req.senior_id, db)
-    return req.senior_id
-
-
-def _create_urgent_alert_if_needed(
-    result: dict,
-    senior_id: UUID,
-    session_id: UUID,
-    db: Session,
-) -> None:
-    if result.get("next_action") != "urgent_alert":
-        return
-
-    intent = str(result.get("user_intent") or "")
-    level = "SUICIDE_RISK" if intent == "negative_mood" else "MEDICAL_EMERGENCY"
-    rule_id = "CHAT_SUICIDE_RISK" if level == "SUICIDE_RISK" else "CHAT_MEDICAL_EMERGENCY"
-    db.add(
-        UrgentAlert(
-            senior_id=senior_id,
-            session_id=session_id,
-            level=level,
-            rule_id=rule_id,
-        )
-    )
-
-
 @router.post("/dev", response_model=DevChatResponse)
 def send_dev_message(req: DevChatRequest):
     """개발 테스트용 챗봇 라우트. 인증/DB 저장 없이 LLM 응답만 확인한다."""
@@ -224,16 +68,16 @@ def send_dev_message(req: DevChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
 
-    return {"status": "success", "data": _normalize_frontend_result(result)}
+    return {"status": "success", "data": result}
 
 
-@router.post("", response_model=ChatFrontendEnvelope)
+@router.post("", response_model=ChatMessageResponseData)
 def send_message(
     req: ChatMessageRequest,
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    senior_id = _resolve_chat_senior_id(req, user_id, db)
+    senior_id = user_id  # 토큰의 본인 ID 사용 (guardian·senior 공통, req.senior_id는 신뢰하지 않음)
 
     if req.session_id is not None:
         session = (
@@ -255,63 +99,60 @@ def send_message(
         db.add(session)
         db.flush()  # session_id 확정
 
-    # 1. LangChain 및 Supabase RAG 추론
-    try:
-        llm_reply = _run_langchain_rag_inference(req.message, session, senior_id, db)
-    except Exception as e:
-        llm_reply = DevChatResponseFormatSchema(
-            reply="지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
-            bot_emotion="worried",
-            user_intent="unknown",
-            should_end=False
-        )
-
-    # 2. 발화 비식별화 및 세션 저장 (JSONB 갱신 - flag_modified 적용)
-    masked_user_msg = deidentify(req.message)
-    reply_text = deidentify(llm_reply.reply)
-
+    # 1. 사용자 발화 비식별화(생년월일/주소/전화번호) 후 누적
+    masked_message = deidentify(req.message)
     now_iso = datetime.utcnow().isoformat()
-    updated_messages = list(session.messages or [])
-    updated_messages.append({"user": USER_SPEAKER, "content": masked_user_msg, "time": now_iso})
-    updated_messages.append({"user": BOT_SPEAKER, "content": reply_text, "time": now_iso})
-    
-    session.messages = updated_messages
-    flag_modified(session, "messages")
+
+    messages = list(session.messages or [])
+    messages.append({"user": USER_SPEAKER, "content": masked_message, "time": now_iso})
+
+    # 2. GPT 호출용 history 구성 (최근 N개, role 매핑)
+    #    이번 사용자 발화는 chat_for_frontend 에 message 로 따로 전달하므로 history 에선 제외.
+    history = [
+        {"role": "user" if m["user"] == USER_SPEAKER else "assistant", "content": m["content"]}
+        for m in messages[:-1][-HISTORY_WINDOW:]
+    ]
+
+    # 2-1. 장기 기억 주입: 이 사용자의 과거 대화 세션(현재 세션 제외)을 조회해 프롬프트용 컨텍스트로 만든다.
+    #      조회/생성 실패가 채팅을 막지 않도록 예외는 흡수하고 빈 컨텍스트로 진행한다.
+    try:
+        memory_sessions = get_recent_memory(db, senior_id, exclude_session_id=session.session_id)
+        memory_context = build_memory_context(memory_sessions)
+    except Exception:
+        memory_context = ""
+
+    try:
+        result = chat_for_frontend(
+            req.message,
+            history=history,
+            memory_context=memory_context,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
+
+    # 3. 봇 응답도 비식별화(생년월일/주소/전화번호) 후 누적
+    #    chat_for_frontend 는 'reply' 키로 응답한다(구버전 chat_with_gpt 의 'message' 가 아님).
+    reply = deidentify(result.get("reply", ""))
+    messages.append(
+        {"user": BOT_SPEAKER, "content": reply, "time": datetime.utcnow().isoformat()}
+    )
+
+    session.messages = messages
 
     try:
         db.commit()
         db.refresh(session)
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"대화 내용 DB 저장에 실패했습니다: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"대화 세션 저장 실패: {str(e)}")
 
-    # 3. 발화 내용을 Supabase 벡터 DB에 장기 임베딩 적재 (RAG 장기 저장용)
-    try:
-        vector_store.add_texts(
-            texts=[masked_user_msg],
-            metadatas=[{
-                "senior_id": str(senior_id),
-                "session_id": str(session.session_id),
-                "created_at": now_iso
-            }]
-        )
-    except Exception as e:
-        print(f"⚠️ Supabase pgvector 적재 실패: {e}")
-
-    # 4. 결과 데이터 구성 및 긴급 경보 감지
-    result = {
-        "reply": reply_text,
-        "user_intent": llm_reply.user_intent,
-        "bot_emotion": llm_reply.bot_emotion,
-        "next_action": "finish" if llm_reply.should_end else "continue",
-        "route": None,
-        "conversation_topic": req.current_topic,
-        "question_index": req.question_index,
-    }
-    
-    _create_urgent_alert_if_needed(result, senior_id, session.session_id, db)
-
-    return {"status": "success", "data": result}
+    return ChatMessageResponseData(
+        session_id=session.session_id,
+        reply=reply,
+        emotion=result.get("bot_emotion"),
+        score=result.get("score"),
+        status=result.get("status"),
+    )
 
 
 @router.post("/end", response_model=ChatSessionResponse)
@@ -323,7 +164,8 @@ def end_session(
     session = db.query(ChatSession).filter(ChatSession.session_id == req.session_id).first()
     if session is None:
         raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
-    verify_senior_access(user_id, session.senior_id, db)
+    if session.senior_id != user_id:
+        raise HTTPException(status_code=403, detail="본인의 대화 세션만 종료할 수 있습니다.")
 
     session.ended_at = datetime.utcnow()
     db.commit()
@@ -405,132 +247,3 @@ def cancel_urgent_alert(
         "alert_id": str(alert.alert_id),
         "alert_status": alert.alert_status,
     }
-
-
-@router.post("/voice", response_model=VoiceChatMessageResponseData)
-async def send_voice_message(
-    file: UploadFile = File(...),
-    session_id: UUID | None = Form(None),
-    db: Session = Depends(get_db),
-    user_id: UUID = Depends(get_current_user_id)
-):
-    """음성 파일을 받아 STT, LangChain 대화 추론, Supabase 벡터 DB 적재, TTS 음성 합성을 단일 원스톱으로 처리한다."""
-    senior_id = user_id
-
-    # 1. STT 처리 (음성 바이트 -> Whisper 번역)
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="음성 인식 서비스를 현재 사용할 수 없습니다.")
-
-    # 25MB 파일 크기 가드
-    MAX_AUDIO_BYTES = 25 * 1024 * 1024
-    audio_bytes = await file.read(MAX_AUDIO_BYTES + 1)
-    if not audio_bytes:
-        raise HTTPException(status_code=400, detail="녹음 파일이 비어 있습니다.")
-    if len(audio_bytes) > MAX_AUDIO_BYTES:
-        raise HTTPException(status_code=413, detail="녹음 파일이 너무 큽니다.")
-
-    try:
-        openai_client = OpenAI(api_key=api_key)
-        result = openai_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=(file.filename or "recording.m4a", audio_bytes, file.content_type or "audio/m4a"),
-            language="ko",
-            response_format="verbose_json",
-            temperature=0,
-        )
-
-        # 무음 및 환각 2겹 필터 가드
-        if is_silent_segments(getattr(result, "segments", None)) or is_hallucinated_text(result.text):
-            return VoiceChatMessageResponseData(
-                session_id=session_id or UUID("00000000-0000-0000-0000-000000000000"),
-                reply="",
-                emotion="default",
-                user_intent="unknown",
-                user_message="",
-                audio_base64=""
-            )
-
-        user_message = result.text
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"음성 변환 중 오류가 발생했습니다: {str(e)}")
-    finally:
-        del audio_bytes
-
-    # 2. 대화 세션 취득 및 생성
-    if session_id is not None:
-        session = db.query(ChatSession).filter(
-            ChatSession.session_id == session_id,
-            ChatSession.senior_id == senior_id,
-        ).first()
-        if session is None:
-            raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
-    else:
-        session = ChatSession(
-            senior_id=senior_id,
-            started_at=datetime.utcnow(),
-            messages=[],
-        )
-        db.add(session)
-        db.flush()  # session_id 발급 완료
-
-    # 3. LangChain 및 Supabase RAG 추론
-    try:
-        llm_reply = _run_langchain_rag_inference(user_message, session, senior_id, db)
-    except Exception as e:
-        llm_reply = DevChatResponseFormatSchema(
-            reply="지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
-            bot_emotion="worried",
-            user_intent="unknown",
-            should_end=False
-        )
-
-    # 4. 발화 비식별화 및 세션 저장 (JSONB 갱신 - flag_modified 적용)
-    masked_user_msg = deidentify(user_message)
-    reply_text = deidentify(llm_reply.reply)
-
-    now_iso = datetime.utcnow().isoformat()
-    updated_messages = list(session.messages or [])
-    updated_messages.append({"user": USER_SPEAKER, "content": masked_user_msg, "time": now_iso})
-    updated_messages.append({"user": BOT_SPEAKER, "content": reply_text, "time": now_iso})
-    
-    session.messages = updated_messages
-    flag_modified(session, "messages")  # JSONB 더티 갱신 감지 명시
-
-    try:
-        db.commit()
-        db.refresh(session)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"대화 내용 DB 저장에 실패했습니다: {str(e)}")
-
-    # 5. 발화 내용을 Supabase 벡터 DB에 장기 임베딩 적재 (RAG 장기 저장용)
-    try:
-        vector_store.add_texts(
-            texts=[masked_user_msg],
-            metadatas=[{
-                "senior_id": str(senior_id),
-                "session_id": str(session.session_id),
-                "created_at": now_iso
-            }]
-        )
-    except Exception as e:
-        print(f"⚠️ Supabase pgvector 적재 실패: {e}")
-
-    # 6. TTS 음성 합성
-    audio_base64 = ""
-    if reply_text:
-        try:
-            tts_audio = synthesize_with_typecast(reply_text)
-            audio_base64 = base64.b64encode(tts_audio).decode("utf-8")
-        except Exception as e:
-            print(f"⚠️ TTS 음성 합성 실패: {e}")
-
-    return VoiceChatMessageResponseData(
-        session_id=session.session_id,
-        reply=reply_text,
-        emotion=llm_reply.bot_emotion,
-        user_intent=llm_reply.user_intent,
-        user_message=user_message,
-        audio_base64=audio_base64
-    )

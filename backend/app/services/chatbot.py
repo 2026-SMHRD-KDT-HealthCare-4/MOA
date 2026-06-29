@@ -118,7 +118,19 @@ The client does not provide an approved display name, so address the user withou
 """
 
 
+def chat_with_gpt(message: str, history: list = []) -> dict:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages += history
+    messages.append({"role": "user", "content": message})
 
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        response_format={"type": "json_object"},
+    )
+
+    result = json.loads(response.choices[0].message.content)
+    return result
 
 
 def chat_for_frontend(
@@ -126,6 +138,7 @@ def chat_for_frontend(
     history: list = [],
     current_topic: str | None = None,
     question_index: int = 0,
+    memory_context: str = "",
 ) -> dict:
     forced = detect_rule(message)
 
@@ -142,10 +155,16 @@ def chat_for_frontend(
         "Safety, exit, and navigation decisions are handled by backend rules."
     )
 
+    # 장기 기억(과거 대화)을 시스템 프롬프트에 주입한다.
+    # memory_context 가 빈 문자열이면 아무것도 붙지 않는다(과거 대화가 없는 신규 사용자 등).
+    system_content = FRONTEND_CHAT_PROMPT + topic_instruction
+    if memory_context:
+        system_content += memory_context
+
     messages = [
         {
             "role": "system",
-            "content": FRONTEND_CHAT_PROMPT + topic_instruction,
+            "content": system_content,
         }
     ]
 
