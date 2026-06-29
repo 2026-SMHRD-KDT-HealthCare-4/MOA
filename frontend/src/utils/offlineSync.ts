@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import * as FileSystem from "expo-file-system";
 import { Platform } from "react-native";
 import { analyzeVoice, saveScriptRecord } from "../api/record";
 
@@ -11,6 +12,7 @@ export interface OfflineTask {
   scriptId?: string;
   userId: string;
   timestamp: number;
+  retryCount?: number;
 }
 
 const isWeb = Platform.OS === "web";
@@ -57,6 +59,7 @@ export async function enqueueOfflineTask(
     scriptId,
     userId,
     timestamp: Date.now(),
+    retryCount: 0,
   };
   queue.push(newTask);
   await saveQueue(queue);
@@ -74,6 +77,19 @@ export async function syncOfflineQueue(): Promise<void> {
   const activeQueue: OfflineTask[] = [];
 
   for (const task of queue) {
+    // 0. 파일 존재 여부 체크 (네이티브 환경에서 임시 캐시 유실 대응)
+    if (!isWeb && task.audioUri) {
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(task.audioUri);
+        if (!fileInfo.exists) {
+          console.warn(`[OFFLINE_QUEUE] 로컬 파일 유실로 태스크 ${task.id} 폐기: ${task.audioUri}`);
+          continue; // 큐에 보관하지 않고 즉시 버림 (무한 루프 방지)
+        }
+      } catch (checkErr) {
+        console.warn(`[OFFLINE_QUEUE] 파일 체크 중 오류: ${task.id}`, checkErr);
+      }
+    }
+
     try {
       // 1. 백엔드로 음향지표 분석 전송
       if (task.audioUri) {
@@ -85,9 +101,19 @@ export async function syncOfflineQueue(): Promise<void> {
       }
       console.log(`[OFFLINE_QUEUE] 태스크 동기화 성공: ${task.id}`);
     } catch (err) {
-      console.warn(`[OFFLINE_QUEUE] 태스크 동기화 실패 (유지): ${task.id}`, err);
-      // 실패 건은 다음 시도를 위해 보존
-      activeQueue.push(task);
+      const currentRetry = (task.retryCount ?? 0) + 1;
+      console.warn(`[OFFLINE_QUEUE] 태스크 동기화 실패 (재시도 횟수: ${currentRetry}): ${task.id}`, err);
+      
+      if (currentRetry >= 3) {
+        console.error(`[OFFLINE_QUEUE] 최대 재시도(3회) 초과로 태스크 ${task.id} 강제 폐기`);
+        // 3회 이상 실패 시 큐에서 제거하기 위해 activeQueue에 추가하지 않음
+      } else {
+        // 실패 건은 다음 시도를 위해 retryCount를 증가시켜 보존
+        activeQueue.push({
+          ...task,
+          retryCount: currentRetry,
+        });
+      }
     }
   }
 

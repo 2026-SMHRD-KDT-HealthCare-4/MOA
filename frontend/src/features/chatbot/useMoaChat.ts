@@ -381,17 +381,23 @@ export function useMoaChat() {
       if (!token) throw new Error("AUTH_TOKEN_MISSING");
 
       const formData = new FormData();
-      const filename = audioUri.split("/").pop() || "recording.m4a";
-      const match = /\.(\w+)$/.exec(filename);
-      const ext = match ? match[1] : "m4a";
-      const type = `audio/${ext}`;
+      if (Platform.OS === "web") {
+        const res = await fetch(audioUri);
+        const blob = await res.blob();
+        formData.append("file", blob, "recording.webm");
+      } else {
+        const filename = audioUri.split("/").pop() || "recording.m4a";
+        const match = /\.(\w+)$/.exec(filename);
+        const ext = match ? match[1] : "m4a";
+        const type = `audio/${ext}`;
 
-      // @ts-ignore
-      formData.append("file", {
-        uri: Platform.OS === "ios" ? audioUri.replace("file://", "") : audioUri,
-        name: filename,
-        type,
-      });
+        // @ts-ignore
+        formData.append("file", {
+          uri: Platform.OS === "ios" ? audioUri.replace("file://", "") : audioUri,
+          name: filename,
+          type,
+        });
+      }
 
       if (sessionIdRef.current) {
         formData.append("session_id", sessionIdRef.current);
@@ -423,6 +429,15 @@ export function useMoaChat() {
         setIsBotTyping(false);
         enableWakeWord();
         sendingMessageRef.current = false;
+
+        const silentMsg: ChatMessage = {
+          id: `b_silent_${Date.now()}`,
+          role: "bot",
+          text: "목소리가 잘 들리지 않았어요. 다시 한번 차분하게 말씀해 주세요.",
+          emotion: "worried",
+        };
+        setMessages((prev) => [...prev, silentMsg]);
+        void speakText("목소리가 잘 들리지 않았어요. 다시 한번 말씀해 주세요.");
         return;
       }
 

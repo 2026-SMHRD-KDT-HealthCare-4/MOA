@@ -573,7 +573,7 @@ export default function ChatbotMain() {
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
 
-      void startRecording(900);
+      void startRecording(900, true);
 
       sustainedStopTimeoutRef.current = setTimeout(() => {
         if (

@@ -55,7 +55,7 @@ export default function RecordPage() {
     reset,
     audioUri,
     clearAudio,
-  } = useRecorder({ keepAudio: REAL_API });
+  } = useRecorder({ keepAudio: REAL_API, maxDurationMs: RECORD_SECONDS * 1000, disableEchoCancellation: true });
   const [dailyScript, setDailyScript] = useState<authApi.ScriptResponseData | null>(null);
 
   useEffect(() => {
