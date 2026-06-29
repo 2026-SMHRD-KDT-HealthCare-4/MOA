@@ -26,15 +26,11 @@ import { useAuthStore } from "../stores/authStore";
 import { useInteractionStore } from "../stores/interactionStore";
 import { useWakeWordStore } from "../stores/wakeWordStore";
 import * as authApi from "../api/auth";
-import { replyToMedicationReminder } from "../api/medication";
-import { useMedicationStore } from "../stores/medicationStore";
-import * as Notifications from "expo-notifications";
 import {
   splitIntoSentenceChunks,
   useMoaChat,
 } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
-import { analyzeVoice } from "../api/record";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
 
 type ChatState =
@@ -182,7 +178,6 @@ export default function ChatbotMain() {
     (s) => s.hasUserInteracted,
   );
   const hasUserInteracted = fromIntro === "true" || hasStoredUserInteracted;
-  const respondToLocalMedication = useMedicationStore((s) => s.respond);
 
   const { height: windowHeight } = useWindowDimensions();
 
@@ -259,6 +254,10 @@ export default function ChatbotMain() {
     role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
   const resultHref =
     role === "guardian" ? "/(guardian)/report" : "/(elder)/history";
+  const healthHref = role === "guardian" ? "/(guardian)/report" : "/(elder)/health";
+  const settingsHref =
+    role === "guardian" ? "/(guardian)/settings" : "/(elder)/settings";
+  const familyHref = role === "guardian" ? "/(guardian)/family" : settingsHref;
 
   useEffect(() => {
     audioUriRef.current = audioUri ?? null;
@@ -282,12 +281,36 @@ export default function ChatbotMain() {
       return;
     }
 
-    if (route === "/record") {
-      router.push(recordHref);
-    } else {
-      router.push(resultHref);
+    switch (route) {
+      case "/record":
+        router.push(recordHref);
+        break;
+      case "/health":
+        router.push(healthHref);
+        break;
+      case "/settings":
+        router.push(settingsHref);
+        break;
+      case "/family":
+        router.push(familyHref);
+        break;
+      case "/history":
+      case "/report":
+      default:
+        router.push(resultHref);
+        break;
     }
-  }, [clearRoute, nextAction, recordHref, resultHref, route, router]);
+  }, [
+    clearRoute,
+    familyHref,
+    healthHref,
+    nextAction,
+    recordHref,
+    resultHref,
+    route,
+    router,
+    settingsHref,
+  ]);
 
   useEffect(() => {
     if (!wakePrompt) return;
@@ -449,41 +472,11 @@ export default function ChatbotMain() {
     setChatState("thinking");
 
     if (localMedicationId) {
-      const outcome = respondToLocalMedication(localMedicationId, text);
-
-      const reply =
-        outcome === "completed"
-          ? "잘하셨어요. 체크해둘게요."
-          : outcome === "reminder_scheduled"
-            ? "그럼 약 드시고 말씀해주세요. 10분 뒤에 한 번 더 알려드릴게요."
-            : "드셨는지 아직 못 드셨는지만 말씀해주세요.";
-
-      if (outcome === "reminder_scheduled") {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "복약 재알림",
-            body: "약 드실 시간이에요. 드셨으면 모아에게 말씀해주세요.",
-            data: {
-              localMedicationId,
-              isRetry: true,
-              medicationPrompt:
-                "약 드실 시간이에요. 드셨으면 모아에게 말씀해주세요.",
-            },
-          },
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-            seconds: 600,
-            repeats: false,
-          },
-        });
-      }
-
-      await speakBotLine(reply, outcome === "completed" ? "happy" : "default");
-
-      if (outcome === "completed") {
-        localMedicationIdRef.current = null;
-      }
-
+      localMedicationIdRef.current = null;
+      await speakBotLine(
+        "알려주셔서 고마워요. 복약 기록 저장은 하지 않고, 알림만 도와드릴게요.",
+        "happy",
+      );
       greetingInProgressRef.current = false;
 
       if (conversationActiveRef.current) {
@@ -495,24 +488,12 @@ export default function ChatbotMain() {
 
     if (!reminderId) return;
 
-    try {
-      const result = await replyToMedicationReminder(reminderId, text);
-
-      await speakBotLine(
-        result.reply,
-        result.status === "COMPLETED" ? "happy" : "default",
-      );
-
-      if (result.status === "COMPLETED") {
-        medicationReminderIdRef.current = null;
-      }
-    } catch {
-      medicationReminderIdRef.current = null;
-      handleChatTurn(text, durationMs);
-      return;
-    } finally {
-      greetingInProgressRef.current = false;
-    }
+    medicationReminderIdRef.current = null;
+    await speakBotLine(
+      "알려주셔서 고마워요. 복약 기록 저장은 하지 않고, 알림만 도와드릴게요.",
+      "happy",
+    );
+    greetingInProgressRef.current = false;
 
     if (conversationActiveRef.current) {
       beginConversationListening();
@@ -526,14 +507,11 @@ export default function ChatbotMain() {
   ) {
     if (!audioUriToSave) return;
 
-    try {
-      await analyzeVoice(audioUriToSave, "CHATBOT", sampleType, sampleStatus);
-    } catch (error) {
-      console.warn("[CHATBOT_VOICE_SAMPLE_SAVE_FAILED]", {
-        sampleType,
-        error,
-      });
-    }
+    console.log("[CHATBOT_VOICE_SAMPLE_SKIP]", {
+      sampleType,
+      sampleStatus,
+      audioUri: audioUriToSave,
+    });
   }
 
   async function finishVoiceCheck(succeeded: boolean) {
