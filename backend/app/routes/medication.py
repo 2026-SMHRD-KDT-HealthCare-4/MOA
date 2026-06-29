@@ -20,10 +20,8 @@ from app.core.security import (
     verify_guardian_senior_link,
     verify_senior_access,
 )
-from app.models.models import Guardian, Medication, MedicationCheck, MedicationReminder, Senior, GuardianSenior, LinkStatus
+from app.models.models import Guardian, Medication, MedicationReminder, Senior, GuardianSenior, LinkStatus
 from app.schemas.notification import (
-    MedicationCheckRequest,
-    MedicationCheckResponse,
     MedicationCreateRequest,
     MedicationResponse,
     MedicationReminderReplyRequest,
@@ -54,28 +52,6 @@ def _reminder_response(reminder: MedicationReminder, reply: str | None = None) -
     if reply is not None:
         payload["reply"] = reply
     return payload
-
-
-def _mark_completed(reminder: MedicationReminder, db: Session) -> None:
-    check_date = reminder.scheduled_for.date()
-    check = (
-        db.query(MedicationCheck)
-        .filter(
-            MedicationCheck.medication_id == reminder.medication_id,
-            MedicationCheck.check_date == check_date,
-        )
-        .first()
-    )
-    if check is None:
-        check = MedicationCheck(
-            medication_id=reminder.medication_id,
-            senior_id=reminder.senior_id,
-            check_date=check_date,
-            is_completed=True,
-        )
-        db.add(check)
-    else:
-        check.is_completed = True
 
 
 def dispatch_due_reminders(db: Session, now: datetime | None = None) -> list[MedicationReminder]:
@@ -271,70 +247,6 @@ def update_medication(
 
 
 # ---------------------------------------------------------------------------
-# 복약 체크리스트 (MEDICATION_CHECK)
-# ---------------------------------------------------------------------------
-
-@router.post("/check", response_model=MedicationCheckResponse)
-def check_medication(
-    req: MedicationCheckRequest,
-    db: Session = Depends(get_db),
-    senior: Senior = Depends(get_current_senior),
-):
-    """고령층 본인의 일별 복약 이행 여부 기록. 같은 (medication_id, check_date)는 갱신(upsert)."""
-    medication = db.query(Medication).filter(Medication.medication_id == req.medication_id).first()
-    if medication is None:
-        raise HTTPException(status_code=404, detail="복약 정보를 찾을 수 없습니다.")
-
-    # 본인의 복약 일정인지 확인
-    if medication.senior_id != senior.senior_id:
-        raise HTTPException(status_code=403, detail="본인의 복약 일정만 체크할 수 있습니다.")
-
-    target_date = req.check_date or date_type.today()
-
-    # UNIQUE(medication_id, check_date) 이므로 기존 레코드가 있으면 갱신
-    existing = (
-        db.query(MedicationCheck)
-        .filter(
-            MedicationCheck.medication_id == req.medication_id,
-            MedicationCheck.check_date == target_date,
-        )
-        .first()
-    )
-
-    if existing is not None:
-        existing.is_completed = req.is_completed
-        db.commit()
-        db.refresh(existing)
-        return existing
-
-    check = MedicationCheck(
-        medication_id=req.medication_id,
-        senior_id=senior.senior_id,  # 토큰 본인 ID 사용
-        check_date=target_date,
-        is_completed=req.is_completed,
-    )
-    db.add(check)
-    db.commit()
-    db.refresh(check)
-    return check
-
-
-@router.get("/check/{senior_id}", response_model=list[MedicationCheckResponse])
-def list_checks(
-    senior_id: UUID,
-    check_date: date_type | None = None,
-    db: Session = Depends(get_db),
-    user_id: UUID = Depends(get_current_user_id),
-):
-    """고령층의 복약 체크 이력. 본인 또는 연동 보호자만 조회 가능. check_date 지정 시 해당 일자만."""
-    verify_senior_access(user_id, senior_id, db)
-    query = db.query(MedicationCheck).filter(MedicationCheck.senior_id == senior_id)
-    if check_date is not None:
-        query = query.filter(MedicationCheck.check_date == check_date)
-    return query.order_by(MedicationCheck.check_date.desc()).all()
-
-
-# ---------------------------------------------------------------------------
 # 복약 알림 응답 / 알림센터
 # ---------------------------------------------------------------------------
 
@@ -405,7 +317,6 @@ def reply_to_medication_reminder(
         reminder.status = "COMPLETED"
         reminder.retry_at = None
         reminder.completed_at = datetime.utcnow()
-        _mark_completed(reminder, db)
         db.commit()
         db.refresh(reminder)
         return _reminder_response(reminder, "잘하셨어요. 체크해둘게요.")
@@ -457,4 +368,3 @@ def delete_medication(
     db.delete(medication)
     db.commit()
     return {"status": "success", "message": "복약 일정이 삭제되었습니다."}
-

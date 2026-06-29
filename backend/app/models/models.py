@@ -293,30 +293,6 @@ class Medication(Base):
 
     senior = relationship("Senior", backref="medications")
     guardian = relationship("Guardian", backref="medications")
-    checks = relationship("MedicationCheck", back_populates="medication")
-
-
-class MedicationCheck(Base):
-    """복약 체크리스트 (MEDICATION_CHECK) — 요구사항 12번.
-    고령층의 일별 복약 이행 여부를 기록한다.
-    """
-    __tablename__ = "medication_check"
-
-    check_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    medication_id = Column(UUID(as_uuid=True), ForeignKey("medication.medication_id"), nullable=False)
-    senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
-    check_date = Column(Date, nullable=False)
-    is_completed = Column(Boolean, nullable=False, default=False)
-
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=True, onupdate=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("medication_id", "check_date", name="uq_medication_check_date"),
-    )
-
-    medication = relationship("Medication", back_populates="checks")
-    senior = relationship("Senior", backref="medication_checks")
 
 
 class MedicationReminder(Base):
