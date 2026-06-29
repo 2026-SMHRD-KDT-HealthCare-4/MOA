@@ -161,8 +161,8 @@ export function useRecorder({
           lastSpeechAtRef.current = now - startedAt;
         }
 
-        // 최소 700ms의 발화 뒤 900ms 조용하면 한 문장으로 확정한다.
-        if (heardSpeech && now - lastSpeechAt >= 700 && now - startedAt >= 900) {
+        // 최소 1200ms의 발화 뒤 1400ms 조용하면 한 문장으로 확정한다. (시니어 발화 호흡 배려)
+        if (heardSpeech && now - lastSpeechAt >= 1200 && now - startedAt >= 1400) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;
@@ -351,17 +351,18 @@ export function useRecorder({
 
         const duration = status.durationMillis;
         const metering = status.metering;
-        // Native에서는 실제 dBFS 값을 사용한다. 웹은 별도 Web Audio VAD를 사용한다.
-        if (typeof metering === "number" && metering > -45) {
+        // Native VAD 감도: -42dB를 기준으로 노이즈/발화를 분별
+        if (typeof metering === "number" && metering > -42) {
           lastSpeechAtRef.current = duration;
         }
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
+        // 무음 대기 시간 1.5초(1500ms)로 늘려 어르신의 발화 호흡 보장
         const shouldCommitFromSilence =
           typeof metering === "number" &&
           duration >= 1000 &&
           lastSpeechAtRef.current > 0 &&
-          silenceElapsed >= 1000;
+          silenceElapsed >= 1500;
         const fallbackTurnLimit = 30000;
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
