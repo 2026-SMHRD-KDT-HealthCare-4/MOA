@@ -14,7 +14,7 @@ import {
 } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { useAuthStore, type GuardianMember } from "../stores/authStore";
-import { PARENT_STATUS_LABEL, type ParentStatus } from "../mocks/family";
+import { PARENT_STATUS_LABEL, type ParentStatus } from "../constants/family";
 import * as authApi from "../api/auth";
 import { getReportTrend } from "../api/report";
 import { colors } from "../styles/tokens";

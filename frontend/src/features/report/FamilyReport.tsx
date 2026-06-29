@@ -23,7 +23,7 @@ import {
   STATUS_LABELS,
   type FamilyReport as FamilyReportData,
   type CheckinCalendar,
-} from "./mockReport";
+} from "./reportTypes";
 import { colors } from "../../styles/tokens";
 
 // 보호자 리포트 네이비 컬러 시스템 (Family 탭과 통일). 레드 금지.

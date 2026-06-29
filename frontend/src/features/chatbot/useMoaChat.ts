@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Platform } from "react-native";
 import { Audio } from "expo-av";
 
-import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "../../mocks/chatbotResponses";
+import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "./chatbotTypes";
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
 import { useAuthStore } from "../../stores/authStore";
