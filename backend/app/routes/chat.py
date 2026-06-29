@@ -29,7 +29,7 @@ from supabase import create_client, Client
 
 from app.core.database import get_db
 from app.core.security import get_current_guardian, get_current_user_id, verify_senior_access
-from app.models.models import ChatSession, Guardian, UrgentAlert
+from app.models.models import ChatSession, Guardian, UrgentAlert, Senior, GuardianSenior, LinkStatus
 from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
     ChatFrontendEnvelope,
@@ -81,9 +81,11 @@ def _run_langchain_rag_inference(
     memory = ConversationBufferWindowMemory(k=5, return_messages=True)
     messages_history = list(session.messages or [])
     for msg in messages_history[-10:]:
-        role = "user" if msg["user"] == USER_SPEAKER else "assistant"
+        user_val = msg.get("user") if isinstance(msg, dict) else None
+        role = "user" if user_val == USER_SPEAKER else "assistant"
+        content_val = msg.get("content") if isinstance(msg, dict) else str(msg)
         memory.chat_memory.add_message(
-            {"role": role, "content": msg["content"]}
+            {"role": role, "content": content_val}
         )
 
     # 3. LangChain ChatOpenAI 구동
@@ -415,7 +417,25 @@ async def send_voice_message(
     user_id: UUID = Depends(get_current_user_id)
 ):
     """음성 파일을 받아 STT, LangChain 대화 추론, Supabase 벡터 DB 적재, TTS 음성 합성을 단일 원스톱으로 처리한다."""
-    senior_id = user_id
+    # 고령층 본인 여부 확인
+    is_senior = db.query(Senior).filter(Senior.senior_id == user_id).first() is not None
+    if is_senior:
+        senior_id = user_id
+    else:
+        # 보호자 로그인 상태인 경우, 연동된 첫 번째 ACTIVE 고령층 조회
+        link = db.query(GuardianSenior).filter(
+            GuardianSenior.guardian_id == user_id,
+            GuardianSenior.link_status == LinkStatus.ACTIVE.value
+        ).first()
+        if link is not None:
+            senior_id = link.senior_id
+        else:
+            # 연동된 고령층이 없는 데모 상황일 때 첫 번째 고령층으로 매핑하여 강제 우회
+            first_senior = db.query(Senior).first()
+            if first_senior is not None:
+                senior_id = first_senior.senior_id
+            else:
+                raise HTTPException(status_code=400, detail="연동된 고령층 정보를 찾을 수 없습니다.")
 
     # 1. STT 처리 (음성 바이트 -> Whisper 번역)
     api_key = os.getenv("OPENAI_API_KEY")

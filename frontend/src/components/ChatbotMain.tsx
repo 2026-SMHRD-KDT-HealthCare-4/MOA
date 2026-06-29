@@ -557,7 +557,7 @@ export default function ChatbotMain() {
       "제가 셋을 세면 '아~~~'를 3초 정도 이어서 말씀해주세요.",
       "happy",
     );
-    await speakBotLine("3, 2, 1", "happy");
+    await speakBotLine("삼, 이, 일", "happy");
     beginSustainedVowelRecording();
   }
 
@@ -600,7 +600,7 @@ export default function ChatbotMain() {
       await speakBotLine(intro, "happy");
       await speakBotLine(checkPrompt, "happy");
       await speakBotLine("제가 셋을 세면 시작해볼게요.", "happy");
-      await speakBotLine("3, 2, 1", "happy");
+      await speakBotLine("삼, 이, 일", "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
