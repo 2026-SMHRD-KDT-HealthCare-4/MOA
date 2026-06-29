@@ -395,62 +395,7 @@ def list_invites_for_guardian(
 
 
 # ---------------------------------------------------------------------------
-# 고령층 회원가입 (초대링크 기반) — 요구사항 3, 4번
-# ---------------------------------------------------------------------------
 
-@router.post("/senior/register", response_model=SeniorResponse)
-def register_senior(req: SeniorRegisterRequest, db: Session = Depends(get_db)):
-    normalized_token = req.invite_token.strip().upper()
-
-    invite = db.query(Invite).filter(Invite.token == normalized_token).first()
-
-    if invite is None:
-        raise HTTPException(status_code=404, detail="초대코드를 찾을 수 없습니다.")
-    if invite.is_used:
-        raise HTTPException(status_code=400, detail="이미 사용된 초대코드입니다.")
-    if invite.expired_at < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="만료된 초대코드입니다. 재발송을 요청해주세요.")
-
-    user = _supabase_sign_up(req.email, req.password, role="senior", name=req.name)
-
-    senior = Senior(
-        senior_id=UUID(user.id),
-        email=req.email,
-        name=req.name,
-        birth_date=req.birth_date,
-        gender=req.gender,
-        phone=req.phone,
-        smoking_yn=req.smoking_yn,
-        bmi=req.bmi,
-        medical_history=req.medical_history,
-        biometric_consent_yn=req.biometric_consent_yn,
-        consent_at=datetime.utcnow() if req.biometric_consent_yn else None,
-    )
-
-    try:
-        db.add(senior)
-        db.flush()  # senior_id 확정
-
-        # 초대한 보호자와 즉시 ACTIVE 연동 (요구사항 4번: 우선순위 없이 다대다 관리)
-        link = GuardianSenior(
-            guardian_id=invite.guardian_id,
-            senior_id=senior.senior_id,
-            link_status=LinkStatus.ACTIVE.value,
-            linked_at=datetime.utcnow(),
-        )
-        db.add(link)
-
-        invite.is_used = True
-        db.add(invite)
-
-        db.commit()
-        db.refresh(senior)
-    except Exception as e:
-        db.rollback()
-        _supabase_delete_user(user.id)
-        raise HTTPException(status_code=400, detail=f"고령층 프로필 저장 실패: {e}")
-
-    return senior
 
 
 @router.post("/senior/claim")

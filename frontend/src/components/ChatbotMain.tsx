@@ -61,10 +61,10 @@ const SUSTAINED_VOWEL_MIN_MS = 2_500;
 const SUSTAINED_VOWEL_MAX_MS = 5_000;
 
 const VOICE_CHECK_PROMPTS = [
-  "오늘 목소리 상태를 잠깐 확인해볼게요. '아~~~'를 3초 정도 이어서 말씀해주세요.",
-  "목소리가 잘 들리는지 확인해볼게요. 편하게 '아~~~' 하고 이어서 말씀해주세요.",
-  "마이크도 잘 들리는지 같이 확인할게요. '아~~~'를 잠깐 이어서 말씀해주세요.",
-  "오늘도 목소리를 잠깐 확인해볼게요. 편하게 '아~~~'를 이어서 말씀해주세요.",
+  "오늘 목소리 상태를 잠깐 확인해볼게요. '아' 소리를 3초 정도 이어서 말씀해주세요.",
+  "목소리가 잘 들리는지 확인해볼게요. 편하게 '아' 소리를 이어서 말씀해주세요.",
+  "마이크도 잘 들리는지 같이 확인할게요. '아' 소리를 잠깐 이어서 말씀해주세요.",
+  "오늘도 목소리를 잠깐 확인해볼게요. 편하게 '아' 소리를 이어서 말씀해주세요.",
 ];
 
 const VOICE_CHECK_DONE_PROMPTS = [
@@ -410,11 +410,8 @@ export default function ChatbotMain() {
   }
 
   async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
-    const chunks = splitIntoSentenceChunks(text);
-
-    for (const chunk of chunks) {
-      await speakSingleBotLine(chunk, emotion);
-    }
+    // 문장을 쪼개지 않고 통째로 전달하여 문장 간 API 딜레이 렉을 제거하고 한 호흡으로 낭독합니다.
+    await speakSingleBotLine(text, emotion);
   }
 
   function handleChatTurn(text: string, turnDurationMs: number) {
@@ -534,9 +531,10 @@ export default function ChatbotMain() {
       : "목소리 확인은 여기까지 할게요.";
     const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
 
+    const fullText = `${donePrompt} ${nextPrompt}`;
+
     try {
-      await speakBotLine(donePrompt, "happy");
-      await speakBotLine(nextPrompt, "happy");
+      await speakBotLine(fullText, "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
@@ -575,7 +573,7 @@ export default function ChatbotMain() {
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
 
-      void startRecording();
+      void startRecording(900);
 
       sustainedStopTimeoutRef.current = setTimeout(() => {
         if (
@@ -596,11 +594,10 @@ export default function ChatbotMain() {
     const intro = "이야기 들려주셔서 고마워요.";
     const checkPrompt = pickRandom(VOICE_CHECK_PROMPTS);
 
+    const fullText = `${intro} ${checkPrompt} 제가 셋을 세면 시작해볼게요. 셋. 둘. 하나.`;
+
     try {
-      await speakBotLine(intro, "happy");
-      await speakBotLine(checkPrompt, "happy");
-      await speakBotLine("제가 셋을 세면 시작해볼게요.", "happy");
-      await speakBotLine("셋. 둘. 하나.", "happy");
+      await speakBotLine(fullText, "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
@@ -1180,7 +1177,7 @@ export default function ChatbotMain() {
 
     setTimeout(() => {
       console.log("[START_RECORDING]", voiceModeRef.current);
-      void startRecording();
+      void startRecording(1500);
     }, 350);
   }
 

@@ -68,19 +68,48 @@ def create_script_record(
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """로그인한 사용자(고령층·보호자 공통)의 지정 문구 낭독 측정 이력을 저장한다 (원본 음성 미저장)."""
+    """로그인한 사용자(고령층·보호자 공통)의 지정 문구 낭독 측정 이력을 저장한다."""
     script = db.query(Script).filter(Script.script_id == req.script_id).first()
     if script is None:
         raise HTTPException(status_code=404, detail="지정문구를 찾을 수 없습니다.")
 
+    # 1. 대상 고령층 ID 결정 (토큰 소유자가 보호자이면 req.senior_id 또는 active 연동 고령층 ID 탐색)
+    target_senior_id = user_id
+    from app.models.models import Senior, GuardianSenior, LinkStatus
+    
+    is_senior = db.query(Senior).filter(Senior.senior_id == user_id).first() is not None
+    if not is_senior:
+        if req.senior_id:
+            target_senior_id = req.senior_id
+        else:
+            active_link = (
+                db.query(GuardianSenior)
+                .filter(
+                    GuardianSenior.guardian_id == user_id,
+                    GuardianSenior.link_status == LinkStatus.ACTIVE.value
+                )
+                .first()
+            )
+            if active_link:
+                target_senior_id = active_link.senior_id
+            else:
+                raise HTTPException(status_code=400, detail="연동된 고령층 정보를 찾을 수 없습니다.")
+
+    # 2. 접근 권한 최종 확인
+    verify_senior_access(user_id, target_senior_id, db)
+
     record = ScriptRecord(
-        senior_id=user_id,  # 토큰 본인 ID 사용 (guardian·senior 공통)
+        senior_id=target_senior_id,
         script_id=req.script_id,
         measured_at=req.measured_at or datetime.utcnow(),
     )
     db.add(record)
-    db.commit()
-    db.refresh(record)
+    try:
+        db.commit()
+        db.refresh(record)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"기록 저장에 실패했습니다: {str(e)}")
     return record
 
 

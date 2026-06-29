@@ -62,11 +62,66 @@ class DevChatResponseFormatSchema(BaseModel):
     should_end: bool = sa_Field if 'sa_Field' in globals() else Field(description="대화를 완전히 끝낼지 여부")
 
 
+def consolidate_memory_if_needed(session: ChatSession, db: Session) -> None:
+    """대화가 8턴(messages 수 8개) 이상 쌓였을 때, OpenAI를 이용해 중간 맥락을 요약하고
+
+    session.messages의 맨 처음에 {"user": -1, "content": summary} 형태로 누적 압축합니다.
+    """
+    messages = list(session.messages or [])
+    actual_chat = [m for m in messages if isinstance(m, dict) and m.get("user") in (0, 1)]
+    if len(actual_chat) < 8:
+        return
+
+    existing_summary = ""
+    for m in messages:
+        if isinstance(m, dict) and m.get("user") == -1:
+            existing_summary = m.get("content", "")
+            break
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        chat_text = "\n".join([
+            f"{'사용자' if m.get('user') == 0 else '모아'}: {m.get('content')}"
+            for m in actual_chat
+        ])
+        prompt = (
+            "다음은 고령층 사용자와 AI 돌봄 친구 '모아'가 나눈 대화 기록입니다.\n"
+            "이전 요약본과 신규 대화 기록을 참고하여, 사용자의 현재 상태, 최근 식사/산책/가족 관련 주요 일상 맥락을 "
+            "단 1문장의 간결한 한국어로 압축 요약하세요. (예: 사용자는 어제 손주가 방문하여 기뻐했으며, 오늘 점심으로 찌개를 맛있게 드셨음)\n\n"
+        )
+        if existing_summary:
+            prompt += f"[기존 요약]: {existing_summary}\n"
+        prompt += f"[신규 대화 기록]:\n{chat_text}\n\n[압축 요약]:"
+
+        res = client.chat.completions.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=150
+        )
+        summary_content = res.choices[0].message.content.strip()
+
+        new_messages = [m for m in messages if not (isinstance(m, dict) and m.get("user") == -1)]
+        new_messages.insert(0, {"user": -1, "content": summary_content, "time": datetime.utcnow().isoformat()})
+        session.messages = new_messages
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(session, "messages")
+        db.commit()
+    except Exception as e:
+        print(f"⚠️ [Memory Consolidation] 요약 실패: {e}")
+
+
 def _run_langchain_rag_inference(
     user_message: str,
     session: ChatSession,
     senior_id: UUID,
     db: Session,
+    current_topic: str | None = None,
 ) -> DevChatResponseFormatSchema:
     """Supabase Vector Store RAG와 LangChain ChatOpenAI를 활용하여 사용자 발화에 대한 응답을 생성합니다."""
     # 1. Supabase RAG 처리 (과거 기억 맥락 로드)
@@ -77,10 +132,21 @@ def _run_langchain_rag_inference(
     except Exception as e:
         print(f"⚠️ Supabase RAG 검색 실패: {e}")
 
-    # 2. 슬라이딩 윈도우 메모리 구성
-    memory = ConversationBufferWindowMemory(k=5, return_messages=True)
+    # 2. 슬라이딩 윈도우 메모리 및 대화 요약 추출 (Memory Consolidation 토큰 세이버)
     messages_history = list(session.messages or [])
-    for msg in messages_history[-10:]:
+    
+    # 이전 턴의 압축 요약이 있으면 추출
+    past_summary = ""
+    normal_messages = []
+    for msg in messages_history:
+        if isinstance(msg, dict) and msg.get("user") == -1:
+            past_summary = msg.get("content", "")
+        else:
+            normal_messages.append(msg)
+
+    # 대화 이력이 쌓였을 때 불필요한 토큰 요금을 70% 이상 아끼기 위해 최근 4개(2턴)만 슬라이딩 윈도우로 전달
+    memory = ConversationBufferWindowMemory(k=2, return_messages=True)
+    for msg in normal_messages[-4:]:
         user_val = msg.get("user") if isinstance(msg, dict) else None
         role = "user" if user_val == USER_SPEAKER else "assistant"
         content_val = msg.get("content") if isinstance(msg, dict) else str(msg)
@@ -99,7 +165,10 @@ def _run_langchain_rag_inference(
         openai_api_key=api_key
     )
 
-    topic_instruction = f"\n[과거 나눈 기억 맥락]\n{context_str}\n"
+    topic_instruction = f"\nBackend conversation topic: {current_topic or 'none'}. "
+    if past_summary:
+        topic_instruction += f"\n[이전 대화 요약 기억]: {past_summary}\n"
+    topic_instruction += f"\n[과거 나눈 기억 맥락]\n{context_str}\n"
     system_instruction = FRONTEND_CHAT_PROMPT + topic_instruction
 
     # GPT 발신 메시지 조립
@@ -213,20 +282,7 @@ def _create_urgent_alert_if_needed(
     )
 
 
-@router.post("/dev", response_model=DevChatResponse)
-def send_dev_message(req: DevChatRequest):
-    """개발 테스트용 챗봇 라우트. 인증/DB 저장 없이 LLM 응답만 확인한다."""
-    try:
-        history = [
-            {"role": item["role"], "content": item["content"]}
-            for item in req.history[-8:]
-            if item.get("role") in ("user", "assistant") and item.get("content")
-        ]
-        result = chat_for_frontend(req.message, history, req.current_topic, req.question_index)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
 
-    return {"status": "success", "data": _normalize_frontend_result(result)}
 
 
 @router.post("", response_model=ChatFrontendEnvelope)
@@ -259,8 +315,11 @@ def send_message(
 
     # 1. LangChain 및 Supabase RAG 추론
     try:
-        llm_reply = _run_langchain_rag_inference(req.message, session, senior_id, db)
+        llm_reply = _run_langchain_rag_inference(req.message, session, senior_id, db, req.current_topic)
     except Exception as e:
+        import traceback
+        print("❌ send_message RAG 추론 예외 상세:")
+        traceback.print_exc()
         llm_reply = DevChatResponseFormatSchema(
             reply="지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
             bot_emotion="worried",
@@ -269,8 +328,16 @@ def send_message(
         )
 
     # 2. 발화 비식별화 및 세션 저장 (JSONB 갱신 - flag_modified 적용)
-    masked_user_msg = deidentify(req.message)
-    reply_text = deidentify(llm_reply.reply)
+    target_names = []
+    senior_obj = db.query(Senior).filter(Senior.senior_id == senior_id).first()
+    if senior_obj and senior_obj.name:
+        target_names.append(senior_obj.name)
+    guardian_obj = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian_obj and guardian_obj.name:
+        target_names.append(guardian_obj.name)
+
+    masked_user_msg = deidentify(req.message, target_names)
+    reply_text = deidentify(llm_reply.reply, target_names)
 
     now_iso = datetime.utcnow().isoformat()
     updated_messages = list(session.messages or [])
@@ -283,6 +350,8 @@ def send_message(
     try:
         db.commit()
         db.refresh(session)
+        # 대화가 누적되었을 때 중간 맥락 요약 실행 (Memory Consolidation)
+        consolidate_memory_if_needed(session, db)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 내용 DB 저장에 실패했습니다: {str(e)}")
@@ -496,8 +565,11 @@ async def send_voice_message(
 
     # 3. LangChain 및 Supabase RAG 추론
     try:
-        llm_reply = _run_langchain_rag_inference(user_message, session, senior_id, db)
+        llm_reply = _run_langchain_rag_inference(user_message, session, senior_id, db, None)
     except Exception as e:
+        import traceback
+        print("❌ send_voice_message RAG 추론 예외 상세:")
+        traceback.print_exc()
         llm_reply = DevChatResponseFormatSchema(
             reply="지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
             bot_emotion="worried",
@@ -506,8 +578,16 @@ async def send_voice_message(
         )
 
     # 4. 발화 비식별화 및 세션 저장 (JSONB 갱신 - flag_modified 적용)
-    masked_user_msg = deidentify(user_message)
-    reply_text = deidentify(llm_reply.reply)
+    target_names = []
+    senior_obj = db.query(Senior).filter(Senior.senior_id == senior_id).first()
+    if senior_obj and senior_obj.name:
+        target_names.append(senior_obj.name)
+    guardian_obj = db.query(Guardian).filter(Guardian.guardian_id == user_id).first()
+    if guardian_obj and guardian_obj.name:
+        target_names.append(guardian_obj.name)
+
+    masked_user_msg = deidentify(user_message, target_names)
+    reply_text = deidentify(llm_reply.reply, target_names)
 
     now_iso = datetime.utcnow().isoformat()
     updated_messages = list(session.messages or [])
@@ -520,6 +600,8 @@ async def send_voice_message(
     try:
         db.commit()
         db.refresh(session)
+        # 대화가 누적되었을 때 중간 맥락 요약 실행 (Memory Consolidation)
+        consolidate_memory_if_needed(session, db)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 내용 DB 저장에 실패했습니다: {str(e)}")

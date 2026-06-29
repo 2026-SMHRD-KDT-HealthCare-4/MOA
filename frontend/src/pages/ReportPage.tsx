@@ -1,6 +1,8 @@
-import { View, Text, ScrollView, StyleSheet, useWindowDimensions } from "react-native";
+import { View, Text, ScrollView, StyleSheet, useWindowDimensions, Modal, TouchableOpacity, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../stores/authStore";
+import * as SecureStore from "expo-secure-store";
+import { useEffect, useState } from "react";
 import {
   VictoryChart,
   VictoryLine,
@@ -36,8 +38,64 @@ export default function ReportPage() {
   const chartWidth = width - 40;
   const myName = useAuthStore((s) => s.name) || "나";
 
+  const [disclaimerVisible, setDisclaimerVisible] = useState(false);
+
+  useEffect(() => {
+    async function checkDisclaimer() {
+      try {
+        const consented = Platform.OS === "web" 
+          ? globalThis.localStorage?.getItem("moa.disclaimer.consented")
+          : await SecureStore.getItemAsync("moa.disclaimer.consented");
+        if (consented !== "true") {
+          setDisclaimerVisible(true);
+        }
+      } catch {
+        setDisclaimerVisible(true);
+      }
+    }
+    checkDisclaimer();
+  }, []);
+
+  const handleAgreeDisclaimer = async () => {
+    try {
+      if (Platform.OS === "web") {
+        globalThis.localStorage?.setItem("moa.disclaimer.consented", "true");
+      } else {
+        await SecureStore.setItemAsync("moa.disclaimer.consented", "true");
+      }
+    } catch (err) {
+      console.warn("면책 동의 저장 실패:", err);
+    }
+    setDisclaimerVisible(false);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+
+      {/* 1. [Compliance] 의료기기 규제 회피를 위한 비의료기기 면책 팝업 모달 */}
+      <Modal
+        visible={disclaimerVisible}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>📋 중요 안내 및 면책 조항</Text>
+            
+            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalText}>
+                본 서비스(MOA)에서 제공하는 목소리 분석, 최근 위험도 및 변화 패턴 보고서는 직접사용자의 일상 건강 관리를 돕기 위한 <Text style={styles.boldText}>비진단 목적의 일상 웰니스 정보</Text>입니다.{"\n\n"}
+                MOA는 식품의약품안전처 등이 공인한 <Text style={styles.boldText}>의료 기기가 아니며</Text>, 의학적 진단, 예방, 치료, 경감 또는 의사의 처방을 대체할 수 없습니다.{"\n\n"}
+                분석된 변화 패턴은 통계적 분석에 기초한 참고 자료일 뿐이므로, 의학적 판단이나 증상 해석이 필요할 경우에는 반드시 전문 의료 기관 및 의사와 상담하시기 바랍니다.
+              </Text>
+            </ScrollView>
+
+            <TouchableOpacity style={styles.modalBtn} onPress={handleAgreeDisclaimer}>
+              <Text style={styles.modalBtnText}>내용을 확인했으며 동의합니다</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* 헤더 */}
       <View style={styles.header}>
@@ -218,4 +276,49 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   tableBadgeText: { fontSize: 12, fontWeight: "700" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(52, 44, 40, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: "white",
+    borderRadius: 24,
+    padding: 24,
+    gap: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#342C28",
+    textAlign: "center",
+  },
+  modalScroll: {
+    maxHeight: 240,
+  },
+  modalText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: "#765E52",
+  },
+  boldText: {
+    fontWeight: "800",
+    color: "#FF7955",
+  },
+  modalBtn: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "#FF7955",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "white",
+  },
 });

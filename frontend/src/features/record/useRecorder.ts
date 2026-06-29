@@ -114,6 +114,7 @@ export function useRecorder({
   const webAudioContextRef = useRef<AudioContext | null>(null);
   const webSilenceStreamRef = useRef<MediaStream | null>(null);
   const webSilenceFrameRef = useRef<number | null>(null);
+  const silenceTimeoutMsRef = useRef<number | null>(null);
 
   function stopWebSilenceMonitor(stopTracks = true) {
     if (webSilenceFrameRef.current !== null) {
@@ -161,8 +162,10 @@ export function useRecorder({
           lastSpeechAtRef.current = now - startedAt;
         }
 
-        // 최소 1200ms의 발화 뒤 1400ms 조용하면 한 문장으로 확정한다. (시니어 발화 호흡 배려)
-        if (heardSpeech && now - lastSpeechAt >= 1200 && now - startedAt >= 1400) {
+        const webSilenceThreshold = silenceTimeoutMsRef.current ?? 1500;
+        const webSpeechDurationThreshold = Math.max(700, webSilenceThreshold - 200);
+
+        if (heardSpeech && now - lastSpeechAt >= webSpeechDurationThreshold && now - startedAt >= webSilenceThreshold) {
           autoStoppingRef.current = true;
           void finishRecording();
           return;
@@ -276,7 +279,8 @@ export function useRecorder({
     }, timeoutMs);
   }
 
-  async function start() {
+  async function start(silenceTimeoutMs?: number) {
+    silenceTimeoutMsRef.current = silenceTimeoutMs ?? null;
     try {
       if (Platform.OS === "web") {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -301,7 +305,6 @@ export function useRecorder({
           stream.getTracks().forEach((track) => track.stop());
           webRecorderRef.current = null;
           void completeTranscription(uri, true).finally(() => {
-            // keepAudio면 보관해야 하므로 여기서 revoke하지 않는다(clearAudio가 해제).
             if (!keepAudio) URL.revokeObjectURL(uri);
           });
         };
@@ -321,9 +324,8 @@ export function useRecorder({
       }
       setPermissionDenied(false);
       setError(null);
-      if (manageWakeWord) disableWakeWord(); // UC-01a 시작 — 호출어 감지 중단
+      if (manageWakeWord) disableWakeWord();
 
-      // 백그라운드 리스너(GlobalWakeWordListener)가 마이크를 안전하게 해제(stopAndUnloadAsync)할 수 있도록 250ms 딜레이 대기
       await new Promise((resolve) => setTimeout(resolve, 250));
 
       await Audio.setAudioModeAsync({
@@ -337,7 +339,6 @@ export function useRecorder({
       const { recording } = await Audio.Recording.createAsync(
         {
           ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-          // Native VAD needs metering; without it foreground wake listening waits for the 30s limit.
           isMeteringEnabled: true,
         },
       );
@@ -351,18 +352,17 @@ export function useRecorder({
 
         const duration = status.durationMillis;
         const metering = status.metering;
-        // Native VAD 감도: -42dB를 기준으로 노이즈/발화를 분별
         if (typeof metering === "number" && metering > -42) {
           lastSpeechAtRef.current = duration;
         }
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
-        // 무음 대기 시간 1.5초(1500ms)로 늘려 어르신의 발화 호흡 보장
+        const silenceThreshold = silenceTimeoutMsRef.current ?? 1500;
         const shouldCommitFromSilence =
           typeof metering === "number" &&
           duration >= 1000 &&
           lastSpeechAtRef.current > 0 &&
-          silenceElapsed >= 1500;
+          silenceElapsed >= silenceThreshold;
         const fallbackTurnLimit = 30000;
 
         if (shouldCommitFromSilence || duration >= fallbackTurnLimit) {
