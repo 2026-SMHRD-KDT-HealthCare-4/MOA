@@ -152,6 +152,13 @@ def send_message(
         emotion=result.get("bot_emotion"),
         score=result.get("score"),
         status=result.get("status"),
+        # 대화 제어 필드 복원 (chat_for_frontend 결과를 그대로 전달)
+        user_intent=result.get("user_intent"),
+        bot_emotion=result.get("bot_emotion"),
+        next_action=result.get("next_action"),
+        route=result.get("route"),
+        conversation_topic=result.get("conversation_topic"),
+        question_index=result.get("question_index"),
     )
 
 

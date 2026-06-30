@@ -30,6 +30,15 @@ class ChatMessageResponseData(BaseModel):
     emotion: Optional[str] = None
     score: Optional[int] = None
     status: Optional[str] = None
+    # 프론트 대화 제어 필드 — useMoaChat.normalizeChatbotResponse 가 참조한다.
+    # 누락되면 프론트가 기본값으로 떨어져(next_action="continue", question_index=0 등)
+    # 대화가 finish 로 끝나지 않거나 주제/질문 추적이 겉돈다.
+    user_intent: Optional[str] = None
+    bot_emotion: Optional[str] = None
+    next_action: Optional[str] = None
+    route: Optional[str] = None
+    conversation_topic: Optional[str] = None
+    question_index: Optional[int] = None
 
 
 class VoiceChatMessageResponseData(BaseModel):

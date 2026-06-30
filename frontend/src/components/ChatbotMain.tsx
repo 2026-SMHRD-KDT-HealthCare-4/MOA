@@ -670,7 +670,14 @@ export default function ChatbotMain() {
           return;
         }
 
-        if (recordingMode !== "conversation") {
+        // recordingMode 가 렌더 경합/포커스 이펙트 churn 으로 null 로 유실돼도,
+        // 대화가 활성이고 일반대화(NORMAL_CHAT) 흐름이면 한 턴으로 정상 전송한다.
+        // 이 보강이 없으면 mode=null 인 done 오디오를 통째로 버려, 응답 없이
+        // "계속 듣기만" 하는 상태(턴 유실)가 된다. (콘솔 [TURN_READY] mode:null 증상)
+        const isConversationTurn =
+          recordingMode === "conversation" ||
+          (conversationActiveRef.current && flowStepRef.current === "NORMAL_CHAT");
+        if (!isConversationTurn) {
           resetRecorder();
           return;
         }
@@ -686,12 +693,20 @@ export default function ChatbotMain() {
         }
 
         // 복약 대화 및 일반 대화 모두 백엔드 단일 통합 API로 원스톱 처리!
-        resetRecorder();
+        // [중요] 업로드 전에 resetRecorder()를 호출하면 안 된다. reset()이 clearAudio()를
+        // 부르고, 웹에서는 그 안에서 URL.revokeObjectURL(turnAudioUri)로 blob URL을 즉시
+        // 해제한다. 그러면 sendVoiceMessage 가 같은 URL을 fetch 할 때 깨져 매 턴 실패한다.
+        // 오디오 해제·상태 초기화는 업로드가 끝난 뒤 아래 finally 의 clearAudio() 가 담당한다.
         if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
 
         console.log("[SEND_VOICE_MESSAGE_START]", turnAudioUri);
         await sendVoiceMessage(turnAudioUri, turnDurationMs);
         console.log("[SEND_VOICE_MESSAGE_DONE]");
+
+        // 업로드가 끝난 뒤에 녹음기를 초기화한다(타이머·웹 VAD 모니터·autoStoppingRef
+        // 리셋, 상태 idle). 그래야 다음 턴 녹음이 깔끔하게 새로 시작되고 자동정지가
+        // 정상 동작한다. 전송 전에 부르면 blob URL이 revoke돼 업로드가 깨지므로 반드시 이후.
+        resetRecorder();
       } catch (err) {
         console.error("[VOICE_TURN_ERROR]", err);
         resetRecorder();
