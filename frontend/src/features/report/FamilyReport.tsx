@@ -25,6 +25,7 @@ import {
   type CheckinCalendar,
 } from "./reportTypes";
 import { colors } from "../../styles/tokens";
+import CareCenterCard from "./CareCenterCard";
 
 // 보호자 리포트 네이비 컬러 시스템 (Family 탭과 통일). 레드 금지.
 // 네이비=주요 정보 · 세이지=안정 · 앰버=주의/변화감지 · 베이지=배경.
@@ -455,6 +456,9 @@ export function FamilyReport({
           ))}
         </View>
       </View>
+
+      {/* 7-1. 근처 돌봄센터 찾기 — 전문의 찾기 카드 바로 아래(별도 컴포넌트, 키워드 검색 기반) */}
+      <CareCenterCard />
 
       {/* 8. 하단 버튼 2개 */}
       <View style={styles.actions}>
