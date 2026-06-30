@@ -933,6 +933,7 @@ export default function ChatbotMain() {
     isBotTyping,
     isConversationActive,
     nextAction,
+    recorderState,
     replyTypingVersion,
   ]);
 
