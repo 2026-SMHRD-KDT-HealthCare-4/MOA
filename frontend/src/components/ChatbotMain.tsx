@@ -715,8 +715,13 @@ export default function ChatbotMain() {
           activeRecordingModeRef.current = null;
         }
         submittingTranscriptRef.current = false;
+        // 전송 프로세스가 완료된 후 안전하게 오디오 캐시 정리
         if (turnAudioUri) {
-          await clearAudio?.();
+          try {
+            await clearAudio?.();
+          } catch (e) {
+            console.warn("clearAudio failed:", e);
+          }
         }
       }
     })();
@@ -1175,11 +1180,11 @@ export default function ChatbotMain() {
     });
 
     if (!conversationActiveRef.current) {
-    console.log("[LISTEN_SKIP] not active");  // ← 이게 찍히면?
+      console.log("[LISTEN_SKIP] not active");  // ← 이게 찍히면?
       return;
     }
     if (recorderState === "recording" || recorderState === "processing") {
-    console.log("[LISTEN_SKIP] recorder busy:", recorderState);  // ← 이게 찍히면?
+      console.log("[LISTEN_SKIP] recorder busy:", recorderState);  // ← 이게 찍히면?
       return;
     }
 
