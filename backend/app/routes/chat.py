@@ -26,6 +26,7 @@ from app.schemas.chat import (
     ChatMessageResponseData,
     ChatSessionEndRequest,
     ChatSessionResponse,
+    ChatFrontendEnvelope,
 )
 from app.services.chatbot import chat_for_frontend
 from app.services.deidentify import deidentify
@@ -71,15 +72,17 @@ def send_dev_message(req: DevChatRequest):
     return {"status": "success", "data": result}
 
 
-@router.post("", response_model=ChatMessageResponseData)
+@router.post("", response_model=ChatFrontendEnvelope)
 def send_message(
     req: ChatMessageRequest,
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
+    print(f"\n[chat.py/send_message] >>> 요청 수신. user_id={user_id}, message='{req.message}'")
     senior_id = user_id  # 토큰의 본인 ID 사용 (guardian·senior 공통, req.senior_id는 신뢰하지 않음)
 
     if req.session_id is not None:
+        print(f"[chat.py/send_message] 기존 세션 ID 사용: {req.session_id}")
         session = (
             db.query(ChatSession)
             .filter(
@@ -89,8 +92,10 @@ def send_message(
             .first()
         )
         if session is None:
+            print("[chat.py/send_message] ❌ 에러: 세션을 찾을 수 없음")
             raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
     else:
+        print("[chat.py/send_message] 신규 세션 시작")
         session = ChatSession(
             senior_id=senior_id,
             started_at=datetime.utcnow(),
@@ -98,6 +103,7 @@ def send_message(
         )
         db.add(session)
         db.flush()  # session_id 확정
+        print(f"[chat.py/send_message] 신규 세션 생성 완료. ID: {session.session_id}")
 
     # 1. 사용자 발화 비식별화(생년월일/주소/전화번호) 후 누적
     masked_message = deidentify(req.message)
@@ -115,19 +121,25 @@ def send_message(
 
     # 2-1. 장기 기억 주입: 이 사용자의 과거 대화 세션(현재 세션 제외)을 조회해 프롬프트용 컨텍스트로 만든다.
     #      조회/생성 실패가 채팅을 막지 않도록 예외는 흡수하고 빈 컨텍스트로 진행한다.
+    print("[chat.py/send_message] Supabase 장기 기억(RAG) 조회 시도...")
     try:
         memory_sessions = get_recent_memory(db, senior_id, exclude_session_id=session.session_id)
         memory_context = build_memory_context(memory_sessions)
-    except Exception:
+        print(f"[chat.py/send_message] 장기 기억 조회 완료. 컨텍스트 길이: {len(memory_context)} 자")
+    except Exception as e:
+        print(f"[chat.py/send_message] ⚠️ 장기 기억 조회 실패 (예외 흡수 및 빈 컨텍스트 진행): {e}")
         memory_context = ""
 
+    print("[chat.py/send_message] GPT 추론(chat_for_frontend) 호출...")
     try:
         result = chat_for_frontend(
             req.message,
             history=history,
             memory_context=memory_context,
         )
+        print(f"[chat.py/send_message] GPT 추론 성공. 결과 reply: '{result.get('reply')}'")
     except Exception as e:
+        print(f"[chat.py/send_message] ❌ 에러: GPT 추론 실패: {e}")
         raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
 
     # 3. 봇 응답도 비식별화(생년월일/주소/전화번호) 후 누적
@@ -139,20 +151,32 @@ def send_message(
 
     session.messages = messages
 
+    print("[chat.py/send_message] 대화 상태 DB 저장(Commit) 시도...")
     try:
         db.commit()
         db.refresh(session)
+        print("[chat.py/send_message] DB 저장 성공.")
     except Exception as e:
+        print(f"[chat.py/send_message] ❌ 에러: DB 저장 실패: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 세션 저장 실패: {str(e)}")
 
-    return ChatMessageResponseData(
-        session_id=session.session_id,
-        reply=reply,
-        emotion=result.get("bot_emotion"),
-        score=result.get("score"),
-        status=result.get("status"),
-    )
+    print("[chat.py/send_message] <<< 정상 반환 완료.")
+    
+    # 프론트엔드가 요구하는 온전한 상태 매핑 래퍼 반환
+    return {
+        "status": "success",
+        "data": {
+            "reply": reply,
+            "user_intent": result.get("user_intent") or "unknown",
+            "bot_emotion": result.get("bot_emotion") or "default",
+            "next_action": result.get("next_action") or "continue",
+            "route": result.get("route"),
+            "conversation_topic": result.get("conversation_topic"),
+            "question_index": result.get("question_index") or 0,
+            "session_id": session.session_id,
+        }
+    }
 
 
 @router.post("/end", response_model=ChatSessionResponse)

@@ -99,10 +99,22 @@ def validate_llm_response(raw: dict[str, Any], message: str, current_topic: str 
         action = "continue"
     reply = str(raw.get("reply") or "말씀해 주셔서 고마워요. 조금 더 들려주세요.").strip()
 
+    # GPT가 직접 리턴한 route를 살리고, 없을 시 intent 및 action 상황에 따라 자동 매핑
+    route = raw.get("route")
+    if not route and action == "navigate":
+        if intent in ("navigate_record", "start_recording"):
+            route = "/record"
+        elif intent == "show_result":
+            route = "/report"
+        elif intent in ("medication_info", "hospital_info"):
+            route = "/health"
+        elif intent == "family_connect":
+            route = "/settings"
+
     detected = detect_topic(message)
     topic = detected or TOPIC_BY_INTENT.get(intent) or current_topic
     next_index = question_index + 1 if topic == current_topic else 1
     question = suggested_question(topic, next_index)
     if question and "?" not in reply:
         reply = f"{reply} {question}"
-    return response(reply, intent, emotion, action, None, topic, next_index)
+    return response(reply, intent, emotion, action, route, topic, next_index)

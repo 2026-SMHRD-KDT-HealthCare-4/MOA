@@ -686,12 +686,14 @@ export default function ChatbotMain() {
         }
 
         // 복약 대화 및 일반 대화 모두 백엔드 단일 통합 API로 원스톱 처리!
-        resetRecorder();
         if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
 
         console.log("[SEND_VOICE_MESSAGE_START]", turnAudioUri);
         await sendVoiceMessage(turnAudioUri, turnDurationMs);
         console.log("[SEND_VOICE_MESSAGE_DONE]");
+        
+        // 전송이 정상 완료된 후에 리코더 상태 리셋
+        resetRecorder();
       } catch (err) {
         console.error("[VOICE_TURN_ERROR]", err);
         resetRecorder();
@@ -700,8 +702,13 @@ export default function ChatbotMain() {
           activeRecordingModeRef.current = null;
         }
         submittingTranscriptRef.current = false;
+        // 전송 프로세스가 완료된 후 안전하게 오디오 캐시 정리
         if (turnAudioUri) {
-          await clearAudio?.();
+          try {
+            await clearAudio?.();
+          } catch (e) {
+            console.warn("clearAudio failed:", e);
+          }
         }
       }
     })();
