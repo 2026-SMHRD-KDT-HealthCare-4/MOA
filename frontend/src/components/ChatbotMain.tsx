@@ -147,6 +147,13 @@ function getTimeBasedGreeting() {
   return "늦은 시간이네요. 오늘 잠자리는 편안하신가요?";
 }
 
+const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"];
+
+// 상단 헤더용 현재 날짜 포맷 (예: "6월 30일 (월)").
+function formatHeaderDate(date: Date): string {
+  return `${date.getMonth() + 1}월 ${date.getDate()}일 (${WEEKDAYS_KO[date.getDay()]})`;
+}
+
 export default function ChatbotMain() {
   const router = useRouter();
 
@@ -189,6 +196,7 @@ export default function ChatbotMain() {
   const [showConversationResult, setShowConversationResult] = useState(false);
   const [replyTypingVersion, setReplyTypingVersion] = useState(0);
   const [flowStep, setFlowStep] = useState<ChatFlowStep>("IDLE");
+  const [now, setNow] = useState<Date>(() => new Date());
 
   const {
     messages,
@@ -272,6 +280,18 @@ export default function ChatbotMain() {
   useEffect(() => {
     flowStepRef.current = flowStep;
   }, [flowStep]);
+
+  // 상단 헤더의 날짜를 현재 날짜로 표시한다. 날짜가 바뀌는 자정 경계에서만 갱신하고,
+  // 같은 날이면 setNow 가 같은 참조를 반환해 불필요한 리렌더를 피한다.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNow((prev) => {
+        const next = new Date();
+        return next.toDateString() === prev.toDateString() ? prev : next;
+      });
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!route) return;
@@ -1334,7 +1354,7 @@ export default function ChatbotMain() {
 
       <View style={[styles.header, { top: headerTop }]}>
         <View style={styles.dateBlock}>
-          <Text style={styles.dateText}>6월 17일 (화)</Text>
+          <Text style={styles.dateText}>{formatHeaderDate(now)}</Text>
         </View>
 
         {role === "elder" && (

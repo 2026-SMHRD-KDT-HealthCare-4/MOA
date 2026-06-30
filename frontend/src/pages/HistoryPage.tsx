@@ -82,6 +82,14 @@ function getKoreanDay(year: number, month: number, day: number) {
   return WEEKDAYS[new Date(year, month, day).getDay()];
 }
 
+// 백엔드는 measured_at 을 타임존 표기 없는 UTC(datetime.utcnow) 문자열로 내려준다
+// (예: "2026-06-30T01:50:37.300000"). JS의 new Date()는 Z/offset 없는 ISO를 '로컬시간'으로
+// 해석해 KST와 9시간 어긋나므로, 타임존 표기가 없으면 'Z'를 붙여 UTC로 해석하게 한다.
+function parseServerDate(s: string): Date {
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s);
+  return new Date(hasTz ? s : `${s}Z`);
+}
+
 function formatTime(d: Date): string {
   let h = d.getHours();
   const m = d.getMinutes();
@@ -104,7 +112,7 @@ function buildRealHistory(
 
   const map: Record<string, DailyHistory> = {};
   records.forEach((r) => {
-    const d = new Date(r.measuredAt);
+    const d = parseServerDate(r.measuredAt);
     const key = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
     const status = statusByDate[key] ?? "sunny";
     const entry = map[key] ?? { status, records: [] };
@@ -140,6 +148,8 @@ export default function HistoryPage() {
 
   // real 모드: 본인(직접사용자) 기록을 서버에서 조회. 실패 시 null → mock 폴백.
   const seniorId = useAuthStore((s) => s.userId);
+  // 상단 타이틀에 붙일 직접사용자 본인 이름(예: "이미자님 기록 돌아보기"). 없으면 폴백.
+  const userName = useAuthStore((s) => s.name);
   const [realHistory, setRealHistory] = useState<Record<string, DailyHistory> | null>(null);
   useEffect(() => {
     if (!REAL_API || !seniorId) return;
@@ -173,7 +183,9 @@ export default function HistoryPage() {
     key.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)
   );
 
-  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status === "sunny").length;
+  // 이번 달 기록(활동)이 있는 모든 날 수. 날씨(맑음/흐림/비) 상관없이 캘린더에 아이콘이
+  // 표시된 날과 동일하게 센다. 오늘이 '비'여도 기록이 있으면 포함된다.
+  const recordedDays = monthlyKeys.length;
   const isThisMonth = year === today.getFullYear() && month === today.getMonth();
 
   function prevMonth() {
@@ -219,7 +231,9 @@ export default function HistoryPage() {
       <LinearGradient colors={[BEIGE, "#FFF2DE", BEIGE]} style={StyleSheet.absoluteFill} />
 
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>기록 돌아보기</Text>
+        <Text style={styles.headerTitle}>
+          {userName ? `${userName}님 기록 돌아보기` : "기록 돌아보기"}
+        </Text>
         <Text style={styles.headerSub}>날씨로 건강 흐름을 살펴봐요</Text>
       </View>
 
@@ -377,10 +391,14 @@ export default function HistoryPage() {
 
         {isThisMonth && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryEmoji}>🎈</Text>
+            <Image
+              source={require("../../assets/images/moa_image_history.png")}
+              style={styles.summaryImage}
+              resizeMode="contain"
+            />
             <Text style={styles.summaryText}>
-              이번 달 <Text style={styles.summaryHighlight}>{sunnyCount}일</Text> 동안{"\n"}
-              맑은 목소리를 들려주셨어요!
+              이번 달 <Text style={styles.summaryHighlight}>{recordedDays}일</Text> 동안{"\n"}
+              목소리를 들려주셨어요!
             </Text>
           </View>
         )}
@@ -565,8 +583,18 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  summaryEmoji: {
-    fontSize: 34,
+  summaryImage: {
+    width: 160,
+    height: 160,
+    // 이미지는 160으로 크게 유지하되, 음수 세로 마진으로 카드 높이에 기여하는 양을
+    // 줄여 카드를 컴팩트하게 유지한다(모아는 카드 위아래로 살짝 넘쳐 커 보임).
+    marginVertical: -40,
+    // 모아를 좌측으로 더 붙이고(marginLeft), 우측 레이아웃 점유를 줄여(marginRight)
+    // 옆 문구가 2줄로 들어갈 폭을 확보한다.
+    marginLeft: -16,
+    marginRight: -34,
+    // 레이아웃(카드 높이)엔 영향 없이 시각적으로만 위로 10%(160*0.1≈16px) 올린다.
+    transform: [{ translateY: -16 }],
   },
 
   summaryText: {
