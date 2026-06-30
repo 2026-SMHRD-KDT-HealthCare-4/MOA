@@ -305,6 +305,7 @@ export function useMoaChat() {
   const conversationTopicRef = useRef<string | null>(null);
   const questionIndexRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
+  const endingSessionRef = useRef<Promise<void> | null>(null);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
   async function speakText(text: string) {
@@ -315,6 +316,39 @@ export function useMoaChat() {
     } finally {
       setIsBotSpeaking(false);
     }
+  }
+
+  function endConversationSession(): Promise<void> {
+    if (endingSessionRef.current) return endingSessionRef.current;
+
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return Promise.resolve();
+
+    const request = (async () => {
+      try {
+        const token = await getToken();
+        if (!token || token.startsWith("mock-token-")) return;
+
+        const response = await fetch(`${API_BASE_URL}/chat/end`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+        if (!response.ok) throw new Error("CHAT_SESSION_END_FAILED");
+        if (sessionIdRef.current === sessionId) sessionIdRef.current = null;
+      } catch (error) {
+        // 종료 시각 저장 실패가 결과 화면 진입을 막지는 않는다.
+        console.warn("[CHAT_SESSION_END_FAILED]", error);
+      }
+    })().finally(() => {
+      endingSessionRef.current = null;
+    });
+
+    endingSessionRef.current = request;
+    return request;
   }
 
   async function sendMessage(text: string, acousticMeta?: Partial<ChatbotApiParams["acoustic_meta"]>) {
@@ -574,6 +608,7 @@ export function useMoaChat() {
     sendMessage,
     sendVoiceMessage,
     speakText,
+    endConversationSession,
   };
 }
 
