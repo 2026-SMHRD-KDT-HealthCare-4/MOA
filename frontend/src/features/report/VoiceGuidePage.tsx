@@ -7,43 +7,74 @@ import { colors } from "../../styles/tokens";
 
 const G = colors.guardian;
 
-// 음성 건강 가이드 — 리포트와 완전히 분리된 정적 정보 페이지.
-// 일반적인 건강 정보만 제공하며 개인 진단/병명과 무관하다.
+// 음성 건강 가이드 — 리포트와 분리된 정적 웰니스 정보 페이지.
+// 화면에는 특정 질환명이나 의료 판단을 노출하지 않고 음성 변화 연구의 맥락만 안내한다.
 interface GuideSection {
   id: string;
   icon: string;
   title: string;
   body: string;
+  metrics?: string[];
+  mappings?: Array<{ change: string; research: string }>;
 }
 
 const SECTIONS: GuideSection[] = [
   {
-    id: "rate",
-    icon: "🗣️",
-    title: "발화 속도란?",
+    id: "rhythm",
+    icon: "💬",
+    title: "말의 속도와 리듬",
     body:
-      "발화 속도는 말을 할 때 단어와 문장이 이어지는 빠르기를 뜻해요. 사람마다 평소 속도가 다르기 때문에, 절대적인 빠르기보다 '평소 대비 변화'를 살펴보는 것이 의미가 있어요. 발화 속도의 변화는 인지 부하와 연관이 있다고 알려져 있어요.",
+      "평소보다 말이 느려지거나 말 사이의 멈춤이 길어지는 변화는 인지 기능이나 신경계 변화와 관련하여 연구되는 음성 특징 중 하나입니다. MOA는 이러한 변화를 장기간 비교하여 작은 변화를 살펴봅니다.",
+    metrics: ["말하는 속도", "말 사이 쉬는 시간(Pause)", "말의 리듬"],
   },
   {
     id: "stability",
-    icon: "🎵",
-    title: "성대 진동 안정성 (Jitter / Shimmer)",
+    icon: "🎙️",
+    title: "목소리의 안정성",
     body:
-      "목소리는 성대가 규칙적으로 진동하면서 만들어져요. Jitter는 진동 주기의 미세한 흔들림, Shimmer는 소리 크기의 미세한 흔들림을 나타내는 일반적인 음성 지표예요. 이 값들은 컨디션이나 발성 습관에 따라 자연스럽게 달라질 수 있어요.",
+      "목소리가 떨리거나 일정하지 않은 변화는 성대 움직임과 신경계 조절 변화에서 함께 연구되는 음성 특징입니다. MOA는 이러한 미세한 변화를 매일 비교합니다.",
+    metrics: ["Jitter", "Shimmer", "HNR"],
   },
   {
     id: "breath",
-    icon: "😮‍💨",
-    title: "호흡 패턴",
+    icon: "💨",
+    title: "호흡과 발성 지속력",
     body:
-      "말을 할 때는 숨을 들이쉬고 내쉬는 리듬이 함께 작동해요. 한 번에 이어 말하는 길이나 문장 사이 호흡의 규칙성은 사람마다 다르며, 평소와 비교했을 때의 흐름을 관찰하는 데 참고가 돼요.",
+      "숨이 쉽게 끊기거나 목소리를 오래 유지하기 어려운 변화는 호흡과 발성 기능 변화를 살펴보는 데 활용되는 특징입니다.",
+    metrics: ["MPT", "RMS", "HNR"],
   },
   {
     id: "language",
     icon: "🧠",
-    title: "언어 패턴 (휴지기 / 필러)",
+    title: "단어 선택과 말의 흐름",
     body:
-      "휴지기는 말과 말 사이의 멈춤, 필러는 '음…', '그…' 같은 메우는 말을 뜻해요. 적절한 휴지기와 필러는 누구에게나 자연스럽게 나타나요. 단어를 찾는 시간이 평소보다 길어지는 흐름을 살펴보는 데 참고가 돼요.",
+      "말을 하다가 자주 멈추거나 같은 표현을 반복하거나 단어를 찾는 시간이 길어지는 변화는 인지 기능 변화 연구에서 함께 살펴보는 특징입니다.",
+    metrics: ["Silent Pause", "Filled Pause", "Speaking Rate"],
+  },
+  {
+    id: "connections",
+    icon: "🧭",
+    title: "목소리 변화는 어떤 건강 변화와 관련이 있나요?",
+    body:
+      "MOA는 특정 질환을 판단하지 않고, 연구에서 알려진 음성 특징을 참고하여 목소리 변화의 경향을 살펴봅니다.",
+    mappings: [
+      {
+        change: "목소리가 떨리거나 불안정함",
+        research: "신경계 조절 변화 연구에서 참고",
+      },
+      {
+        change: "말이 느려지고 리듬이 달라짐",
+        research: "운동 기능 및 인지 변화 연구에서 참고",
+      },
+      {
+        change: "말 사이 멈춤이 길어짐",
+        research: "인지 부하 및 단어 탐색 변화 연구에서 참고",
+      },
+      {
+        change: "발성이 짧아지고 숨이 자주 끊김",
+        research: "호흡·발성 기능 변화 연구에서 참고",
+      },
+    ],
   },
 ];
 
@@ -80,7 +111,7 @@ export default function VoiceGuidePage() {
         <View style={styles.banner}>
           <Info size={18} color={G.amber} />
           <Text style={styles.bannerText}>
-            본 내용은 일반적인 건강 정보이며 개인 진단에 활용할 수 없습니다
+            MOA는 진단이 아닌 목소리 변화의 경향을 살펴보는 참고용 웰니스 서비스입니다.
           </Text>
         </View>
 
@@ -107,6 +138,30 @@ export default function VoiceGuidePage() {
                 {open ? (
                   <View style={styles.accordionBody}>
                     <Text style={styles.accordionBodyText}>{s.body}</Text>
+                    {s.metrics?.length ? (
+                      <View style={styles.metricsBox}>
+                        <Text style={styles.detailLabel}>참고 지표</Text>
+                        <View style={styles.metricList}>
+                          {s.metrics.map((metric) => (
+                            <View key={metric} style={styles.metricRow}>
+                              <View style={styles.metricDot} />
+                              <Text style={styles.metricText}>{metric}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    ) : null}
+                    {s.mappings?.length ? (
+                      <View style={styles.mappingList}>
+                        {s.mappings.map((mapping) => (
+                          <View key={mapping.change} style={styles.mappingRow}>
+                            <Text style={styles.mappingChange}>{mapping.change}</Text>
+                            <Text style={styles.mappingArrow}>→</Text>
+                            <Text style={styles.mappingResearch}>{mapping.research}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
               </View>
@@ -115,7 +170,10 @@ export default function VoiceGuidePage() {
         </View>
 
         {/* 출처 */}
-        <Text style={styles.source}>참고: 관련 임상 연구 기반 일반 정보</Text>
+        <Text style={styles.source}>
+          참고: 음성 바이오마커 관련 연구 기반 일반 정보이며, 진단이나 치료 판단에는 사용할 수
+          없습니다.
+        </Text>
       </ScrollView>
     </View>
   );
@@ -155,8 +213,8 @@ const styles = StyleSheet.create({
   bannerText: {
     flex: 1,
     fontFamily: "Pretendard-Medium",
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     color: G.textPrimary,
   },
 
@@ -178,7 +236,8 @@ const styles = StyleSheet.create({
   accordionTitle: {
     flex: 1,
     fontFamily: "Pretendard-Bold",
-    fontSize: 16,
+    fontSize: 17,
+    lineHeight: 24,
     color: G.textPrimary,
   },
   accordionBody: {
@@ -188,14 +247,79 @@ const styles = StyleSheet.create({
   },
   accordionBodyText: {
     fontFamily: "Pretendard-Medium",
-    fontSize: 14,
+    fontSize: 16,
+    lineHeight: 25,
+    color: G.textSecondary,
+  },
+
+  metricsBox: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: G.cardPeach,
+  },
+  detailLabel: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 15,
+    lineHeight: 21,
+    color: G.textPrimary,
+    marginBottom: 8,
+  },
+  metricList: { gap: 7 },
+  metricRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  metricDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: G.amber,
+  },
+  metricText: {
+    flex: 1,
+    fontFamily: "Pretendard-Medium",
+    fontSize: 15,
+    lineHeight: 22,
+    color: G.textPrimary,
+  },
+
+  mappingList: {
+    marginTop: 14,
+    gap: 10,
+  },
+  mappingRow: {
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: G.cardPeach,
+    borderLeftWidth: 4,
+    borderLeftColor: G.amber,
+  },
+  mappingChange: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 15,
+    lineHeight: 22,
+    color: G.textPrimary,
+  },
+  mappingArrow: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 16,
+    lineHeight: 21,
+    color: G.amber,
+    marginVertical: 2,
+  },
+  mappingResearch: {
+    fontFamily: "Pretendard-Medium",
+    fontSize: 15,
     lineHeight: 22,
     color: G.textSecondary,
   },
 
   source: {
     fontFamily: "Pretendard-Light",
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 20,
     color: G.textSecondary,
     textAlign: "center",
     paddingTop: 4,
