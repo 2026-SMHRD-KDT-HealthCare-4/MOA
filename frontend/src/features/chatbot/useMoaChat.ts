@@ -493,13 +493,13 @@ export function useMoaChat() {
         await playTTS(chunk, soundRef, webAudioRef);
       }
       setIsBotSpeaking(false);
-    } catch (err) {
+    } catch (err: any) {
       console.warn("sendVoiceMessage failed:", err);
       setBotEmotion("worried");
       const fallbackMsg: ChatMessage = {
         id: `b_${Date.now()}`,
         role: "bot",
-        text: "미안해요. 지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
+        text: `미안해요. 지금은 답을 바로 이어가기 어려워요. [오류: ${err?.message || String(err)}]`,
         emotion: "worried",
       };
       setMessages((prev) => [...prev, fallbackMsg]);
