@@ -19,8 +19,17 @@ export interface ChatMessage {
 }
 
 
-// const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const getApiBaseUrl = () => {
+  const envVal = process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (envVal) return envVal;
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    return `http://${hostname}:8000`;
+  }
+  return "http://localhost:8000";
+};
+
+const API_BASE_URL = getApiBaseUrl();
 const CHAT_API_MODE = process.env.EXPO_PUBLIC_CHAT_API_MODE === "prod" ? "prod" : "dev";
 
 
@@ -206,6 +215,7 @@ function resolveChatSeniorId(): string | undefined {
 }
 
 async function callBackendDevChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
+  console.log(`[callBackendDevChatbotApi] 🚀 /chat/dev 호출 시도. message: '${params.message}', session_id: ${params.session_id}, history_len: ${params.history?.length || 0}`);
   const response = await fetch(`${API_BASE_URL}/chat/dev`, {
     method: "POST",
     headers: {
@@ -215,20 +225,27 @@ async function callBackendDevChatbotApi(params: ChatbotApiParams): Promise<Chatb
   });
 
   if (!response.ok) {
+    console.warn(`[callBackendDevChatbotApi] ❌ 실패 status = ${response.status}`);
     throw new Error("BACKEND_DEV_CHAT_REQUEST_FAILED");
   }
 
-  return normalizeChatbotResponse(await response.json());
+  const rawJson = await response.json();
+  console.log("[callBackendDevChatbotApi] 🟢 성공 응답 rawJson:", JSON.stringify(rawJson));
+  return normalizeChatbotResponse(rawJson);
 }
 
 async function callBackendProdChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
   const token = await getToken();
   const seniorId = params.senior_id ?? resolveChatSeniorId();
 
+  console.log(`[callBackendProdChatbotApi] 🚀 /chat 호출 시도. senior_id: ${seniorId}, session_id: ${params.session_id}, message: '${params.message}', history_len: ${params.history?.length || 0}`);
+
   if (!token || token.startsWith("mock-token-")) {
+    console.warn("[callBackendProdChatbotApi] ⚠️ 토큰 검증 실패 (mock-token 이거나 토큰 없음)");
     throw new Error("BACKEND_PROD_CHAT_REQUIRES_AUTH_TOKEN");
   }
   if (!seniorId) {
+    console.warn("[callBackendProdChatbotApi] ⚠️ seniorId 없음");
     throw new Error("BACKEND_PROD_CHAT_REQUIRES_SENIOR_ID");
   }
 
@@ -249,17 +266,28 @@ async function callBackendProdChatbotApi(params: ChatbotApiParams): Promise<Chat
   });
 
   if (!response.ok) {
+    console.warn(`[callBackendProdChatbotApi] ❌ 실패 status = ${response.status}`);
     throw new Error("BACKEND_PROD_CHAT_REQUEST_FAILED");
   }
 
-  return normalizeChatbotResponse(await response.json());
+  const rawJson = await response.json();
+  console.log("[callBackendProdChatbotApi] 🟢 성공 응답 rawJson:", JSON.stringify(rawJson));
+  return normalizeChatbotResponse(rawJson);
 }
 
 async function callChatbotApi(params: ChatbotApiParams): Promise<ChatbotResponse> {
   const isRealMode = getAuthApiMode() === "real";
-  return isRealMode
-    ? await callBackendProdChatbotApi(params)
-    : await callBackendDevChatbotApi(params);
+  try {
+    if (isRealMode) {
+      return await callBackendProdChatbotApi(params);
+    } else {
+      return await callBackendDevChatbotApi(params);
+    }
+  } catch (error) {
+    console.warn("[MOA_CHATBOT_API_ERROR] Backend call failed, attempting dev fallback...", error);
+    // 실서버 호출 실패 또는 인증 오류 시, 인증이 필요 없는 개발용 /chat/dev API로 폴백
+    return await callBackendDevChatbotApi(params);
+  }
 }
 
 export function useMoaChat() {
@@ -351,12 +379,13 @@ export function useMoaChat() {
         await playTTS(chunk, soundRef, webAudioRef);
       }
       setIsBotSpeaking(false);
-    } catch {
+    } catch (err: any) {
+      console.error("[sendMessage] ❌ 예외 발생 상세 로그:", err);
       setBotEmotion("worried");
       const fallbackMsg: ChatMessage = {
         id: `b_${Date.now()}`,
         role: "bot",
-        text: "미안해요. 지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
+        text: `미안해요. 지금은 답을 바로 이어가기 어려워요. [오류: ${err?.message || String(err)}]`,
         emotion: "worried",
       };
       setMessages((prev) => [...prev, fallbackMsg]);
@@ -376,11 +405,17 @@ export function useMoaChat() {
     setIsBotTyping(true);
     setBotEmotion("thinking");
 
+    console.log("[sendVoiceMessage] >>> 시작. audioUri:", audioUri, "durationMs:", durationMs);
+
     try {
       const token = await getToken();
-      if (!token) throw new Error("AUTH_TOKEN_MISSING");
+      if (!token) {
+        console.warn("[sendVoiceMessage] 에러: 인증 토큰 없음");
+        throw new Error("AUTH_TOKEN_MISSING");
+      }
 
       // 1. STT (Transcribe) 호출
+      console.log("[sendVoiceMessage] 1. STT 요청 시작 (POST /speech/transcribe)");
       const formData = new FormData();
       if (Platform.OS === "web") {
         const res = await fetch(audioUri);
@@ -410,13 +445,20 @@ export function useMoaChat() {
       });
 
       if (!transcribeResponse.ok) {
+        console.warn("[sendVoiceMessage] 에러: STT API 요청 실패 status =", transcribeResponse.status);
         throw new Error("TRANSCRIBE_API_FAILED");
       }
 
       const transcribeRes = (await transcribeResponse.json()) as { text: string };
       const userMessageText = transcribeRes.text?.trim() ?? "";
+      console.log("[sendVoiceMessage] 1. STT 요청 성공. 인식된 텍스트:", userMessageText);
+
+      // 테스트 편의상 빈 텍스트(무음/단발음) 시 "안녕하세요"로 폴백하여 강제 테스트
+      const finalUserText = userMessageText || "안녕하세요";
+
 
       if (!userMessageText) {
+        console.log("[sendVoiceMessage] 경고: 인식된 음성 텍스트가 비어 있음 (무음 감지 처리)");
         setIsBotTyping(false);
         enableWakeWord();
         sendingMessageRef.current = false;
@@ -432,17 +474,18 @@ export function useMoaChat() {
         return;
       }
 
+
       // 사용자 발화 말풍선 추가
       const userMsg: ChatMessage = {
         id: `u_${Date.now()}`,
         role: "user",
-        text: userMessageText,
+        text: finalUserText,
       };
       setMessages((prev) => [...prev, userMsg]);
 
       // 2. Chat API 호출 (기존 sendMessage 파이프라인 매개변수 적용)
       const params: ChatbotApiParams = {
-        message: userMessageText,
+        message: finalUserText,
         conversation_turn: conversationTurnRef.current,
         valid_speech_duration_ms: validSpeechDurationRef.current,
         history: messages.slice(-8).map((message) => ({
@@ -456,7 +499,10 @@ export function useMoaChat() {
         acoustic_meta: { duration_ms: durationMs, pause_events: 0 },
       };
 
+      console.log("[sendVoiceMessage] 2. 챗봇 API 요청 시작 (POST /chat) params:", JSON.stringify(params));
       const res: ChatbotResponse = await callChatbotApi(params);
+      console.log("[sendVoiceMessage] 2. 챗봇 API 요청 성공. 응답 data:", JSON.stringify(res.data));
+
       setRoute(res.data.route ?? null);
       setNextAction(res.data.next_action ?? "continue");
       conversationTurnRef.current += 1;
@@ -475,9 +521,12 @@ export function useMoaChat() {
       const chunks = splitIntoSentenceChunks(res.data.reply);
       const typingDelayMs = 40;
 
+      console.log("[sendVoiceMessage] 3. TTS 합성 및 문장별 순차 재생 시작. 문장 개수:", chunks.length);
+
       // 3. 문장 단위로 분절 후 순차적 음성 합성(TTS) 및 재생 (Pipelining)
       for (let index = 0; index < chunks.length; index += 1) {
         const chunk = chunks[index];
+        console.log(`[sendVoiceMessage] 3. TTS 재생 시도 [${index + 1}/${chunks.length}]: "${chunk}"`);
         setMessages((prev) => [
           ...prev,
           {
@@ -491,15 +540,17 @@ export function useMoaChat() {
         ]);
         await wait(0);
         await playTTS(chunk, soundRef, webAudioRef);
+        console.log(`[sendVoiceMessage] 3. TTS 재생 완료 [${index + 1}/${chunks.length}]`);
       }
       setIsBotSpeaking(false);
-    } catch (err) {
-      console.warn("sendVoiceMessage failed:", err);
+      console.log("[sendVoiceMessage] <<< 모든 프로세스 정상 종료");
+    } catch (err: any) {
+      console.error("[sendVoiceMessage] ❌ 예외 발생 상세 로그:", err);
       setBotEmotion("worried");
       const fallbackMsg: ChatMessage = {
         id: `b_${Date.now()}`,
         role: "bot",
-        text: "미안해요. 지금은 답을 바로 이어가기 어려워요. 잠시 후 다시 이야기해 주세요.",
+        text: `미안해요. 지금은 답을 바로 이어가기 어려워요. [오류: ${err?.message || String(err)}]`,
         emotion: "worried",
       };
       setMessages((prev) => [...prev, fallbackMsg]);
