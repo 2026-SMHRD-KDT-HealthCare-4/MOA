@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { restoreSession, logout as apiLogout } from "../api/auth";
+import * as Notifications from "expo-notifications";
+import { restoreSession, logout as apiLogout, registerFCMToken } from "../api/auth";
 import { saveOnboardingDone } from "../api/session";
 
 export type UserRole = "elder" | "guardian";
@@ -269,7 +270,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   ...initialState,
   hydrated: false,
 
-  setSession: (user, opts) => set(sessionState(user, opts)),
+  setSession: (user, opts) => {
+    set(sessionState(user, opts));
+    void (async () => {
+      try {
+        const { status } = await Notifications.getPermissionsAsync();
+        if (status === "granted") {
+          const tokenData = await Notifications.getDevicePushTokenAsync();
+          const token = tokenData.data;
+          if (token) {
+            await registerFCMToken(token);
+            set((state) => (state.user ? { user: { ...state.user, fcmToken: token } } : {}));
+          }
+        }
+      } catch (err) {
+        console.warn("FCM auto-registration failed during setSession:", err);
+      }
+    })();
+  },
 
   updateFCMToken: (token) =>
     set((state) => (state.user ? { user: { ...state.user, fcmToken: token } } : {})),
@@ -335,6 +353,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           }),
           hydrated: true,
         });
+
+        void (async () => {
+          try {
+            const { status } = await Notifications.getPermissionsAsync();
+            if (status === "granted") {
+              const tokenData = await Notifications.getDevicePushTokenAsync();
+              const token = tokenData.data;
+              if (token) {
+                await registerFCMToken(token);
+                set((state) => (state.user ? { user: { ...state.user, fcmToken: token } } : {}));
+              }
+            }
+          } catch (err) {
+            console.warn("FCM auto-registration failed during hydration:", err);
+          }
+        })();
       } else {
         set({ hydrated: true });
       }

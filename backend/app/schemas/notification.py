@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 class MedicationCreateRequest(BaseModel):
     senior_id: UUID
-    guardian_id: UUID  # 등록 주체(보호자)
+    guardian_id: Optional[UUID] = None  # 등록 주체(보호자) — 백엔드가 세션 기반 자동 매핑하므로 생략 가능
     medicine_name: str
     intake_time: Optional[time] = None
     intake_times: Optional[list[time]] = None

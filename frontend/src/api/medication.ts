@@ -64,7 +64,6 @@ export async function createMedication(
     },
     body: JSON.stringify({
       senior_id: seniorId,
-      guardian_id: seniorId, // 백엔드 검증용 임의의 UUID
       medicine_name: medicineName,
       intake_times: intakeTimes.map(formatTimeForAPI),
       start_date: startDate,

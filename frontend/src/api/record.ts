@@ -29,7 +29,10 @@ export async function saveScriptRecord(scriptId: string, seniorId: string): Prom
   const res = await apiFetch<ScriptRecordResponseDto>("/record/script-record", {
     method: "POST",
     auth: true,
-    body: JSON.stringify({ senior_id: seniorId, script_id: scriptId }),
+    body: JSON.stringify({ 
+      script_id: scriptId,
+      senior_id: seniorId
+    }),
   });
   return { recordId: res.record_id, measuredAt: res.measured_at };
 }

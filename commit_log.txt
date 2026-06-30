@@ -1,0 +1,30 @@
+3d05b54 Merge branch 'backend-yoonhyun' (keeping ours for chat.py)
+39bea2a .
+a007ef4 정합성 검사
+3ab9829 refactor: Enforce concrete daily-life questions for senior users in system prompt and greetings
+dce72fa fix: Improve TTS pronunciation of tilde and slow down voice check countdown
+9ebd463 tune: Optimize VAD thresholds for natural senior conversation flow
+d8d53ed fix: Translate voice countdown to Korean and protect chat API from DB constraint and KeyError exceptions
+b38d35c fix: Resolve microphone device lock conflict and enhance audio compatibility
+d059857 refactor: Migrate backend duties from frontend, auto FCM sync, and enforce medical data masking
+537aa28 Merge branch 'backend-jaeryang' of https://github.com/2026-SMHRD-KDT-HealthCare-4/MOA into backend-yoonhyun
+3f3e4e8 .
+70b6708 feat(chat): 챗봇 장기 기억 기능 추가 (chat_session 텍스트 기반)
+c893191 Merge backend-yoonhyun into backend-jaeryang
+b97edf8 Update requirements.txt
+7ca3b67 목업 데이터 및 데으코드 삭제
+8b24c34 코드 조사 및 리팩토링
+1836565 Merge branch 'frontend_bogyeong' - Resolve API_BASE_URL conflict
+a631973 Merge branch 'frontend_Gahyoung' into frontend_bogyeong
+f98bb66 운영용 chatd으로 전환
+7871ede Merge branch 'frontend_Gahyoung' of https://github.com/2026-SMHRD-KDT-HealthCare-4/MOA into backend-yoonhyun
+624277b .
+deb7c6e feat(report/family): 보호자 리포트·가족 허브 실데이터 연동 + 빈 상태 처리
+8bc6f88 Merge branch 'backend-jaeryang' of https://github.com/2026-SMHRD-KDT-HealthCare-4/MOA into backend-yoonhyun
+dd5ce94 복약 체크 기능 제거: medication_check 테이블/라우트/모델/스키마 정리 및 드롭 마이그레이션 추가
+e184805 Merge branch 'backend-jaeryang' of https://github.com/2026-SMHRD-KDT-HealthCare-4/MOA into backend-yoonhyun
+cc3c56d Merge frontend_bogyeong into backend-jaeryang
+82fa1bc Merge branch 'frontend_bogyeong' of https://github.com/2026-SMHRD-KDT-HealthCare-4/MOA into backend-yoonhyun
+9ecf878 fix: restore sentence-by-sentence chatbot bubbles
+8dc75fe Merge branch 'frontend_Gahyoung' of https://github.com/2026-SMHRD-KDT-HealthCare-4/MOA into backend-yoonhyun
+d6f3e79 Merge branch 'origin/frontend_bogyeong' into backend-yoonhyun (Resolve conflicts)

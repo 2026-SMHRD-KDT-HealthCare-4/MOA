@@ -36,7 +36,6 @@ class VoiceChatMessageResponseData(BaseModel):
     session_id: UUID
     reply: str
     emotion: str
-    user_intent: str
     user_message: str
     audio_base64: str
     user_intent: Optional[str] = None

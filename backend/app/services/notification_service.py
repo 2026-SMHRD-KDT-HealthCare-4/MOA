@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Guardian, GuardianSenior, LinkStatus, Notification, UrgentAlert, Senior
 from app.services.fcm_service import send_fcm_push
+from app.services.sms_service import send_sms_fallback
 
 URGENT_ALERT_COOLDOWN_MINUTES = 15
 
@@ -27,14 +28,7 @@ def create_risk_notifications_for_active_guardians(
     prediction_id: UUID,
     commit: bool = True,
 ) -> list[Notification]:
-    """ACTIVE 연동 보호자 전원에게 RISK 알림을 생성하고 FCM 푸시를 보낸다.
-
-    Args:
-        commit: True면 이 함수 안에서 commit한다. 호출자가 더 큰 트랜잭션의 일부로
-                다루고 싶으면 False로 주고 바깥에서 commit한다.
-    Returns:
-        생성된 Notification 리스트 (ACTIVE 보호자가 없으면 빈 리스트).
-    """
+    """ACTIVE 연동 보호자 전원에게 RISK 알림을 생성하고 FCM 푸시를 보낸다. 푸시 실패 시 SMS/알림톡 릴레이를 시도한다."""
     active_links = (
         db.query(GuardianSenior)
         .filter(
@@ -53,7 +47,6 @@ def create_risk_notifications_for_active_guardians(
         if not guardian:
             continue
         
-        # 보호자의 알림 수신 설정 체크 (전체 알림 push_enabled)
         if not guardian.push_enabled:
             continue
             
@@ -71,9 +64,11 @@ def create_risk_notifications_for_active_guardians(
                     "prediction_id": str(prediction_id)
                 }
             )
-        else:
-            # fcm_token이 없으면 Mock Mode로 간주하여 성공(True) 처리
-            success = True
+            
+        # [Safety Net] FCM 실패 또는 토큰 없는 경우 즉시 SMS/알림톡 채널로 우회 발송 (Multi-Channel Failover)
+        if not success:
+            sms_body = f"[MOA 알림] {title}\n{body}\n상세 리포트 확인: https://moa.app/report"
+            success = send_sms_fallback(guardian.phone, sms_body)
 
         notification = Notification(
             guardian_id=link.guardian_id,
@@ -102,20 +97,7 @@ def create_urgent_alert_with_notifications(
     rule_id: str | None,
     commit: bool = True,
 ) -> UrgentAlert | None:
-    """챗봇 긴급 감지 시 UrgentAlert 레코드와 보호자 Notification 후보를 생성한다.
-
-    쿨다운 정책: 동일 senior_id + 동일 level 알림이 최근 15분 내에 있으면 생성하지 않고 None 반환.
-    보호자 알림: ACTIVE 연동 + fcm_token이 등록된 보호자에게만 Notification 생성.
-    실제 FCM/SMS 발송: TODO — 여기서는 DB 레코드 생성까지만 담당.
-
-    Args:
-        level: "SUICIDE_RISK" | "MEDICAL_EMERGENCY"  (GENERAL_DISCOMFORT는 이 함수 호출 안 함)
-        commit: True면 이 함수 안에서 commit. 외부 트랜잭션에 포함하려면 False.
-
-    Returns:
-        생성된 UrgentAlert 또는 쿨다운으로 스킵된 경우 None.
-    """
-    # ── 쿨다운 검사 ──────────────────────────────────────────────────────────
+    """챗봇 긴급 감지 시 UrgentAlert 레코드와 보호자 Notification 후보를 생성하고 FCM/SMS로 즉각 전파한다."""
     cooldown_cutoff = datetime.utcnow() - timedelta(minutes=URGENT_ALERT_COOLDOWN_MINUTES)
     recent = (
         db.query(UrgentAlert)
@@ -128,9 +110,8 @@ def create_urgent_alert_with_notifications(
         .first()
     )
     if recent is not None:
-        return None  # 쿨다운 중 — 중복 생성 방지
+        return None
 
-    # ── UrgentAlert 레코드 생성 ──────────────────────────────────────────────
     alert = UrgentAlert(
         senior_id=senior_id,
         session_id=session_id,
@@ -139,10 +120,8 @@ def create_urgent_alert_with_notifications(
         alert_status="pending",
     )
     db.add(alert)
-    db.flush()  # alert_id 확정
+    db.flush()
 
-    # ── 보호자 알림 후보 생성 ─────────────────────────────────────────────────
-    # 조건: ACTIVE 연동 + fcm_token 등록(알림 수신 가능 상태)
     active_links = (
         db.query(GuardianSenior)
         .filter(
@@ -155,26 +134,42 @@ def create_urgent_alert_with_notifications(
     guardian_ids = [link.guardian_id for link in active_links]
     notifiable_guardians = (
         db.query(Guardian)
-        .filter(
-            Guardian.guardian_id.in_(guardian_ids),
-            Guardian.fcm_token.isnot(None),
-        )
+        .filter(Guardian.guardian_id.in_(guardian_ids))
         .all()
     )
+
+    senior = db.query(Senior).filter(Senior.senior_id == senior_id).first()
+    senior_name = senior.name if senior else "가족"
 
     for guardian in notifiable_guardians:
         if not guardian.push_enabled:
             continue
 
+        title = f"[긴급 상황 알림] 가족 긴급 지원 감지"
+        body = f"{senior_name}님의 대화 중 긴급 의료상황 혹은 감정 이상 징후가 감지되었습니다. 즉시 확인이 필요합니다."
+
+        success = False
+        if guardian.fcm_token:
+            success = send_fcm_push(
+                token=guardian.fcm_token,
+                title=title,
+                body=body,
+                data={"notification_type": "URGENT_RISK"}
+            )
+            
+        # [Safety Net] 긴급 푸시 알림 실패 시 또는 비활성 기기일 시 카카오/SMS 채널 즉시 릴레이 (다중 채널 보장)
+        if not success:
+            sms_body = f"[MOA 긴급] {title}\n{body}\n보호자용 핫라인 연결 또는 확인을 부탁드립니다."
+            success = send_sms_fallback(guardian.phone, sms_body)
+
         notification = Notification(
             guardian_id=guardian.guardian_id,
             senior_id=senior_id,
             notification_type="RISK",
-            status="SENT",          # TODO: 실제 FCM 발송 후 SENT/FAILED 갱신
+            status="SENT" if success else "FAILED",
             sent_at=datetime.utcnow(),
         )
         db.add(notification)
-        # TODO: FCM push / SMS fallback 발송 호출 위치 (notification 생성 직후)
 
     if commit:
         db.commit()
