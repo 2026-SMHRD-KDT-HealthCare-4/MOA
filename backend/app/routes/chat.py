@@ -161,22 +161,20 @@ def send_message(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 세션 저장 실패: {str(e)}")
 
-    print("[chat.py/send_message] <<< 정상 반환 완료.")
-    
-    # 프론트엔드가 요구하는 온전한 상태 매핑 래퍼 반환
-    return {
-        "status": "success",
-        "data": {
-            "reply": reply,
-            "user_intent": result.get("user_intent") or "unknown",
-            "bot_emotion": result.get("bot_emotion") or "default",
-            "next_action": result.get("next_action") or "continue",
-            "route": result.get("route"),
-            "conversation_topic": result.get("conversation_topic"),
-            "question_index": result.get("question_index") or 0,
-            "session_id": session.session_id,
-        }
-    }
+    return ChatMessageResponseData(
+        session_id=session.session_id,
+        reply=reply,
+        emotion=result.get("bot_emotion"),
+        score=result.get("score"),
+        status=result.get("status"),
+        # 대화 제어 필드 복원 (chat_for_frontend 결과를 그대로 전달)
+        user_intent=result.get("user_intent"),
+        bot_emotion=result.get("bot_emotion"),
+        next_action=result.get("next_action"),
+        route=result.get("route"),
+        conversation_topic=result.get("conversation_topic"),
+        question_index=result.get("question_index"),
+    )
 
 
 @router.post("/end", response_model=ChatSessionResponse)
