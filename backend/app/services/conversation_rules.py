@@ -58,7 +58,7 @@ def detect_rule(text: str) -> dict[str, Any] | None:
         return response("좋아요. 목소리 검사 화면으로 이동할게요.", "navigate_record", "happy", "navigate", "/record")
     if _contains(text, ("가족 연결하고 싶어", "가족 연결", "보호자 연결", "가족 연동")):
         return response("가족 연결은 설정 화면에서 확인할 수 있어요.", "family_connect", "happy", "navigate", "/settings")
-    if _contains(text, ("그만", "끝", "종료", "나갈래", "하기 싫어")):
+    if _contains(text, ("그만", "끝", "종료", "나갈래", "하기 싫어", "잘가", "잘 가", "바이바이", "빠이", "끊을게", "끊는다", "내일 봐", "내일 보자", "나중에 이야기", "다음에 만나")):
         return response("오늘 이야기 들려주셔서 고마워요. 필요하시면 언제든 다시 불러주세요.", "goodbye", "default", "finish")
     if _contains(text, ("아파", "아프다", "불편하다", "어지럽다", "힘들다")):
         return response("몸이 불편하셨군요. 무리하지 말고 편히 쉬어 주세요. 불편함이 계속되면 가족에게도 알려주세요.", "health_discomfort", "worried", "continue")
@@ -114,7 +114,5 @@ def validate_llm_response(raw: dict[str, Any], message: str, current_topic: str 
     detected = detect_topic(message)
     topic = detected or TOPIC_BY_INTENT.get(intent) or current_topic
     next_index = question_index + 1 if topic == current_topic else 1
-    question = suggested_question(topic, next_index)
-    if question and "?" not in reply:
-        reply = f"{reply} {question}"
+    # 7871ede 버전의 자연스러움을 유지하기 위해, GPT가 생성한 유연한 대답 뒤에 정적 질문 세트(QUESTION_SETS)를 기계적으로 이어붙이던 꼬리표 결합 코드를 스킵합니다.
     return response(reply, intent, emotion, action, route, topic, next_index)
