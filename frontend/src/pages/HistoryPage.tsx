@@ -14,6 +14,7 @@ import { WEATHER_IMAGE } from "../constants/weatherIcons";
 import { useAuthStore } from "../stores/authStore";
 import { getReportTrend } from "../api/report";
 import { listScriptRecords } from "../api/record";
+import { listChatSessions, type ChatSessionSummary } from "../api/chat";
 import { colors } from "../styles/tokens";
 
 // real 모드에서만 서버 조회. 실패/미로딩 시 빈 객체 → 빈 상태 UI(mock 폴백 없음).
@@ -82,6 +83,14 @@ function getKoreanDay(year: number, month: number, day: number) {
   return WEEKDAYS[new Date(year, month, day).getDay()];
 }
 
+// 백엔드는 measured_at 을 타임존 표기 없는 UTC(datetime.utcnow) 문자열로 내려준다
+// (예: "2026-06-30T01:50:37.300000"). JS의 new Date()는 Z/offset 없는 ISO를 '로컬시간'으로
+// 해석해 KST와 9시간 어긋나므로, 타임존 표기가 없으면 'Z'를 붙여 UTC로 해석하게 한다.
+function parseServerDate(s: string): Date {
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s);
+  return new Date(hasTz ? s : `${s}Z`);
+}
+
 function formatTime(d: Date): string {
   let h = d.getHours();
   const m = d.getMinutes();
@@ -96,6 +105,7 @@ function formatTime(d: Date): string {
 function buildRealHistory(
   trend: { date: string; status: NonNullable<DayStatus> }[],
   records: { recordId: string; measuredAt: string }[],
+  sessions: ChatSessionSummary[],
 ): Record<string, DailyHistory> {
   const statusByDate: Record<string, NonNullable<DayStatus>> = {};
   trend.forEach((p) => {
@@ -104,7 +114,7 @@ function buildRealHistory(
 
   const map: Record<string, DailyHistory> = {};
   records.forEach((r) => {
-    const d = new Date(r.measuredAt);
+    const d = parseServerDate(r.measuredAt);
     const key = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
     const status = statusByDate[key] ?? "sunny";
     const entry = map[key] ?? { status, records: [] };
@@ -116,6 +126,35 @@ function buildRealHistory(
       status,
       // 요약 문구는 백엔드 미지원 → 중립 placeholder(임의 관찰 생성 금지)
       summary: "기록이 저장되었어요.",
+    });
+    entry.status = status;
+    map[key] = entry;
+  });
+
+  // 모아 대화: 하루 1건으로 합쳐 'conversation' 기록을 추가한다.
+  // 그냥 열었다 닫은 빈 세션(메시지 2개 미만)은 제외하고, 그날 대화 횟수·마지막 시각을 모은다.
+  const convByDay: Record<string, { count: number; latest: Date }> = {};
+  sessions.forEach((s) => {
+    if (s.messageCount < 2) return;
+    const d = parseServerDate(s.startedAt);
+    const key = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+    const cur = convByDay[key];
+    if (!cur) convByDay[key] = { count: 1, latest: d };
+    else {
+      cur.count += 1;
+      if (d > cur.latest) cur.latest = d;
+    }
+  });
+  Object.entries(convByDay).forEach(([key, info]) => {
+    const status = statusByDate[key] ?? "sunny";
+    const entry = map[key] ?? { status, records: [] };
+    entry.records.push({
+      id: `conv-${key}`,
+      type: "conversation",
+      time: formatTime(info.latest),
+      duration: info.count > 1 ? `안부 대화 ${info.count}회` : "안부 대화",
+      status,
+      summary: "모아와 이야기를 나눴어요.",
     });
     entry.status = status;
     map[key] = entry;
@@ -140,17 +179,20 @@ export default function HistoryPage() {
 
   // real 모드: 본인(직접사용자) 기록을 서버에서 조회. 실패 시 null → mock 폴백.
   const seniorId = useAuthStore((s) => s.userId);
+  // 상단 타이틀에 붙일 직접사용자 본인 이름(예: "이미자님 기록 돌아보기"). 없으면 폴백.
+  const userName = useAuthStore((s) => s.name);
   const [realHistory, setRealHistory] = useState<Record<string, DailyHistory> | null>(null);
   useEffect(() => {
     if (!REAL_API || !seniorId) return;
     let alive = true;
     (async () => {
       try {
-        const [trend, records] = await Promise.all([
+        const [trend, records, sessions] = await Promise.all([
           getReportTrend(seniorId, 31),
           listScriptRecords(seniorId),
+          listChatSessions(seniorId).catch(() => []), // 대화 조회 실패는 무시(지정문구는 그대로 표시)
         ]);
-        if (alive) setRealHistory(buildRealHistory(trend, records));
+        if (alive) setRealHistory(buildRealHistory(trend, records, sessions));
       } catch {
         // 조회 실패 — mock 폴백 유지
       }
@@ -173,7 +215,9 @@ export default function HistoryPage() {
     key.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)
   );
 
-  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status === "sunny").length;
+  // 이번 달 기록(활동)이 있는 모든 날 수. 날씨(맑음/흐림/비) 상관없이 캘린더에 아이콘이
+  // 표시된 날과 동일하게 센다. 오늘이 '비'여도 기록이 있으면 포함된다.
+  const recordedDays = monthlyKeys.length;
   const isThisMonth = year === today.getFullYear() && month === today.getMonth();
 
   function prevMonth() {
@@ -219,8 +263,10 @@ export default function HistoryPage() {
       <LinearGradient colors={[BEIGE, "#FFF2DE", BEIGE]} style={StyleSheet.absoluteFill} />
 
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>기록 돌아보기</Text>
-        <Text style={styles.headerSub}>날씨로 건강 흐름을 살펴봐요</Text>
+        <Text style={styles.headerTitle}>
+          {userName ? `${userName}님 목소리기록` : "목소리기록"}
+        </Text>
+        <Text style={styles.headerSub}>목소리건강의 흐름을 살펴봐요</Text>
       </View>
 
       <ScrollView
@@ -263,14 +309,33 @@ export default function HistoryPage() {
 
                   const key = dateKey(year, month, day);
                   const status = history[key]?.status ?? null;
+                  const recorded = !!status;
                   const isSelected = day === selectedDay;
+                  // 오늘이면서 아직 녹음하지 않은 날: 코랄 테두리로 강조하고,
+                  // 탭하면 바로 녹음 화면으로 이동한다.
+                  const isTodayUnrecorded =
+                    isThisMonth && day === today.getDate() && !recorded;
 
                   return (
                     <TouchableOpacity
                       key={di}
-                      style={[styles.dayCell, isSelected && styles.selectedCell]}
-                      onPress={() => setSelectedDay(day)}
+                      style={[
+                        styles.dayCell,
+                        isSelected && styles.selectedCell,
+                        isTodayUnrecorded && styles.todayCell,
+                      ]}
+                      onPress={() =>
+                        isTodayUnrecorded
+                          ? router.push("/(elder)/record")
+                          : setSelectedDay(day)
+                      }
                       activeOpacity={0.78}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        isTodayUnrecorded
+                          ? "오늘, 목소리 기록하러 가기"
+                          : `${month + 1}월 ${day}일`
+                      }
                     >
                       <Text style={[styles.dayNum, isSelected && styles.selectedNum]}>{day}</Text>
 
@@ -377,10 +442,14 @@ export default function HistoryPage() {
 
         {isThisMonth && (
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryEmoji}>🎈</Text>
+            <Image
+              source={require("../../assets/images/moa_image_history.png")}
+              style={styles.summaryImage}
+              resizeMode="contain"
+            />
             <Text style={styles.summaryText}>
-              이번 달 <Text style={styles.summaryHighlight}>{sunnyCount}일</Text> 동안{"\n"}
-              맑은 목소리를 들려주셨어요!
+              이번 달 <Text style={styles.summaryHighlight}>{recordedDays}일</Text> 동안{"\n"}
+              목소리를 들려주셨어요!
             </Text>
           </View>
         )}
@@ -491,6 +560,12 @@ const styles = StyleSheet.create({
     backgroundColor: NAVY,
   },
 
+  // 오늘·아직 녹음 안 한 날: 브랜드 코랄 테두리로 강조(레드 아님). 탭 시 녹음 화면 이동.
+  todayCell: {
+    borderWidth: 2,
+    borderColor: colors.calendar.todayBorder,
+  },
+
   dayNum: {
     fontSize: 14,
     color: "#5F4C45",
@@ -511,7 +586,8 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#E4D7CF",
+    // 녹음 안 한 과거/예정 날짜: 중립 회갈색(부정 느낌 없음). tokens.calendar.emptyDot.
+    backgroundColor: colors.calendar.emptyDot,
   },
 
   selectedEmptyDot: {
@@ -565,8 +641,17 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  summaryEmoji: {
-    fontSize: 34,
+  summaryImage: {
+    width: 96,
+    height: 96,
+    // 음수 세로 마진으로 카드 높이에 기여하는 양을 줄여 카드를 컴팩트하게 유지한다.
+    marginVertical: -24,
+    // 모아를 좌측으로 더 붙이고(marginLeft), 우측 레이아웃 점유를 줄여(marginRight)
+    // 옆 문구가 2줄로 들어갈 폭을 확보한다.
+    marginLeft: -10,
+    marginRight: -20,
+    // 레이아웃엔 영향 없이 시각적으로만 살짝 위로 올린다.
+    transform: [{ translateY: -4 }],
   },
 
   summaryText: {

@@ -27,6 +27,7 @@ from app.schemas.chat import (
     ChatSessionEndRequest,
     ChatSessionResponse,
     ChatFrontendEnvelope,
+    ChatFrontendData,
 )
 from app.services.chatbot import chat_for_frontend
 from app.services.deidentify import deidentify
@@ -161,19 +162,20 @@ def send_message(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 세션 저장 실패: {str(e)}")
 
-    return ChatMessageResponseData(
-        session_id=session.session_id,
-        reply=reply,
-        emotion=result.get("bot_emotion"),
-        score=result.get("score"),
-        status=result.get("status"),
-        # 대화 제어 필드 복원 (chat_for_frontend 결과를 그대로 전달)
-        user_intent=result.get("user_intent"),
-        bot_emotion=result.get("bot_emotion"),
-        next_action=result.get("next_action"),
-        route=result.get("route"),
-        conversation_topic=result.get("conversation_topic"),
-        question_index=result.get("question_index"),
+    # response_model 이 ChatFrontendEnvelope 이므로 envelope({status, data}) 형태로 반환한다.
+    # ChatFrontendData 에 대화 제어 필드(next_action·question_index 등)가 모두 포함된다.
+    return ChatFrontendEnvelope(
+        status="success",
+        data=ChatFrontendData(
+            reply=reply,
+            user_intent=result.get("user_intent", "unknown"),
+            bot_emotion=result.get("bot_emotion", "default"),
+            next_action=result.get("next_action", "continue"),
+            route=result.get("route"),
+            conversation_topic=result.get("conversation_topic"),
+            question_index=result.get("question_index", 0),
+            session_id=session.session_id,
+        ),
     )
 
 
