@@ -232,9 +232,9 @@ export default function HistoryPage() {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {userName ? `${userName}님 기록 돌아보기` : "기록 돌아보기"}
+          {userName ? `${userName}님 목소리기록` : "목소리기록"}
         </Text>
-        <Text style={styles.headerSub}>날씨로 건강 흐름을 살펴봐요</Text>
+        <Text style={styles.headerSub}>목소리건강의 흐름을 살펴봐요</Text>
       </View>
 
       <ScrollView
@@ -584,17 +584,16 @@ const styles = StyleSheet.create({
   },
 
   summaryImage: {
-    width: 160,
-    height: 160,
-    // 이미지는 160으로 크게 유지하되, 음수 세로 마진으로 카드 높이에 기여하는 양을
-    // 줄여 카드를 컴팩트하게 유지한다(모아는 카드 위아래로 살짝 넘쳐 커 보임).
-    marginVertical: -40,
+    width: 96,
+    height: 96,
+    // 음수 세로 마진으로 카드 높이에 기여하는 양을 줄여 카드를 컴팩트하게 유지한다.
+    marginVertical: -24,
     // 모아를 좌측으로 더 붙이고(marginLeft), 우측 레이아웃 점유를 줄여(marginRight)
     // 옆 문구가 2줄로 들어갈 폭을 확보한다.
-    marginLeft: -16,
-    marginRight: -34,
-    // 레이아웃(카드 높이)엔 영향 없이 시각적으로만 위로 10%(160*0.1≈16px) 올린다.
-    transform: [{ translateY: -16 }],
+    marginLeft: -10,
+    marginRight: -20,
+    // 레이아웃엔 영향 없이 시각적으로만 살짝 위로 올린다.
+    transform: [{ translateY: -4 }],
   },
 
   summaryText: {
