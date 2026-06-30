@@ -29,6 +29,11 @@ interface HistoryRecord {
   time: string;
   duration: string;
   status: NonNullable<DayStatus>;
+  // 실제 분석 추이에서 확인된 상태. 캘린더 표시용 기본값과 구분해 결과 화면의 근거로만 쓴다.
+  analysisStatus?: NonNullable<DayStatus>;
+  conversationSessionCount?: number;
+  conversationTurnCount?: number;
+  conversationDurationMinutes?: number;
   summary: string;
 }
 
@@ -124,6 +129,7 @@ function buildRealHistory(
       time: formatTime(d),
       duration: "지정문구 낭독",
       status,
+      analysisStatus: statusByDate[key],
       // 요약 문구는 백엔드 미지원 → 중립 placeholder(임의 관찰 생성 금지)
       summary: "기록이 저장되었어요.",
     });
@@ -133,15 +139,39 @@ function buildRealHistory(
 
   // 모아 대화: 하루 1건으로 합쳐 'conversation' 기록을 추가한다.
   // 그냥 열었다 닫은 빈 세션(메시지 2개 미만)은 제외하고, 그날 대화 횟수·마지막 시각을 모은다.
-  const convByDay: Record<string, { count: number; latest: Date }> = {};
+  const convByDay: Record<
+    string,
+    {
+      count: number;
+      latest: Date;
+      userMessageCount: number;
+      totalDurationMs: number;
+    }
+  > = {};
   sessions.forEach((s) => {
     if (s.messageCount < 2) return;
     const d = parseServerDate(s.startedAt);
+    // 과거 세션은 종료 API가 호출되지 않아 ended_at이 비어 있을 수 있으므로 마지막 메시지 시각을 사용한다.
+    const effectiveEndAt = s.endedAt ?? s.lastMessageAt;
+    const endedAt = effectiveEndAt ? parseServerDate(effectiveEndAt) : null;
+    const durationMs =
+      endedAt && Number.isFinite(endedAt.getTime())
+        ? Math.max(0, endedAt.getTime() - d.getTime())
+        : 0;
     const key = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
     const cur = convByDay[key];
-    if (!cur) convByDay[key] = { count: 1, latest: d };
+    if (!cur) {
+      convByDay[key] = {
+        count: 1,
+        latest: d,
+        userMessageCount: s.userMessageCount,
+        totalDurationMs: durationMs,
+      };
+    }
     else {
       cur.count += 1;
+      cur.userMessageCount += s.userMessageCount;
+      cur.totalDurationMs += durationMs;
       if (d > cur.latest) cur.latest = d;
     }
   });
@@ -154,6 +184,11 @@ function buildRealHistory(
       time: formatTime(info.latest),
       duration: info.count > 1 ? `안부 대화 ${info.count}회` : "안부 대화",
       status,
+      analysisStatus: statusByDate[key],
+      conversationSessionCount: info.count,
+      conversationTurnCount: info.userMessageCount,
+      conversationDurationMinutes:
+        info.totalDurationMs > 0 ? Math.max(1, Math.round(info.totalDurationMs / 60_000)) : undefined,
       summary: "모아와 이야기를 나눴어요.",
     });
     entry.status = status;
@@ -245,15 +280,46 @@ export default function HistoryPage() {
   }
 
   function openRecordResult(record: HistoryRecord) {
+    const previousAnalyzedRecord =
+      record.type === "record" && record.analysisStatus
+        ? Object.keys(history)
+            .filter((key) => key < selectedKey)
+            .sort((a, b) => b.localeCompare(a))
+            .flatMap((key) => history[key]?.records ?? [])
+            .find(
+              (candidate) =>
+                candidate.type === "record" && candidate.analysisStatus !== undefined,
+            )
+        : undefined;
+    const historicalComparison =
+      record.analysisStatus && previousAnalyzedRecord?.analysisStatus
+        ? previousAnalyzedRecord.analysisStatus === record.analysisStatus
+          ? "similar"
+          : "changed"
+        : undefined;
+
     router.push({
       pathname: "/done",
       params: {
         date: selectedKey,
-        status: record.status,
+        dateLabel: `${month + 1}월 ${selectedDay}일 (${getKoreanDay(year, month, selectedDay)})`,
+        time: record.time,
+        description: record.duration,
+        summary: record.summary,
         origin: "history",
         type: "history",
         recordId: record.id,
         recordType: record.type,
+        ...(record.type === "conversation"
+          ? {
+              conversationSessionCount: record.conversationSessionCount,
+              conversationTurnCount: record.conversationTurnCount,
+              conversationDurationMinutes: record.conversationDurationMinutes,
+            }
+          : {}),
+        // 실제 분석 추이가 확인된 기록에만 그날의 목소리 날씨를 전달한다.
+        ...(record.analysisStatus ? { weather: record.analysisStatus } : {}),
+        ...(historicalComparison ? { comparison: historicalComparison } : {}),
       },
     });
   }

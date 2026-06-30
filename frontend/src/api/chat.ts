@@ -5,7 +5,9 @@ export interface ChatSessionSummary {
   sessionId: string;
   startedAt: string; // 서버는 타임존 표기 없는 UTC 문자열로 내려준다(파싱 시 UTC 처리 필요).
   endedAt: string | null;
+  lastMessageAt: string | null;
   messageCount: number;
+  userMessageCount: number;
 }
 
 interface ChatSessionResponseDto {
@@ -28,6 +30,13 @@ export async function listChatSessions(seniorId: string): Promise<ChatSessionSum
     sessionId: s.session_id,
     startedAt: s.started_at,
     endedAt: s.ended_at,
+    lastMessageAt:
+      Array.isArray(s.messages) && s.messages.length > 0
+        ? s.messages[s.messages.length - 1]?.time ?? null
+        : null,
     messageCount: Array.isArray(s.messages) ? s.messages.length : 0,
+    userMessageCount: Array.isArray(s.messages)
+      ? s.messages.filter((message) => message.user === 0).length
+      : 0,
   }));
 }
