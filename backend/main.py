@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, record, analyze, chat, medication, notification, report, speech, hospital
+from app.routes import auth, record, analyze, chat, medication, notification, report, speech, hospital, places
 from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.services.fcm_service import initialize_firebase
 
@@ -35,6 +35,7 @@ app.include_router(notification.router)
 app.include_router(report.router)
 app.include_router(speech.router)
 app.include_router(hospital.router)
+app.include_router(places.router)
 
 @app.on_event("startup")
 def on_startup():
