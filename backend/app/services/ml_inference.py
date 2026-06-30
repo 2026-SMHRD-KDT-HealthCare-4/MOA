@@ -63,13 +63,13 @@ def _score_to_level(score: float, disease: str = "") -> str:
     if disease == "parkinson":
         if score >= 0.85:
             return "AMBER"
-        if score >= 0.65:
+        if score >= 0.60:
             return "YELLOW"
         return "GREEN"
     elif disease == "dementia":
-        if score >= 0.55:
+        if score >= 0.70:
             return "AMBER"
-        if score >= 0.35:
+        if score >= 0.45:
             return "YELLOW"
         return "GREEN"
     else:
@@ -196,6 +196,7 @@ def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
             "raw_features":     raw_features,       # 치매용 (acoustic_cols 순서 보장)
             "hubert_embedding": hubert_embedding,   # 치매 HuBERT 임베딩
             "byols_embedding":  byols_embedding,    # 당뇨 BYOL-S 임베딩
+            "wav_path":         tmp_path,
         }
 
         result = engine.predict_all(features, user_info)

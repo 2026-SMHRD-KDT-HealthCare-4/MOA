@@ -1,4 +1,5 @@
 import os
+import pickle
 import joblib
 import numpy as np
 import time
@@ -51,20 +52,13 @@ class MOAInferenceEngine:
             except Exception as e:
                 print(f"  ⚠️ 당뇨 {gender} 로드 실패: {e}")
 
-        # 3. 파킨슨 모델
-        pkn_dir   = os.path.join(self.ml_root, "parkinson")
-        sel_path  = os.path.join(pkn_dir, "selector.pkl")
-        feat_path = os.path.join(pkn_dir, "feature_names.pkl")
-        mm_path   = os.path.join(pkn_dir, "mm_scaler.pkl")
+        # 3. 파킨슨 모델 (v5 번들)
+        pkn_dir = os.path.join(self.ml_root, "parkinson")
         try:
-            self.models["parkinson"] = {
-                "model":         joblib.load(os.path.join(pkn_dir, "model.pkl")),
-                "scaler":        joblib.load(os.path.join(pkn_dir, "scaler.pkl")),
-                "mm_scaler":     joblib.load(mm_path) if os.path.exists(mm_path) else None,
-                "selector":      joblib.load(sel_path)  if os.path.exists(sel_path)  else None,
-                "feature_names": joblib.load(feat_path) if os.path.exists(feat_path) else None,
-            }
-            print("  ✅ 파킨슨 로드 완료")
+            with open(os.path.join(pkn_dir, "parkinson_model_v5.pkl"), 'rb') as f:
+                bundle = pickle.load(f)
+            self.models["parkinson"] = bundle
+            print("  ✅ 파킨슨 로드 완료 (v5)")
         except Exception as e:
             print(f"  ⚠️ 파킨슨 모델 로드 실패: {e}")
 
@@ -74,8 +68,9 @@ class MOAInferenceEngine:
     def predict_all(self, features: dict, user_info: dict) -> dict:
         start_time = time.time()
 
-        score_pkn = self._predict_parkinson(features.get("acoustic"))
-        score_dem = 1.0 - self._predict_dementia(
+        wav_path  = features.get("wav_path")
+        score_pkn = self._predict_parkinson(features.get("acoustic"), wav_path)
+        score_dem = self._predict_dementia(
             features.get("raw_features", {}),
             features.get("hubert_embedding"),
         )
@@ -109,38 +104,67 @@ class MOAInferenceEngine:
         }
 
     # ──────────────────────────────────────────────────────────────
-    def _predict_parkinson(self, acoustic_dict: dict) -> float:
-        info = self.models.get("parkinson")
-        if not info or not acoustic_dict:
+    def _predict_parkinson(self, acoustic_dict: dict, wav_path: str) -> float:
+        bundle = self.models.get("parkinson")
+        if not bundle or not acoustic_dict or not wav_path:
             return 0.0
 
-        ordered = list(acoustic_dict.values())
+        try:
+            all_feature_names = bundle['all_feature_names']
+            selected_mask     = bundle['selected_mask']
+            final_scaler      = bundle['final_scaler']
+            hubert_scaler     = bundle['hubert_scaler']
+            hubert_pca        = bundle['hubert_pca']
+            model             = bundle['model']
 
-        if info["selector"] is not None:
-            expected = info["selector"].n_features_in_
-            if len(ordered) > expected:
-                ordered = ordered[:expected]
-            elif len(ordered) < expected:
-                ordered = ordered + [0.0] * (expected - len(ordered))
+            # 1. HuBERT 추출 → PCA 축소
+            from inference.hubert_extraction import extract_hubert_embedding
+            hubert_raw = extract_hubert_embedding(wav_path)
+            hubert_vec = np.array(
+                [[hubert_raw.get(f'hubert_{i}', 0.0) for i in range(768)]]
+            )
+            hubert_vec     = np.nan_to_num(hubert_vec, nan=0.0)
+            hubert_scaled  = hubert_scaler.transform(hubert_vec)
+            hubert_pca_vec = hubert_pca.transform(hubert_scaled)  # (1, 32)
 
-        X = np.array(ordered, dtype=float).reshape(1, -1)
+            # 2. 음향지표 이름 (hubert_ 원시 및 hubert_pca_ 제외)
+            # 2. 음향지표 이름 (hubert_ 원시 및 hubert_pca_ 제외)
+            acoustic_names = [f for f in all_feature_names
+                              if not f.startswith('hubert_')
+                              and not f.startswith('hubert_pca_')]
+            n_pca     = hubert_pca_vec.shape[1]
+            pca_names = [f'hubert_pca_{i}' for i in range(n_pca)]
 
-        if info["mm_scaler"] is not None:
-            X = info["mm_scaler"].transform(X)
+            # 3. feat_map으로 all_feature_names 순서 보장
+            feat_map = {}
+            for name in acoustic_names:
+               feat_map[name] = float(acoustic_dict.get(name, 0.0))
+            # 디버그: 누락 feature 확인
+            zero_count = sum(1 for name in acoustic_names if acoustic_dict.get(name) is None)
+            print(f"🔍 파킨슨 feature 매핑: 전체 {len(acoustic_names)}개 중 {zero_count}개 누락")
+            print(f"🔍 누락 목록: {[name for name in acoustic_names if acoustic_dict.get(name) is None][:10]}")
+            # raw HuBERT 추가
+            for i in range(768):
+                feat_map[f'hubert_{i}'] = float(hubert_vec[0, i])
+            for i, name in enumerate(pca_names):
+                feat_map[name] = float(hubert_pca_vec[0, i])
 
-        if info["selector"] is not None:
-            X = info["selector"].transform(X)
+            full_vec = np.array(
+                [[feat_map.get(f, 0.0) for f in all_feature_names]]
+            )  # shape: (1, 954)
 
-        X_s  = info["scaler"].transform(X)
-        prob = float(info["model"].predict_proba(X_s)[0, 1])
-        return prob
+            # 4. selected_mask → StandardScaler → 예측
+            full_vec_sel = full_vec[:, selected_mask]
+            vec_scaled   = final_scaler.transform(full_vec_sel)
+
+            return float(model.predict_proba(vec_scaled)[0, 1])
+
+        except Exception as e:
+            print(f"⚠️ 파킨슨 추론 실패: {e}")
+            return 0.0
 
     # ──────────────────────────────────────────────────────────────
     def _predict_dementia(self, task_feat: dict, hubert_raw=None) -> float:
-        """
-        task_feat  : {"CTD": acoustic_list, ...}
-        hubert_raw : HuBERT 원시 임베딩 배열 (ml_inference.py 에서 추출해서 넘김)
-        """
         if not task_feat:
             return 0.0
 
@@ -150,7 +174,6 @@ class MOAInferenceEngine:
                 continue
             info = self.models["dementia"][task]
 
-            # 음향지표 벡터
             if isinstance(feat, dict):
                 acoustic_cols = info.get("acoustic_cols", [])
                 if acoustic_cols:
@@ -164,9 +187,7 @@ class MOAInferenceEngine:
                 acoustic_vec = list(feat)
 
             X_acoustic = np.array(acoustic_vec, dtype=float).reshape(1, -1)
-
-            # HuBERT-PCA 벡터
-            chi2_len = len(info["chi2mask"])
+            chi2_len   = len(info["chi2mask"])
 
             if hubert_raw is not None:
                 try:
@@ -186,15 +207,13 @@ class MOAInferenceEngine:
                 print(f"⚠️ 치매 {task}: HuBERT 임베딩 없음 — 음향지표만 사용")
                 X = X_acoustic
 
-            # chi2mask → rfemask → scaler → model
             if X.shape[1] < chi2_len:
                 X = np.hstack([X, np.zeros((1, chi2_len - X.shape[1]))])
             elif X.shape[1] > chi2_len:
                 X = X[:, :chi2_len]
 
-            X = X[:, info["chi2mask"]]
-            X = X[:, info["rfemask"]]
-
+            X    = X[:, info["chi2mask"]]
+            X    = X[:, info["rfemask"]]
             X_s  = info["scaler"].transform(X)
             prob = float(info["model"].predict_proba(X_s)[0, 1])
             probs.append(prob)

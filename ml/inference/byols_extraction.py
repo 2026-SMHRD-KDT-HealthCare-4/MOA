@@ -13,6 +13,8 @@ import numpy as np
 import torch
 try:
     import torchaudio
+    if not hasattr(torchaudio, 'set_audio_backend'):
+        torchaudio.set_audio_backend = lambda x: None
 except Exception:
     pass
 import librosa

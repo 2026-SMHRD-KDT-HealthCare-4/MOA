@@ -76,41 +76,44 @@ def extract_parselmouth_features(wav_path: str) -> dict:
         f3  = call(formant, "Get value at time", 3, mid, "Hertz", "Linear")
 
         return {
-            "duration":         dur,
+            # ── 파킨슨 학습 feature 이름 (대소문자 정확히 일치) ──
+            "Jitter(%)":        jitter_local,
+            "Jitter(Abs)":      jitter_abs,
+            "Jitter:RAP":       jitter_rap,
+            "Jitter:PPQ5":      jitter_ppq5,
+            "Jitter:DDP":       jitter_ddp,
+            "Shimmer":          shimmer_local,
+            "Shimmer(dB)":      shimmer_db,
+            "Shimmer:APQ3":     shimmer_apq3,
+            "Shimmer:APQ5":     shimmer_apq5,
+            "Shimmer:APQ11":    shimmer_apq11,
+            "Shimmer:DDA":      shimmer_dda,
+            "HNR":              hnr,
+            "NHR":              nhr,
             "f0_mean":          f0_mean,
             "f0_std":           f0_std,
-            "f0_range":         f0_range,
-            "f0_flatness":      f0_flatness,
-            "f0_velocity_mean": f0_velocity_mean,
-            "jitter_local":     jitter_local,
-            "jitter_rap":       jitter_rap,
-            "shimmer_local":    shimmer_local,
-            "shimmer_db":       shimmer_db,
-            "HNR":              hnr,
+            "f0_min":           f0_min,
+            "f0_max":           f0_max,
             "F1":               f1,
             "F2":               f2,
             "F3":               f3,
-            "f0_min":           f0_min,
-            "f0_max":           f0_max,
-            "MPT":              dur,        # 파킨슨 feature_names 기준 대문자
-            "jitter_abs":       jitter_abs,
-            "jitter_ppq5":      jitter_ppq5,
-            "jitter_ddp":       jitter_ddp,
-            "shimmer_apq3":     shimmer_apq3,
-            "shimmer_apq5":     shimmer_apq5,
-            "shimmer_apq11":    shimmer_apq11,
-            "shimmer_dda":      shimmer_dda,
-            "nhr":              nhr,
+            "VSA":              np.nan,   # TODO: 모음 발성 세그먼트 필요, 현재 0으로 대체
+            "MPT":              dur,
+            # ── 치매용 alias ──
+            "duration":         dur,
+            "f0_range":         f0_range,
+            "f0_flatness":      f0_flatness,
+            "f0_velocity_mean": f0_velocity_mean,
         }
 
     except Exception as e:
         print(f"⚠️ parselmouth 추출 실패: {e}")
         return {k: np.nan for k in [
-            "duration", "f0_mean", "f0_std", "f0_range", "f0_flatness", "f0_velocity_mean",
-            "jitter_local", "jitter_rap", "shimmer_local", "shimmer_db", "HNR", "F1", "F2", "F3",
-            "f0_min", "f0_max", "MPT",          # ← 대문자 통일
-            "jitter_abs", "jitter_ppq5", "jitter_ddp",
-            "shimmer_apq3", "shimmer_apq5", "shimmer_apq11", "shimmer_dda", "nhr",
+            "Jitter(%)", "Jitter(Abs)", "Jitter:RAP", "Jitter:PPQ5", "Jitter:DDP",
+            "Shimmer", "Shimmer(dB)", "Shimmer:APQ3", "Shimmer:APQ5", "Shimmer:APQ11", "Shimmer:DDA",
+            "HNR", "NHR", "f0_mean", "f0_std", "f0_min", "f0_max",
+            "F1", "F2", "F3", "MPT",
+            "duration", "f0_range", "f0_flatness", "f0_velocity_mean",
         ]}
 
 
@@ -154,11 +157,16 @@ def extract_librosa_features(wav_path: str) -> dict:
             max_pause   = 0.0
 
         feats = {
-            "RMS":                     rms,
-            "spectral_centroid":       sc,
-            "spectral_bandwidth":      sb,
-            "spectral_rolloff":        srolloff,
-            "ZCR":                     zcr,
+            # ── 파킨슨 학습 feature 이름 ──
+            "rms_energy":          rms,           # 학습: rms_energy
+            "spectral_centroid":   sc,
+            "spectral_bandwidth":  sb,
+            "spectral_rolloff":    srolloff,
+            "zero_crossing_rate":  zcr,           # 학습: zero_crossing_rate
+            # ── 치매용 alias ──
+            "RMS":                 rms,
+            "ZCR":                 zcr,
+            # ── 공통 ──
             "alpha_ratio":             alpha_ratio,
             "speech_rate":             speech_rate,
             "pause_ratio":             pause_ratio,
@@ -173,22 +181,28 @@ def extract_librosa_features(wav_path: str) -> dict:
         mfccs       = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
         delta_mfccs = librosa.feature.delta(mfccs)
         for i, (coef, delta) in enumerate(zip(mfccs, delta_mfccs), start=1):
-            feats[f"mfcc_{i}"]       = float(np.mean(coef))
-            feats[f"mfcc_{i}_std"]   = float(np.std(coef))
-            feats[f"mfcc_{i}_delta"] = float(np.mean(delta))
+            feats[f"mfcc_{i}_mean"]       = float(np.mean(coef))   # 학습: mfcc_1_mean
+            feats[f"mfcc_{i}_std"]        = float(np.std(coef))
+            feats[f"mfcc_{i}_delta_mean"] = float(np.mean(delta))  # 학습: mfcc_1_delta_mean
+            # 치매용 alias
+            feats[f"mfcc_{i}"]            = float(np.mean(coef))
+            feats[f"mfcc_{i}_delta"]      = float(np.mean(delta))
 
         return feats
 
     except Exception as e:
         print(f"⚠️ librosa 추출 실패: {e}")
         keys = (
-            ["RMS", "spectral_centroid", "spectral_bandwidth", "spectral_rolloff",
-             "ZCR", "alpha_ratio", "speech_rate", "pause_ratio",
+            ["rms_energy", "spectral_centroid", "spectral_bandwidth", "spectral_rolloff",
+             "zero_crossing_rate", "RMS", "ZCR",
+             "alpha_ratio", "speech_rate", "pause_ratio",
              "pause_count", "max_pause_sec", "word_pause_count", "word_pause_mean_sec",
              "sentence_pause_count", "sentence_pause_mean_sec"]
-            + [f"mfcc_{i}"       for i in range(1, 14)]
-            + [f"mfcc_{i}_std"   for i in range(1, 14)]
-            + [f"mfcc_{i}_delta" for i in range(1, 14)]
+            + [f"mfcc_{i}_mean"       for i in range(1, 14)]
+            + [f"mfcc_{i}_std"        for i in range(1, 14)]
+            + [f"mfcc_{i}_delta_mean" for i in range(1, 14)]
+            + [f"mfcc_{i}"            for i in range(1, 14)]
+            + [f"mfcc_{i}_delta"      for i in range(1, 14)]
         )
         return {k: np.nan for k in keys}
 
@@ -197,7 +211,11 @@ def extract_opensmile_features(wav_path: str) -> dict:
     try:
         feat_df   = _smile.process_file(wav_path)
         feat_dict = feat_df.iloc[0].to_dict()
-        return {f"os_{k}": v for k, v in feat_dict.items()}
+        result = {}
+        for k, v in feat_dict.items():
+            result[f"egemaps_{k}"] = v   # 학습: egemaps_*
+            result[f"os_{k}"]      = v   # 치매용 alias
+        return result
     except Exception as e:
         print(f"⚠️ openSMILE 추출 실패: {e}")
         return {}
@@ -205,7 +223,7 @@ def extract_opensmile_features(wav_path: str) -> dict:
 
 def extract_all_acoustic_features(wav_path: str) -> dict:
     """
-    파킨슨 / 치매 공통 음향지표 전체 추출 (157개)
+    파킨슨 / 치매 공통 음향지표 전체 추출
     파킨슨 추론 시 이 함수 결과를 그대로 features["acoustic"]에 넣어야 함
     selector가 내부에서 157 → 22개로 줄여줌
     """
@@ -245,7 +263,6 @@ def extract_language_features(wav_path: str, lang: str = "ko") -> dict:
             print("⚠️ Whisper 전사 결과 없음 — 언어 피처 0으로 채움")
             return {k: 0.0 for k in _keys}
 
-        # ZDR: 사용자 발화 원문은 콘솔/로그에 남기지 않는다. 길이 통계만 출력한다.
         print(f"=== 언어 피처: 단어 {len(words)}개, 고유 {len(set(words))}개 ===")
 
         try:
