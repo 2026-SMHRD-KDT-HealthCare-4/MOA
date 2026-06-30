@@ -173,7 +173,7 @@ export default function HistoryPage() {
     key.startsWith(`${year}-${String(month + 1).padStart(2, "0")}`)
   );
 
-  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status === "sunny").length;
+  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status).length;
   const isThisMonth = year === today.getFullYear() && month === today.getMonth();
 
   function prevMonth() {
