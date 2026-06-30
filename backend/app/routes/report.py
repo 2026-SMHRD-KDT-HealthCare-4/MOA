@@ -21,23 +21,10 @@ from app.schemas.report import (
     MonthlyReportResponse,
 )
 from app.services.monthly_stats import aggregate_monthly_stats, _month_range
+# 날씨 매핑은 단일 소스(weather_status)만 사용한다 — 캘린더/리포트/녹음 피드백 일치 보장.
+from app.services.weather_status import status_from_prediction as _status_from_prediction
 
 router = APIRouter(prefix="/report", tags=["report"])
-
-
-def _status_from_prediction(prediction: RiskPrediction) -> str:
-    """Map internal risk levels to the app's non-diagnostic weather metaphor."""
-    levels = {
-        prediction.parkinson_level,
-        prediction.dementia_level,
-        prediction.depression_level,
-        prediction.diabetes_level,
-    }
-    if "AMBER" in levels:
-        return "rainy"
-    if "YELLOW" in levels:
-        return "cloudy"
-    return "sunny"
 
 
 def _format_alert(run_start, run_end) -> dict:

@@ -12,11 +12,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   Home,
+  Clock3,
   MessageCircle,
   Mic,
-  Heart,
-  Volume2,
-  Smile,
   TrendingUp,
 } from "lucide-react-native";
 import { CharacterPlayer } from "../components/CharacterPlayer";
@@ -24,36 +22,70 @@ import { useAuthStore } from "../stores/authStore";
 import { WEATHER_IMAGE, type WeatherStatus } from "../constants/weatherIcons";
 
 type DoneRecordType = "record" | "conversation";
-type MetricTone = "green" | "blue" | "orange" | "purple";
+type Weather = WeatherStatus; // "sunny" | "cloudy" | "rainy"
+type Comparison = "first" | "similar" | "changed";
 
 const MOA_WINK_HEART = require("../../assets/images/moa-wink-heart.png");
 
-const voiceSummary: {
-  weather: WeatherStatus;
-  status: string;
-  description: string;
-  comparisonTitle: string;
-  comparisonDescription: string;
-} = {
-  weather: "sunny",
-  status: "맑은 편이에요!",
-  description: "오늘은 안정적인 목소리로 기록되었어요.",
-  comparisonTitle: "지난 검사와 비슷해요.",
-  comparisonDescription: "큰 변화는 없어요.",
+function isWeather(v: unknown): v is Weather {
+  return v === "sunny" || v === "cloudy" || v === "rainy";
+}
+function isComparison(v: unknown): v is Comparison {
+  return v === "first" || v === "similar" || v === "changed";
+}
+
+function positiveNumber(value: unknown): number | null {
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function conversationSessionText(count: number | null): string {
+  if (count === null || count <= 1) return "모아와 한 차례 안부를 나눴어요.";
+  if (count <= 3) return "모아와 여러 차례 안부를 나눴어요.";
+  return "모아와 자주 이야기를 나눴어요.";
+}
+
+function conversationTurnText(count: number | null): string {
+  if (count === null || count <= 1) return "짧게 이야기를 들려주셨어요.";
+  if (count <= 4) return "여러 이야기를 들려주셨어요.";
+  return "이야기를 풍성하게 들려주셨어요.";
+}
+
+function conversationDurationText(minutes: number | null): string {
+  if (minutes === null || minutes < 3) return "잠시 편하게 이야기를 나눴어요.";
+  if (minutes < 10) return "한동안 편하게 이야기를 나눴어요.";
+  return "여유 있게 오랫동안 이야기를 나눴어요.";
+}
+
+// 날씨(백엔드 단일 소스 결과)별 상태 문구 — 점수/수치 비노출(규칙6), 비진단 표현.
+const WEATHER_SUMMARY: Record<
+  Weather,
+  { status: string; description: string; historyDescription: string }
+> = {
+  sunny: {
+    status: "맑은 편이에요!",
+    description: "오늘은 안정적인 목소리로 기록되었어요.",
+    historyDescription: "이날은 안정적인 목소리로 기록되었어요.",
+  },
+  cloudy: {
+    status: "목소리 상태가 조금 흐린 편이에요",
+    description: "평소와 살짝 다른 결이 느껴져요. 편히 쉬어가요.",
+    historyDescription: "이날의 목소리 상태를 흐림으로 기록했어요.",
+  },
+  rainy: {
+    status: "목소리 날씨가 비예요",
+    description: "오늘은 조금 더 주의해서 살펴볼 신호가 있어요. 무리하지 말고 쉬어가요.",
+    historyDescription: "이날은 목소리를 조금 더 주의해서 살펴볼 신호가 있었어요.",
+  },
 };
 
-const analysisItems: Array<{
-  label: string;
-  value: string;
-  progress: number;
-  tone: MetricTone;
-  icon: "voice" | "speed" | "amount" | "clarity";
-}> = [
-  { label: "목소리 떨림", value: "안정적", progress: 88, tone: "green", icon: "voice" },
-  { label: "말하기 속도", value: "정상", progress: 78, tone: "blue", icon: "speed" },
-  { label: "발화량", value: "충분", progress: 86, tone: "orange", icon: "amount" },
-  { label: "음성 명료도", value: "좋음", progress: 84, tone: "purple", icon: "clarity" },
-];
+// 직전 기록 대비(실데이터: first/similar/changed).
+const COMPARISON_SUMMARY: Record<Comparison, { title: string; description: string }> = {
+  first: { title: "첫 기록이에요.", description: "앞으로 변화를 함께 살펴볼게요." },
+  similar: { title: "지난번과 비슷해요.", description: "큰 변화는 없어요." },
+  changed: { title: "지난번과 조금 달라졌어요.", description: "변화가 있는지 함께 지켜봐요." },
+};
 
 export default function DonePage() {
   const router = useRouter();
@@ -62,6 +94,15 @@ export default function DonePage() {
     source?: string;
     type?: string;
     recordType?: string;
+    weather?: string;
+    comparison?: string;
+    dateLabel?: string;
+    time?: string;
+    description?: string;
+    summary?: string;
+    conversationSessionCount?: string;
+    conversationTurnCount?: string;
+    conversationDurationMinutes?: string;
   }>();
 
   const insets = useSafeAreaInsets();
@@ -81,6 +122,17 @@ export default function DonePage() {
 
   const isConversation = recordType === "conversation";
 
+  // 녹음 직후 분석 결과(백엔드 단일 소스). 없으면(오프라인/목업) null → 중립 폴백.
+  const weather: Weather | null = isWeather(params.weather) ? params.weather : null;
+  const comparison: Comparison | null = isComparison(params.comparison)
+    ? params.comparison
+    : null;
+  const summary = weather ? WEATHER_SUMMARY[weather] : null;
+  const conversationMeta = [params.time, params.description].filter(Boolean).join(" · ");
+  const conversationSessionCount = positiveNumber(params.conversationSessionCount);
+  const conversationTurnCount = positiveNumber(params.conversationTurnCount);
+  const conversationDurationMinutes = positiveNumber(params.conversationDurationMinutes);
+
   const homeHref = role === "guardian" ? "/(guardian)/" : "/(elder)/";
   const historyHref = "/history";
   const ctaLabel = isHistoryView ? "기록으로 돌아가기" : "홈으로 가기";
@@ -89,14 +141,14 @@ export default function DonePage() {
     ? {
         main: "#7A5CE0",
         light: "#EEE7FF",
-        title: "대화 완료!",
-        badge: "대화 플로우",
+        title: isHistoryView ? "대화 기록" : "대화 완료!",
+        badge: isHistoryView ? "기록 보기" : "대화 플로우",
       }
     : {
         main: "#FF6F52",
         light: "#FFE9E1",
-        title: "녹음 완료!",
-        badge: "녹음 플로우",
+        title: isHistoryView ? "목소리 기록" : "녹음 완료!",
+        badge: isHistoryView ? "기록 보기" : "녹음 플로우",
       };
 
   function goHome() {
@@ -147,48 +199,118 @@ export default function DonePage() {
 
         <View style={styles.resultCard}>
           <View style={styles.statusRow}>
-            <View style={styles.weatherCircle}>
-              <Image
-                source={WEATHER_IMAGE[voiceSummary.weather]}
-                style={styles.weatherIcon}
-                resizeMode="contain"
-              />
-            </View>
+            {isConversation ? (
+              <View style={[styles.weatherCircle, styles.conversationCircle]}>
+                <MessageCircle size={44} color={theme.main} />
+              </View>
+            ) : weather ? (
+              <View style={styles.weatherCircle}>
+                <Image
+                  source={WEATHER_IMAGE[weather]}
+                  style={styles.weatherIcon}
+                  resizeMode="contain"
+                />
+              </View>
+            ) : null}
             <View style={styles.statusTextWrap}>
-              <Text style={styles.sectionEyebrow}>오늘의 목소리 상태</Text>
+              <Text style={styles.sectionEyebrow}>
+                {isConversation
+                  ? "모아와 대화 기록"
+                  : isHistoryView
+                  ? "이날의 목소리 상태"
+                  : "오늘의 목소리 상태"}
+              </Text>
               <Text style={[styles.statusTitle, { color: theme.main }]}>
-                {voiceSummary.status}
+                {isConversation
+                  ? params.dateLabel ?? "대화를 나눴어요"
+                  : summary
+                  ? summary.status
+                  : "기록이 저장됐어요"}
               </Text>
-              <Text style={styles.statusDescription}>{voiceSummary.description}</Text>
-            </View>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.compareRow}>
-            <View style={styles.compareIconCircle}>
-              <TrendingUp size={29} color="#18A86B" />
-            </View>
-            <View style={styles.compareTextWrap}>
-              <Text style={styles.compareLabel}>지난 검사와 비교</Text>
-              <Text style={styles.compareTitle}>{voiceSummary.comparisonTitle}</Text>
-              <Text style={styles.compareDescription}>
-                {voiceSummary.comparisonDescription}
+              <Text style={styles.statusDescription}>
+                {isConversation
+                  ? params.summary ?? "모아와 이야기를 나눴어요."
+                  : summary
+                  ? isHistoryView
+                    ? summary.historyDescription
+                    : summary.description
+                  : "분석 결과는 잠시 후 리포트에서 확인할 수 있어요."}
               </Text>
+              {isConversation && conversationMeta ? (
+                <Text style={styles.conversationMeta}>{conversationMeta}</Text>
+              ) : null}
             </View>
           </View>
 
-          <View style={styles.analysisHeaderRow}>
-            <View style={styles.headerLine} />
-            <Text style={styles.analysisTitle}>오늘의 목소리 분석</Text>
-            <View style={styles.headerLine} />
-          </View>
+          {isConversation && weather && summary ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.conversationWeatherRow}>
+                <View style={styles.conversationWeatherCircle}>
+                  <Image
+                    source={WEATHER_IMAGE[weather]}
+                    style={styles.conversationWeatherIcon}
+                    resizeMode="contain"
+                  />
+                </View>
+                <View style={styles.conversationWeatherText}>
+                  <Text style={styles.conversationWeatherLabel}>이날의 목소리 날씨</Text>
+                  <Text style={[styles.conversationWeatherTitle, { color: theme.main }]}>
+                    {summary.status}
+                  </Text>
+                  <Text style={styles.conversationWeatherDescription}>
+                    {summary.historyDescription}
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : null}
 
-          <View style={styles.analysisList}>
-            {analysisItems.map((item) => (
-              <AnalysisRow key={item.label} item={item} />
-            ))}
-          </View>
+          {isConversation ? (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.conversationInfoTitle}>이날의 대화 정보</Text>
+              <View style={styles.conversationInfoList}>
+                <ConversationInfoRow
+                  icon="conversation"
+                  label="대화 나눔"
+                  value={conversationSessionText(conversationSessionCount)}
+                />
+                <ConversationInfoRow
+                  icon="story"
+                  label="들려주신 이야기"
+                  value={conversationTurnText(conversationTurnCount)}
+                />
+                {conversationDurationMinutes !== null ? (
+                  <ConversationInfoRow
+                    icon="time"
+                    label="함께한 시간"
+                    value={conversationDurationText(conversationDurationMinutes)}
+                  />
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          {!isConversation && comparison ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.compareRow}>
+                <View style={styles.compareIconCircle}>
+                  <TrendingUp size={29} color="#18A86B" />
+                </View>
+                <View style={styles.compareTextWrap}>
+                  <Text style={styles.compareLabel}>지난 검사와 비교</Text>
+                  <Text style={styles.compareTitle}>
+                    {COMPARISON_SUMMARY[comparison].title}
+                  </Text>
+                  <Text style={styles.compareDescription}>
+                    {COMPARISON_SUMMARY[comparison].description}
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : null}
 
           <View style={styles.moaMessageCard}>
             <Image source={MOA_WINK_HEART} style={styles.moaMessageImage} resizeMode="contain" />
@@ -196,9 +318,23 @@ export default function DonePage() {
               <Text style={[styles.moaMessageTitle, { color: theme.main }]}>
                 모아가 전해요!
               </Text>
-              <Text style={styles.moaMessageText}>오늘처럼 편안하게 이야기하면</Text>
-              <Text style={styles.moaMessageText}>변화를 더 정확하게 살펴볼 수 있어요.</Text>
-              <Text style={styles.moaMessageText}>내일도 모아와 함께해요. 💜</Text>
+              {isConversation ? (
+                <>
+                  <Text style={styles.moaMessageText}>
+                    {isHistoryView ? "이날 들려주신 이야기," : "오늘 들려주신 이야기,"}
+                  </Text>
+                  <Text style={styles.moaMessageText}>소중하게 기억할게요.</Text>
+                  <Text style={styles.moaMessageText}>내일도 편하게 이야기해요. 💜</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.moaMessageText}>
+                    {isHistoryView ? "이날처럼 편안하게 이야기하면" : "오늘처럼 편안하게 이야기하면"}
+                  </Text>
+                  <Text style={styles.moaMessageText}>변화를 더 정확하게 살펴볼 수 있어요.</Text>
+                  <Text style={styles.moaMessageText}>내일도 모아와 함께해요. 💜</Text>
+                </>
+              )}
             </View>
           </View>
 
@@ -217,59 +353,39 @@ export default function DonePage() {
           </Pressable>
         </View>
 
-        <Text style={styles.bottomNote}>
-          ※ 결과는 리포트에서 더 자세히 확인할 수 있어요.
-        </Text>
+        {!isConversation ? (
+          <Text style={styles.bottomNote}>
+            ※ 결과는 리포트에서 더 자세히 확인할 수 있어요.
+          </Text>
+        ) : null}
       </ScrollView>
     </View>
   );
 }
 
-function AnalysisRow({
-  item,
+function ConversationInfoRow({
+  icon,
+  label,
+  value,
 }: {
-  item: {
-    label: string;
-    value: string;
-    progress: number;
-    tone: MetricTone;
-    icon: "voice" | "speed" | "amount" | "clarity";
-  };
+  icon: "conversation" | "story" | "time";
+  label: string;
+  value: string;
 }) {
-  const color = toneColor[item.tone];
-
   return (
-    <View style={styles.analysisRow}>
-      <View style={[styles.metricIconCircle, { backgroundColor: color.light }]}>
-        {item.icon === "voice" && <Volume2 size={24} color={color.main} />}
-        {item.icon === "speed" && <TrendingUp size={23} color={color.main} />}
-        {item.icon === "amount" && <Mic size={24} color={color.main} />}
-        {item.icon === "clarity" && <Heart size={23} color={color.main} fill={color.main} />}
+    <View style={styles.conversationInfoRow}>
+      <View style={styles.conversationInfoIcon}>
+        {icon === "conversation" ? <MessageCircle size={23} color="#7A5CE0" /> : null}
+        {icon === "story" ? <Mic size={23} color="#7A5CE0" /> : null}
+        {icon === "time" ? <Clock3 size={23} color="#7A5CE0" /> : null}
       </View>
-
-      <Text style={styles.metricLabel}>{item.label}</Text>
-
-      <View style={styles.metricResult}>
-        <Text style={[styles.metricValue, { color: color.main }]}>{item.value}</Text>
-        <View style={styles.progressTrack}>
-          <View
-            style={[
-              styles.progressFill,
-              { width: `${item.progress}%`, backgroundColor: color.main },
-            ]}
-          />
-        </View>
+      <View style={styles.conversationInfoText}>
+        <Text style={styles.conversationInfoLabel}>{label}</Text>
+        <Text style={styles.conversationInfoValue}>{value}</Text>
       </View>
     </View>
   );
 }
-
-const toneColor: Record<MetricTone, { main: string; light: string }> = {
-  green: { main: "#18A86B", light: "#E1F8EF" },
-  blue: { main: "#5579E8", light: "#E8EEFF" },
-  orange: { main: "#FF9F1C", light: "#FFF1D9" },
-  purple: { main: "#704FD3", light: "#EFE7FF" },
-};
 
 const styles = StyleSheet.create({
   fill: {
@@ -358,6 +474,10 @@ const styles = StyleSheet.create({
     height: 72,
   },
 
+  conversationCircle: {
+    backgroundColor: "#F2ECFF",
+  },
+
   statusTextWrap: {
     flex: 1,
   },
@@ -381,6 +501,110 @@ const styles = StyleSheet.create({
     color: "#5D514B",
     fontSize: 16,
     lineHeight: 23,
+    fontWeight: "700",
+  },
+
+  conversationMeta: {
+    marginTop: 8,
+    color: "#7C6E67",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "700",
+  },
+
+  conversationWeatherRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 20,
+  },
+
+  conversationWeatherCircle: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#FFF7E8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  conversationWeatherIcon: {
+    width: 58,
+    height: 58,
+  },
+
+  conversationWeatherText: {
+    flex: 1,
+  },
+
+  conversationWeatherLabel: {
+    color: "#2F2A26",
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: "900",
+  },
+
+  conversationWeatherTitle: {
+    marginTop: 1,
+    fontSize: 24,
+    lineHeight: 31,
+    fontWeight: "900",
+  },
+
+  conversationWeatherDescription: {
+    marginTop: 2,
+    color: "#6F625C",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "700",
+  },
+
+  conversationInfoTitle: {
+    color: "#2F2A26",
+    fontSize: 20,
+    lineHeight: 27,
+    fontWeight: "900",
+    marginBottom: 10,
+  },
+
+  conversationInfoList: {
+    marginBottom: 18,
+  },
+
+  conversationInfoRow: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEE8E3",
+  },
+
+  conversationInfoIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#F2ECFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  conversationInfoText: {
+    flex: 1,
+  },
+
+  conversationInfoLabel: {
+    color: "#2F2A26",
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+
+  conversationInfoValue: {
+    marginTop: 2,
+    color: "#6F625C",
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: "700",
   },
 
@@ -430,81 +654,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: "700",
-  },
-
-  analysisHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 13,
-  },
-
-  headerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#E5DDD7",
-  },
-
-  analysisTitle: {
-    color: "#2F2A26",
-    fontSize: 20,
-    lineHeight: 27,
-    fontWeight: "900",
-  },
-
-  analysisList: {
-    gap: 0,
-    marginBottom: 18,
-  },
-
-  analysisRow: {
-    minHeight: 68,
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEE8E3",
-    gap: 12,
-  },
-
-  metricIconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  metricLabel: {
-    flex: 1,
-    color: "#2F2A26",
-    fontSize: 19,
-    lineHeight: 25,
-    fontWeight: "900",
-  },
-
-  metricResult: {
-    width: 130,
-    alignItems: "flex-start",
-    gap: 7,
-  },
-
-  metricValue: {
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: "900",
-  },
-
-  progressTrack: {
-    width: "100%",
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: "#E5E5E5",
-    overflow: "hidden",
-  },
-
-  progressFill: {
-    height: "100%",
-    borderRadius: 5,
   },
 
   moaMessageCard: {
