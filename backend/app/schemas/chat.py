@@ -71,6 +71,11 @@ class ChatFrontendEnvelope(BaseModel):
     data: ChatFrontendData
 
 
+class ChatSessionStartResponse(BaseModel):
+    session_id: UUID
+    started_at: datetime
+
+
 class ChatSessionResponse(BaseModel):
     session_id: UUID
     senior_id: UUID

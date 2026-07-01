@@ -81,7 +81,7 @@ export default function ChatPage() {
   // 아바타를 화면 절반 정도 크기로 — 너비 60% 기준, 높이 40%로 상한.
   const avatarSize = Math.round(Math.min(Math.min(windowWidth, 430) * 0.6, windowHeight * 0.4));
   // ── 챗봇 로직 (변경 금지) ──────────────────────────────
-  const { messages, isBotTyping, botEmotion, sendMessage } = useMoaChat();
+  const { messages, isBotTyping, botEmotion, sendMessage, endConversationSession } = useMoaChat();
   const { state: recorderState } = useRecorder();
   const [input, setInput] = useState("");
   const [showIntroGreeting, setShowIntroGreeting] = useState(true);
@@ -101,6 +101,11 @@ export default function ChatPage() {
     if (!text) return;
     setInput("");
     sendMessage(text);
+  }
+
+  async function handleBack() {
+    await endConversationSession();
+    router.back();
   }
   // ──────────────────────────────────────────────────────
 
@@ -241,7 +246,7 @@ export default function ChatPage() {
       <View style={styles.topBar}>
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={() => router.back()}
+          onPress={() => void handleBack()}
           accessibilityLabel="뒤로 가기"
         >
           <ArrowLeft size={22} color="#39302C" />

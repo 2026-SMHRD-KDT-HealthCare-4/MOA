@@ -6,6 +6,7 @@ import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "./
 import { type BotEmotion } from "../../constants/emotionMap";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useChatSessionStore } from "../../stores/chatSessionStore";
 import { getToken } from "../../api/session";
 
 export interface ChatMessage {
@@ -256,6 +257,46 @@ function resolveChatSeniorId(): string | undefined {
   return undefined;
 }
 
+const sessionStartRequests = new Map<string, Promise<string>>();
+
+function getChatSessionOwnerId(): string {
+  const userId = useAuthStore.getState().userId;
+  if (!userId) throw new Error("CHAT_SESSION_REQUIRES_USER_ID");
+  return userId;
+}
+
+async function getOrStartChatSession(): Promise<string> {
+  const userId = getChatSessionOwnerId();
+  const store = useChatSessionStore.getState();
+  const activeSessionId = store.getActiveSession(userId);
+  if (activeSessionId) return activeSessionId;
+
+  const pending = sessionStartRequests.get(userId);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const token = await getRequiredRealToken("MOA_CHAT_SESSION_START_AUTH");
+    const response = await fetch(`${API_BASE_URL}/chat/session/start`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) throw new Error("CHAT_SESSION_START_FAILED");
+
+    const body = (await response.json()) as { session_id?: string };
+    if (!body.session_id) throw new Error("CHAT_SESSION_START_ID_MISSING");
+
+    useChatSessionStore.getState().setActiveSession(userId, body.session_id);
+    return body.session_id;
+  })().finally(() => {
+    sessionStartRequests.delete(userId);
+  });
+
+  sessionStartRequests.set(userId, request);
+  return request;
+}
+
 async function callBackendProdChatbotApi(
   params: ChatbotApiParams,
   timing?: { sttSuccessAt?: number; chatResponseReceiveAt?: number },
@@ -364,7 +405,6 @@ export function useMoaChat() {
   const validSpeechDurationRef = useRef(0);
   const conversationTopicRef = useRef<string | null>(null);
   const questionIndexRef = useRef(0);
-  const sessionIdRef = useRef<string | null>(null);
   const endingSessionRef = useRef<Promise<void> | null>(null);
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
@@ -374,8 +414,6 @@ export function useMoaChat() {
     validSpeechDurationRef.current = 0;
     conversationTopicRef.current = null;
     questionIndexRef.current = 0;
-    sessionIdRef.current = null;
-
     setMessages([]);
     setIsBotTyping(false);
     setIsBotSpeaking(false);
@@ -397,7 +435,10 @@ export function useMoaChat() {
   function endConversationSession(): Promise<void> {
     if (endingSessionRef.current) return endingSessionRef.current;
 
-    const sessionId = sessionIdRef.current;
+    const userId = useAuthStore.getState().userId;
+    if (!userId) return Promise.resolve();
+
+    const sessionId = useChatSessionStore.getState().getActiveSession(userId);
     if (!sessionId) return Promise.resolve();
 
     const request = (async () => {
@@ -414,7 +455,7 @@ export function useMoaChat() {
           body: JSON.stringify({ session_id: sessionId }),
         });
         if (!response.ok) throw new Error("CHAT_SESSION_END_FAILED");
-        if (sessionIdRef.current === sessionId) sessionIdRef.current = null;
+        useChatSessionStore.getState().clearActiveSession(userId, sessionId);
       } catch (error) {
         // 종료 시각 저장 실패가 결과 화면 진입을 막지는 않는다.
         console.warn("[CHAT_SESSION_END_FAILED]", error);
@@ -439,6 +480,7 @@ export function useMoaChat() {
     setBotEmotion("listening");
 
     try {
+      const activeSessionId = await getOrStartChatSession();
       const params: ChatbotApiParams = {
         message: text,
         conversation_turn: conversationTurnRef.current,
@@ -450,7 +492,7 @@ export function useMoaChat() {
         current_topic: conversationTopicRef.current,
         question_index: questionIndexRef.current,
         senior_id: resolveChatSeniorId(),
-        session_id: sessionIdRef.current,
+        session_id: activeSessionId,
         acoustic_meta: { duration_ms: 0, pause_events: 0, ...acousticMeta },
       };
 
@@ -461,7 +503,9 @@ export function useMoaChat() {
       validSpeechDurationRef.current += params.acoustic_meta.duration_ms;
       conversationTopicRef.current = res.data.conversation_topic ?? conversationTopicRef.current;
       questionIndexRef.current = res.data.question_index ?? questionIndexRef.current;
-      sessionIdRef.current = res.data.session_id ?? sessionIdRef.current;
+      if (res.data.session_id !== activeSessionId) {
+        throw new Error("CHAT_SESSION_ID_MISMATCH");
+      }
 
       const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);
@@ -622,6 +666,7 @@ export function useMoaChat() {
       setMessages((prev) => [...prev, userMsg]);
 
       // 2. Chat API 호출 (기존 sendMessage 파이프라인 매개변수 적용)
+      const activeSessionId = await getOrStartChatSession();
       const params: ChatbotApiParams = {
         message: finalUserText,
         conversation_turn: conversationTurnRef.current,
@@ -633,7 +678,7 @@ export function useMoaChat() {
         current_topic: conversationTopicRef.current,
         question_index: questionIndexRef.current,
         senior_id: resolveChatSeniorId(),
-        session_id: sessionIdRef.current,
+        session_id: activeSessionId,
         acoustic_meta: { duration_ms: durationMs, pause_events: 0 },
       };
 
@@ -648,7 +693,9 @@ export function useMoaChat() {
       validSpeechDurationRef.current += durationMs;
       conversationTopicRef.current = res.data.conversation_topic ?? conversationTopicRef.current;
       questionIndexRef.current = res.data.question_index ?? questionIndexRef.current;
-      sessionIdRef.current = res.data.session_id ?? sessionIdRef.current;
+      if (res.data.session_id !== activeSessionId) {
+        throw new Error("CHAT_SESSION_ID_MISMATCH");
+      }
 
       const emotion = mapBotEmotion(res.data.bot_emotion);
       setBotEmotion(emotion);
