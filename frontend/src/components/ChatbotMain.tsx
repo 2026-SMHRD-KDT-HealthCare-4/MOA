@@ -32,6 +32,7 @@ import {
 } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
+import { analyzeVoice } from "../api/record";
 
 type ChatState =
   | "idle"
@@ -208,6 +209,7 @@ export default function ChatbotMain() {
     sendMessage,
     sendVoiceMessage,
     speakText,
+    endConversationSession,
     nextAction,
   } = useMoaChat();
 
@@ -524,13 +526,24 @@ export default function ChatbotMain() {
     sampleType: VoiceSampleType,
     sampleStatus: "ok" | "too_short" | "failed" = "ok",
   ) {
-    if (!audioUriToSave) return;
+    // 한 대화에서 여러 턴을 모두 분석하면 예측·알림이 중복된다.
+    // 대화 시작 시 수집하는 첫 자유발화 한 건만 그날의 CHATBOT 목소리 날씨 근거로 사용한다.
+    if (
+      !audioUriToSave ||
+      sampleType !== "free_speech_intro" ||
+      sampleStatus !== "ok" ||
+      role !== "elder" ||
+      !user
+    ) {
+      return;
+    }
 
-    console.log("[CHATBOT_VOICE_SAMPLE_SKIP]", {
-      sampleType,
-      sampleStatus,
-      audioUri: audioUriToSave,
-    });
+    try {
+      await analyzeVoice(audioUriToSave, "CHATBOT", sampleType, sampleStatus);
+    } catch (error) {
+      // 분석 실패가 안부 대화 자체를 막지는 않는다. 원본 오디오는 기존 ZDR 흐름대로 폐기한다.
+      console.warn("[CHATBOT_VOICE_ANALYZE_FAILED]", error);
+    }
   }
 
   async function finishVoiceCheck(succeeded: boolean) {
@@ -895,6 +908,7 @@ export default function ChatbotMain() {
       voiceModeRef.current = null;
       activeRecordingModeRef.current = null;
       conversationActiveRef.current = false;
+      void endConversationSession();
       setIsConversationActive(false);
       setChatState("completed");
       setBotEmotion("clapping");
@@ -1233,6 +1247,7 @@ export default function ChatbotMain() {
   }
 
   function handleGoToRecord() {
+    void endConversationSession();
     conversationRunningRef.current = false;
     setChatState("idle");
     setBotEmotion("default");
@@ -1250,6 +1265,7 @@ export default function ChatbotMain() {
   }
 
   function handleResultHome() {
+    void endConversationSession();
     conversationRunningRef.current = false;
     conversationActiveRef.current = false;
     submittingTranscriptRef.current = false;

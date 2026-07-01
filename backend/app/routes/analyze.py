@@ -23,6 +23,7 @@ from app.services.feature_extraction import extract_features
 from app.services.notification_service import create_risk_notifications_for_active_guardians
 from app.services.ml_inference import predict_risk_from_wav
 from app.services.risk_trigger import evaluate_risk_trigger
+from app.services.weather_status import status_from_prediction
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
@@ -127,8 +128,26 @@ async def analyze_voice(
         # 알림 생성 실패는 분석 응답에 영향을 주지 않는다 (로깅 후 무시).
         db.rollback()
 
+    # 8. 녹음 직후 피드백용 날씨 + 직전 기록 비교 (캘린더/리포트와 동일한 단일 소스 사용)
+    status = status_from_prediction(risk_prediction)
+    prev = (
+        db.query(RiskPrediction)
+        .filter(
+            RiskPrediction.senior_id == senior_id,
+            RiskPrediction.prediction_id != risk_prediction.prediction_id,
+        )
+        .order_by(RiskPrediction.created_at.desc())
+        .first()
+    )
+    if prev is None:
+        comparison = "first"
+    else:
+        comparison = "similar" if status_from_prediction(prev) == status else "changed"
+
     return AnalyzeResponseData(
         feature_id=voice_feature.feature_id,
         features=features,
         risk_prediction=risk_prediction,
+        status=status,
+        comparison=comparison,
     )

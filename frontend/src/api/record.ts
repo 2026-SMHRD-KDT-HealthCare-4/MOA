@@ -47,6 +47,15 @@ export async function listScriptRecords(seniorId: string): Promise<ScriptRecord[
   return (res ?? []).map((r) => ({ recordId: r.record_id, measuredAt: r.measured_at }));
 }
 
+// 녹음 직후 피드백용 분석 요약 — 날씨/직전 비교는 백엔드 단일 소스(weather_status)에서 산출.
+// 수치/점수는 직접사용자 화면 노출 금지(규칙6)라 의도적으로 반환하지 않는다.
+export type VoiceWeather = "sunny" | "cloudy" | "rainy";
+export type VoiceComparison = "first" | "similar" | "changed";
+export interface AnalyzeResult {
+  status: VoiceWeather | null;
+  comparison: VoiceComparison | null;
+}
+
 // POST /analyze — 녹음 음성을 멀티파트로 전송해 음성 특징/위험도를 서버에 저장한다.
 // multipart라 apiFetch(JSON 전용) 대신 직접 fetch. 업로드 후 사용 측에서 오디오를 즉시 해제해야 함(ZDR).
 export async function analyzeVoice(
@@ -54,7 +63,7 @@ export async function analyzeVoice(
   collectType: "SCRIPT" | "CHATBOT",
   sampleType?: "free_speech_intro" | "sustained_vowel" | "normal_chat",
   sampleStatus?: "ok" | "too_short" | "failed",
-): Promise<void> {
+): Promise<AnalyzeResult> {
   const form = new FormData();
   form.append("collect_type", collectType);
   if (sampleType) form.append("sample_type", sampleType);
@@ -75,4 +84,6 @@ export async function analyzeVoice(
     body: form,
   });
   if (!res.ok) throw new Error("ANALYZE_FAILED");
+  const json = (await res.json()) as { status?: VoiceWeather; comparison?: VoiceComparison };
+  return { status: json.status ?? null, comparison: json.comparison ?? null };
 }

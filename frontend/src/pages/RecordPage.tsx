@@ -19,7 +19,7 @@ import { Waveform } from "../components/Waveform";
 import { CharacterPlayer } from "../components/CharacterPlayer";
 import { useRecorder } from "../features/record/useRecorder";
 import * as authApi from "../api/auth";
-import { analyzeVoice, saveScriptRecord } from "../api/record";
+import { analyzeVoice, saveScriptRecord, type AnalyzeResult } from "../api/record";
 import { useAuthStore } from "../stores/authStore";
 import { enqueueOfflineTask, syncOfflineQueue } from "../utils/offlineSync";
 
@@ -110,10 +110,12 @@ export default function RecordPage() {
 
   async function handleSave() {
     if (saving) return;
+    // 분석 결과(날씨/직전 비교)를 DonePage 즉시 피드백에 넘긴다. 오프라인/실패 시 null → 중립 폴백.
+    let analyzeResult: AnalyzeResult | null = null;
     if (REAL_API && role === "elder" && dailyScript?.script_id && user) {
       setSaving(true);
       try {
-        if (audioUri) await analyzeVoice(audioUri, "SCRIPT");
+        if (audioUri) analyzeResult = await analyzeVoice(audioUri, "SCRIPT");
         await saveScriptRecord(dailyScript.script_id, user.id);
       } catch (err) {
         console.warn("실시간 분석 서버 전송 실패, 오프라인 로컬 큐잉 적재:", err);
@@ -132,6 +134,8 @@ export default function RecordPage() {
       params: {
         origin: "home",
         recordType: "record",
+        ...(analyzeResult?.status ? { weather: analyzeResult.status } : {}),
+        ...(analyzeResult?.comparison ? { comparison: analyzeResult.comparison } : {}),
       },
     });
   }
