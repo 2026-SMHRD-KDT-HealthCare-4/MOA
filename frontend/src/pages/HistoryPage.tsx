@@ -253,6 +253,7 @@ export default function HistoryPage() {
   // 이번 달 기록(활동)이 있는 모든 날 수. 날씨(맑음/흐림/비) 상관없이 캘린더에 아이콘이
   // 표시된 날과 동일하게 센다. 오늘이 '비'여도 기록이 있으면 포함된다.
   const recordedDays = monthlyKeys.length;
+  const sunnyCount = monthlyKeys.filter((key) => history[key]?.status).length;
   const isThisMonth = year === today.getFullYear() && month === today.getMonth();
 
   function prevMonth() {
