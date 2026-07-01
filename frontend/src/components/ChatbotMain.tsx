@@ -60,6 +60,8 @@ const SHOW_STT_DEBUG =
 const RETURN_GREETING_COOLDOWN_MS = 40 * 1000;
 const SUSTAINED_VOWEL_MIN_MS = 2_500;
 const SUSTAINED_VOWEL_MAX_MS = 5_000;
+const BUBBLE_SENTENCE_PAUSE_MS = 120;
+const BUBBLE_TEXT_MAX_CHARS = 34;
 
 const VOICE_CHECK_PROMPTS = [
   "오늘 목소리 상태를 잠깐 확인해볼게요. '아' 소리를 3초 정도 이어서 말씀해주세요.",
@@ -117,8 +119,40 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function chatTimingNowMs() {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+function splitLongBubbleText(text: string): string[] {
+  if (text.length <= BUBBLE_TEXT_MAX_CHARS) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > BUBBLE_TEXT_MAX_CHARS) {
+    const candidate = remaining.slice(0, BUBBLE_TEXT_MAX_CHARS + 1);
+    const spaceIndex = candidate.lastIndexOf(" ");
+    const splitIndex =
+      spaceIndex > Math.floor(BUBBLE_TEXT_MAX_CHARS * 0.45)
+        ? spaceIndex
+        : BUBBLE_TEXT_MAX_CHARS;
+
+    chunks.push(remaining.slice(0, splitIndex).trim());
+    remaining = remaining.slice(splitIndex).trim();
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks.filter(Boolean);
+}
+
+function splitBubbleDisplayChunks(text: string): string[] {
+  return splitIntoSentenceChunks(text).flatMap(splitLongBubbleText);
 }
 
 function formatDuration(ms: number) {
@@ -146,6 +180,28 @@ function getTimeBasedGreeting() {
   }
 
   return "늦은 시간이네요. 오늘 잠자리는 편안하신가요?";
+}
+
+function getTimeBasedVoiceCheckGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 11) {
+    return "안녕히 주무셨어요?";
+  }
+
+  if (hour >= 11 && hour < 15) {
+    return "점심은 잘 드셨어요?";
+  }
+
+  if (hour >= 15 && hour < 18) {
+    return "오후도 잘 보내고 계셨어요?";
+  }
+
+  if (hour >= 18 && hour < 22) {
+    return "오늘도 수고하셨어요.";
+  }
+
+  return "늦은 시간이네요.";
 }
 
 const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"];
@@ -179,6 +235,7 @@ export default function ChatbotMain() {
 
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
+  const links = useAuthStore((s) => s.links);
   const wakePrompt = useWakeWordStore((s) => s.wakePrompt);
   const clearWakePrompt = useWakeWordStore((s) => s.clearWakePrompt);
 
@@ -211,6 +268,7 @@ export default function ChatbotMain() {
     speakText,
     endConversationSession,
     nextAction,
+    resetChatSession,
   } = useMoaChat();
 
   const {
@@ -241,6 +299,11 @@ export default function ChatbotMain() {
   const displayedReplyRef = useRef("");
   const typewriterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typewriterDelayRef = useRef(48);
+  const bubbleDisplaySequenceRef = useRef(0);
+  const bubbleDisplayInProgressRef = useRef(false);
+  const botLineSpeakingRef = useRef(false);
+  const isBotSpeakingRef = useRef(false);
+  const isBotTypingRef = useRef(false);
   const voiceModeRef = useRef<VoiceMode>(null);
   const activeRecordingModeRef = useRef<VoiceMode>(null);
   const wakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -261,7 +324,21 @@ export default function ChatbotMain() {
   const sustainedRetryRef = useRef(0);
   const sustainedStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const voiceAnalysisTargetSeniorId =
+    role === "elder"
+      ? user?.id
+      : links.find((link) => link.status === "ACTIVE" && link.relation === "elder")
+          ?.counterpartId;
   const mood = chatStateToMood(chatState, botEmotion);
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const speechBubbleText =
+    chatState === "thinking"
+      ? latestUserMessage
+        ? "말씀을 이해하고 있어요..."
+        : "생각하고 있어요..."
+      : botReply;
   const recordHref =
     role === "guardian" ? "/(guardian)/record" : "/(elder)/record";
   const resultHref =
@@ -282,6 +359,14 @@ export default function ChatbotMain() {
   useEffect(() => {
     flowStepRef.current = flowStep;
   }, [flowStep]);
+
+  useEffect(() => {
+    isBotSpeakingRef.current = isBotSpeaking;
+  }, [isBotSpeaking]);
+
+  useEffect(() => {
+    isBotTypingRef.current = isBotTyping;
+  }, [isBotTyping]);
 
   // 상단 헤더의 날짜를 현재 날짜로 표시한다. 날짜가 바뀌는 자정 경계에서만 갱신하고,
   // 같은 날이면 setNow 가 같은 참조를 반환해 불필요한 리렌더를 피한다.
@@ -343,13 +428,14 @@ export default function ChatbotMain() {
     clearWakePrompt();
   }, [clearWakePrompt, wakePrompt]);
 
-  function streamReplyCharacters() {
+  function streamReplyCharacters(onComplete?: () => void) {
     if (typewriterTimerRef.current) return;
 
     const writeNextCharacter = () => {
       if (displayedReplyRef.current.length >= streamedReplyRef.current.length) {
         typewriterTimerRef.current = null;
         setReplyTypingVersion((version) => version + 1);
+        onComplete?.();
         return;
       }
 
@@ -367,6 +453,51 @@ export default function ChatbotMain() {
     };
 
     writeNextCharacter();
+  }
+
+  function typeBubbleSentence(text: string): Promise<void> {
+    if (typewriterTimerRef.current) {
+      clearTimeout(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+
+    streamedReplyRef.current = text;
+    displayedReplyRef.current = "";
+    setBotReply("");
+
+    return new Promise((resolve) => {
+      streamReplyCharacters(resolve);
+    });
+  }
+
+  async function displayBubbleSentences(text: string, emotion: BotEmotion) {
+    const sequenceId = bubbleDisplaySequenceRef.current + 1;
+    bubbleDisplaySequenceRef.current = sequenceId;
+    bubbleDisplayInProgressRef.current = true;
+
+    const chunks = splitBubbleDisplayChunks(text);
+
+    try {
+      setBotEmotion(emotion);
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        if (bubbleDisplaySequenceRef.current !== sequenceId) return;
+
+        await typeBubbleSentence(chunks[index]);
+
+        if (
+          index < chunks.length - 1 &&
+          bubbleDisplaySequenceRef.current === sequenceId
+        ) {
+          await wait(BUBBLE_SENTENCE_PAUSE_MS);
+        }
+      }
+    } finally {
+      if (bubbleDisplaySequenceRef.current === sequenceId) {
+        bubbleDisplayInProgressRef.current = false;
+        setReplyTypingVersion((version) => version + 1);
+      }
+    }
   }
 
   function routeVoiceCommand(command: ReturnType<typeof detectVoiceCommand>) {
@@ -412,6 +543,57 @@ export default function ChatbotMain() {
     setShowConversationResult(visible);
   }
 
+  function resetConversationSession(options: { blockAutoRestart?: boolean } = {}) {
+    if (typewriterTimerRef.current) {
+      clearTimeout(typewriterTimerRef.current);
+      typewriterTimerRef.current = null;
+    }
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+    if (wakeTimeoutRef.current) {
+      clearTimeout(wakeTimeoutRef.current);
+      wakeTimeoutRef.current = null;
+    }
+
+    resetChatSession();
+    resetRecorder();
+
+    turnCountRef.current = 0;
+    conversationRunningRef.current = false;
+    conversationActiveRef.current = false;
+    submittingTranscriptRef.current = false;
+    lastBotMessageIdRef.current = null;
+    activeBotTurnIdRef.current = null;
+    streamedReplyRef.current = "";
+    displayedReplyRef.current = "";
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    lastVoiceTextRef.current = null;
+    silenceRetryRef.current = 0;
+    lastPromptRef.current = "";
+    greetingInProgressRef.current = false;
+    finishActionPendingRef.current = false;
+    flowStepRef.current = "IDLE";
+    sustainedRetryRef.current = 0;
+    bubbleDisplaySequenceRef.current += 1;
+    bubbleDisplayInProgressRef.current = false;
+    botLineSpeakingRef.current = false;
+
+    if (options.blockAutoRestart) {
+      autoStartedRef.current = false;
+      lastAutoGreetingRef.current = 0;
+    }
+
+    setConversationResultVisible(false);
+    setIsConversationActive(false);
+    setChatState("idle");
+    setBotEmotion("default");
+    setBotReply(getTimeBasedGreeting());
+    setFlowStep("IDLE");
+  }
+
   async function speakSingleBotLine(text: string, emotion: BotEmotion = "happy") {
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
@@ -419,20 +601,41 @@ export default function ChatbotMain() {
     }
 
     lastPromptRef.current = text;
-    streamedReplyRef.current = text;
-    displayedReplyRef.current = "";
-    typewriterDelayRef.current = 40;
+    typewriterDelayRef.current = 22;
+    botLineSpeakingRef.current = true;
 
-    setBotReply("");
-    setBotEmotion(emotion);
     setChatState("botSpeaking");
 
-    streamReplyCharacters();
-    await Promise.all([speakText(text), wait(Math.max(500, text.length * 45))]);
+    try {
+      const chunks = splitBubbleDisplayChunks(text);
+
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index];
+        let didStartBubble = false;
+        let bubblePromise: Promise<void> = Promise.resolve();
+        const startBubble = () => {
+          if (didStartBubble) return;
+          didStartBubble = true;
+          bubblePromise = displayBubbleSentences(chunk, emotion);
+        };
+
+        await speakText(chunk, startBubble);
+        startBubble();
+        await bubblePromise;
+        await wait(100);
+
+        if (index < chunks.length - 1) {
+          await wait(BUBBLE_SENTENCE_PAUSE_MS);
+        }
+      }
+    } finally {
+      botLineSpeakingRef.current = false;
+      isBotSpeakingRef.current = false;
+    }
   }
 
   async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
-    // 문장을 쪼개지 않고 통째로 전달하여 문장 간 API 딜레이 렉을 제거하고 한 호흡으로 낭독합니다.
+    // TTS는 한 호흡으로 재생하되, 화면 말풍선은 문장 단위로 순차 표시한다.
     await speakSingleBotLine(text, emotion);
   }
 
@@ -475,6 +678,9 @@ export default function ChatbotMain() {
   useEffect(
     () => () => {
       if (typewriterTimerRef.current) clearTimeout(typewriterTimerRef.current);
+      bubbleDisplaySequenceRef.current += 1;
+      bubbleDisplayInProgressRef.current = false;
+      botLineSpeakingRef.current = false;
       if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
       if (sustainedStopTimeoutRef.current) {
         clearTimeout(sustainedStopTimeoutRef.current);
@@ -526,23 +732,45 @@ export default function ChatbotMain() {
     sampleType: VoiceSampleType,
     sampleStatus: "ok" | "too_short" | "failed" = "ok",
   ) {
+    console.log("[CHATBOT_VOICE_SAMPLE_ENTER]", {
+      audioUriToSave,
+      sampleType,
+      sampleStatus,
+      role,
+      voiceAnalysisTargetSeniorId,
+      hasUser: !!user,
+    });
     // 한 대화에서 여러 턴을 모두 분석하면 예측·알림이 중복된다.
     // 대화 시작 시 수집하는 첫 자유발화 한 건만 그날의 CHATBOT 목소리 날씨 근거로 사용한다.
     if (
       !audioUriToSave ||
-      sampleType !== "free_speech_intro" ||
+      sampleType !== "sustained_vowel" ||
       sampleStatus !== "ok" ||
-      role !== "elder" ||
+      !voiceAnalysisTargetSeniorId ||
       !user
     ) {
+      console.log("[CHATBOT_VOICE_SAMPLE_SKIP]", {
+        noAudioUri: !audioUriToSave,
+        wrongSampleType: sampleType !== "sustained_vowel",
+        wrongSampleStatus: sampleStatus !== "ok",
+        noVoiceAnalysisTarget: !voiceAnalysisTargetSeniorId,
+        noUser: !user,
+      });
       return;
     }
 
     try {
+      console.log("[CHATBOT_VOICE_ANALYZE_START]", {
+        audioUriToSave,
+        sampleType,
+        sampleStatus,
+        voiceAnalysisTargetSeniorId,
+      });
       await analyzeVoice(audioUriToSave, "CHATBOT", sampleType, sampleStatus);
+      console.log("[CHATBOT_VOICE_ANALYZE_SUCCESS]");
     } catch (error) {
       // 분석 실패가 안부 대화 자체를 막지는 않는다. 원본 오디오는 기존 ZDR 흐름대로 폐기한다.
-      console.warn("[CHATBOT_VOICE_ANALYZE_FAILED]", error);
+      console.log("[CHATBOT_VOICE_ANALYZE_FAILED]", error);
     }
   }
 
@@ -649,6 +877,8 @@ export default function ChatbotMain() {
     if (submittingTranscriptRef.current) return;
     submittingTranscriptRef.current = true;
 
+    const recordingEndAt = chatTimingNowMs();
+
     const turnDurationMs = durationMs;
     const currentFlowStep = flowStepRef.current;
     const isMedicationConversation =
@@ -671,6 +901,18 @@ export default function ChatbotMain() {
       mode: recordingMode,
       durationMs: turnDurationMs,
       audioUri: turnAudioUri,
+    });
+
+    console.log("[CHATBOT_VOICE_SAMPLE_CHECK]", {
+      turnAudioUri,
+      recordingMode,
+      currentFlowStep,
+      isMedicationConversation,
+      sampleType,
+      sampleStatus,
+      role,
+      voiceAnalysisTargetSeniorId,
+      hasUser: !!user,
     });
 
     void (async () => {
@@ -732,8 +974,9 @@ export default function ChatbotMain() {
         // 오디오 해제·상태 초기화는 업로드가 끝난 뒤 아래 finally 의 clearAudio() 가 담당한다.
         if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
 
+        console.log("[CHAT_TIMING] recording_end");
         console.log("[SEND_VOICE_MESSAGE_START]", turnAudioUri);
-        await sendVoiceMessage(turnAudioUri, turnDurationMs);
+        await sendVoiceMessage(turnAudioUri, turnDurationMs, { recordingEndAt });
         console.log("[SEND_VOICE_MESSAGE_DONE]");
 
         // 업로드가 끝난 뒤에 녹음기를 초기화한다(타이머·웹 VAD 모니터·autoStoppingRef
@@ -851,9 +1094,7 @@ export default function ChatbotMain() {
 
     lastBotMessageIdRef.current = lastBotMessage.id;
     activeBotTurnIdRef.current = lastBotMessage.turnId ?? lastBotMessage.id;
-    streamedReplyRef.current = lastBotMessage.text;
     lastPromptRef.current = lastBotMessage.text;
-    displayedReplyRef.current = "";
     typewriterDelayRef.current = lastBotMessage.typingDelayMs ?? 48;
 
     if (typewriterTimerRef.current) {
@@ -861,10 +1102,12 @@ export default function ChatbotMain() {
       typewriterTimerRef.current = null;
     }
 
-    setBotReply("");
     setBotEmotion(lastBotMessage.emotion ?? liveBotEmotion);
-    streamReplyCharacters();
     setChatState("botSpeaking");
+    void displayBubbleSentences(
+      lastBotMessage.text,
+      lastBotMessage.emotion ?? liveBotEmotion,
+    );
   }, [isConversationActive, liveBotEmotion, messages]);
 
   useEffect(() => {
@@ -872,7 +1115,10 @@ export default function ChatbotMain() {
       finishActionPendingRef.current = true;
     }
 
-    const isReplyTyping = typewriterTimerRef.current !== null;
+    const isReplyTyping =
+      typewriterTimerRef.current !== null ||
+      bubbleDisplayInProgressRef.current ||
+      botLineSpeakingRef.current;
 
     console.log("[FINISH_CHECK]", {
       nextAction,
@@ -960,19 +1206,20 @@ export default function ChatbotMain() {
     try {
       flowStepRef.current = "GREETING";
       setFlowStep("GREETING");
-      const firstReply = `안녕하세요. ${getTimeBasedGreeting()}`;
+      const greeting = getTimeBasedVoiceCheckGreeting();
+      const checkPrompt = pickRandom(VOICE_CHECK_PROMPTS);
+      const firstReply = `${greeting} ${checkPrompt} 제가 셋을 세면 시작해볼게요. 셋. 둘. 하나.`;
 
       silenceRetryRef.current = 0;
+      flowStepRef.current = "VOICE_CHECK_INTRO";
+      setFlowStep("VOICE_CHECK_INTRO");
       await speakBotLine(firstReply, "happy");
 
       greetingInProgressRef.current = false;
       conversationActiveRef.current = true;
       setIsConversationActive(true);
-      flowStepRef.current = "FIRST_FREE_TALK";
-      setFlowStep("FIRST_FREE_TALK");
-      setChatState("listening");
 
-      beginConversationListening();
+      beginSustainedVowelRecording();
     } catch {
       setChatState("error");
 
@@ -1055,18 +1302,7 @@ export default function ChatbotMain() {
         conversationActiveRef.current = true;
         setIsConversationActive(true);
       } else {
-        conversationRunningRef.current = false;
-        conversationActiveRef.current = false;
-        submittingTranscriptRef.current = false;
-        turnCountRef.current = 0;
-
-        setIsConversationActive(false);
-        setChatState("idle");
-        setBotEmotion("default");
-        setBotReply(getTimeBasedGreeting());
-        flowStepRef.current = "IDLE";
-        setFlowStep("IDLE");
-        setConversationResultVisible(false);
+        resetConversationSession();
       }
 
       const hasMedicationTrigger = !!(medicationReminderId || localMedicationId);
@@ -1108,7 +1344,6 @@ export default function ChatbotMain() {
     }, [
       localMedicationId,
       medicationReminderId,
-      startReturnGreeting,
     ]),
   );
 
@@ -1152,57 +1387,43 @@ export default function ChatbotMain() {
 
     if (!triggerId || medicationAutoStartedRef.current === triggerId) return;
 
+    resetConversationSession();
+
     medicationAutoStartedRef.current = triggerId;
-    voiceModeRef.current = null;
-    activeRecordingModeRef.current = null;
-    finishActionPendingRef.current = false;
-    resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
-    flowStepRef.current = "IDLE";
-    setFlowStep("IDLE");
 
     void startMedicationReminderConversation();
   }, [
     localMedicationId,
     medicationReminderId,
-    resetRecorder,
     startMedicationReminderConversation,
   ]);
 
   useEffect(() => {
     if (!startedFromIntro || autoStartedRef.current) return;
 
+    resetConversationSession();
+
     autoStartedRef.current = true;
     lastAutoGreetingRef.current = Date.now();
 
-    voiceModeRef.current = null;
-    activeRecordingModeRef.current = null;
-    finishActionPendingRef.current = false;
-    resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
-    flowStepRef.current = "IDLE";
-    setFlowStep("IDLE");
 
     void startFirstGreeting();
-  }, [resetRecorder, startFirstGreeting, startedFromIntro]);
+  }, [startFirstGreeting, startedFromIntro]);
 
   function handleStartConversation() {
     console.log("[START_BUTTON_CLICKED]");
 
+    resetConversationSession();
+
     autoStartedRef.current = true;
     lastAutoGreetingRef.current = Date.now();
 
-    voiceModeRef.current = null;
-    activeRecordingModeRef.current = null;
-    finishActionPendingRef.current = false;
-    resetRecorder();
     conversationActiveRef.current = true;
     setIsConversationActive(true);
-    setConversationResultVisible(false);
-    flowStepRef.current = "IDLE";
-    setFlowStep("IDLE");
 
     void startFirstGreeting();
   }
@@ -1211,10 +1432,23 @@ export default function ChatbotMain() {
     console.log("[BEGIN_LISTEN]", {
       active: conversationActiveRef.current,
       recorderState,
+      isBotSpeaking: isBotSpeakingRef.current,
+      isBotTyping: isBotTypingRef.current,
+      bubbleSpeaking: bubbleDisplayInProgressRef.current,
+      botLineSpeaking: botLineSpeakingRef.current,
     });
 
     if (!conversationActiveRef.current) {
       console.log("[LISTEN_SKIP] not active");  // ← 이게 찍히면?
+      return;
+    }
+    if (
+      isBotSpeakingRef.current ||
+      isBotTypingRef.current ||
+      bubbleDisplayInProgressRef.current ||
+      botLineSpeakingRef.current
+    ) {
+      console.log("[LISTEN_SKIP] bot speaking");
       return;
     }
     if (recorderState === "recording" || recorderState === "processing") {
@@ -1231,6 +1465,18 @@ export default function ChatbotMain() {
     setChatState("listening");
 
     setTimeout(() => {
+      if (
+        !conversationActiveRef.current ||
+        voiceModeRef.current !== "conversation" ||
+        isBotSpeakingRef.current ||
+        isBotTypingRef.current ||
+        bubbleDisplayInProgressRef.current ||
+        botLineSpeakingRef.current
+      ) {
+        console.log("[START_RECORDING_SKIP] bot still speaking or inactive");
+        return;
+      }
+
       console.log("[START_RECORDING]", voiceModeRef.current);
       void startRecording(1500);
     }, 350);
@@ -1240,7 +1486,11 @@ export default function ChatbotMain() {
     if (
       chatState !== "botSpeaking" &&
       chatState !== "thinking" &&
-      recorderState !== "recording"
+      recorderState !== "recording" &&
+      !isBotSpeakingRef.current &&
+      !isBotTypingRef.current &&
+      !bubbleDisplayInProgressRef.current &&
+      !botLineSpeakingRef.current
     ) {
       beginConversationListening();
     }
@@ -1266,22 +1516,7 @@ export default function ChatbotMain() {
 
   function handleResultHome() {
     void endConversationSession();
-    conversationRunningRef.current = false;
-    conversationActiveRef.current = false;
-    submittingTranscriptRef.current = false;
-    voiceModeRef.current = null;
-    activeRecordingModeRef.current = null;
-    finishActionPendingRef.current = false;
-
-    setConversationResultVisible(false);
-    setIsConversationActive(false);
-    setChatState("idle");
-    setBotEmotion("default");
-    setBotReply("오늘 저녁은 맛있게 챙겨드셨나요?");
-    flowStepRef.current = "IDLE";
-    setFlowStep("IDLE");
-
-    resetRecorder();
+    resetConversationSession({ blockAutoRestart: true });
   }
 
   const showGuardianNotice = false;
@@ -1490,8 +1725,21 @@ export default function ChatbotMain() {
               />
             </Svg>
 
-            <Text style={styles.speechText}>{botReply}</Text>
+            <Text
+              style={styles.speechText}
+            >
+              {speechBubbleText}
+            </Text>
           </Pressable>
+
+          {isConversationActive && !!latestUserMessage?.text && (
+            <View style={styles.userSpeechStatusBar}>
+              <Text style={styles.userSpeechStatusLabel}>들은 말</Text>
+              <Text style={styles.userSpeechStatusText} numberOfLines={2}>
+                {latestUserMessage.text}
+              </Text>
+            </View>
+          )}
 
           {recorderState === "recording" && (
             <View style={styles.recordingStatusBar}>
@@ -1713,6 +1961,7 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: "900",
     textAlign: "center",
+    maxHeight: 68,
   },
   recordingStatusBar: {
     alignSelf: "center",
@@ -1728,6 +1977,32 @@ const styles = StyleSheet.create({
   recordingTime: {
     color: "#668D5F",
     fontSize: 14,
+    fontWeight: "800",
+  },
+  userSpeechStatusBar: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    maxWidth: "88%",
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,253,248,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.55)",
+  },
+  userSpeechStatusLabel: {
+    color: "#6F9C62",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  userSpeechStatusText: {
+    flexShrink: 1,
+    color: "#3B2318",
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "800",
   },
   sttDebugBar: {

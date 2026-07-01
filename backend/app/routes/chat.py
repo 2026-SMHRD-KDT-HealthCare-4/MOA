@@ -11,6 +11,7 @@ AI 챗봇 안부 대화 라우터 — 요구사항 6, 13, 14번
 """
 
 from datetime import datetime
+import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,7 +24,6 @@ from app.models.models import ChatSession, Guardian, UrgentAlert
 from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
     ChatMessageRequest,
-    ChatMessageResponseData,
     ChatSessionEndRequest,
     ChatSessionResponse,
     ChatFrontendEnvelope,
@@ -73,15 +73,18 @@ def send_dev_message(req: DevChatRequest):
     return {"status": "success", "data": result}
 
 
-@router.post("", response_model=ChatMessageResponseData)
+@router.post("", response_model=ChatFrontendEnvelope)
 def send_message(
     req: ChatMessageRequest,
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
+    total_start = time.perf_counter()
+    print("[CHAT_TIMING] request_start")
     print(f"\n[chat.py/send_message] >>> 요청 수신. user_id={user_id}, message='{req.message}'")
     senior_id = user_id  # 토큰의 본인 ID 사용 (guardian·senior 공통, req.senior_id는 신뢰하지 않음)
 
+    session_start = time.perf_counter()
     if req.session_id is not None:
         print(f"[chat.py/send_message] 기존 세션 ID 사용: {req.session_id}")
         session = (
@@ -107,6 +110,7 @@ def send_message(
         print(f"[chat.py/send_message] 신규 세션 생성 완료. ID: {session.session_id}")
 
     # 1. 사용자 발화 비식별화(생년월일/주소/전화번호) 후 누적
+    print(f"[CHAT_TIMING] session_ms={round((time.perf_counter() - session_start) * 1000)}")
     masked_message = deidentify(req.message)
     now_iso = datetime.utcnow().isoformat()
 
@@ -123,21 +127,26 @@ def send_message(
     # 2-1. 장기 기억 주입: 이 사용자의 과거 대화 세션(현재 세션 제외)을 조회해 프롬프트용 컨텍스트로 만든다.
     #      조회/생성 실패가 채팅을 막지 않도록 예외는 흡수하고 빈 컨텍스트로 진행한다.
     print("[chat.py/send_message] Supabase 장기 기억(RAG) 조회 시도...")
+    rag_start = time.perf_counter()
     try:
         memory_sessions = get_recent_memory(db, senior_id, exclude_session_id=session.session_id)
         memory_context = build_memory_context(memory_sessions)
+        print(f"[CHAT_TIMING] rag_ms={round((time.perf_counter() - rag_start) * 1000)}")
         print(f"[chat.py/send_message] 장기 기억 조회 완료. 컨텍스트 길이: {len(memory_context)} 자")
     except Exception as e:
         print(f"[chat.py/send_message] ⚠️ 장기 기억 조회 실패 (예외 흡수 및 빈 컨텍스트 진행): {e}")
+        print(f"[CHAT_TIMING] rag_ms={round((time.perf_counter() - rag_start) * 1000)}")
         memory_context = ""
 
     print("[chat.py/send_message] GPT 추론(chat_for_frontend) 호출...")
     try:
+        chat_for_frontend_start = time.perf_counter()
         result = chat_for_frontend(
             req.message,
             history=history,
             memory_context=memory_context,
         )
+        print(f"[CHAT_TIMING] chat_for_frontend_ms={round((time.perf_counter() - chat_for_frontend_start) * 1000)}")
         print(f"[chat.py/send_message] GPT 추론 성공. 결과 reply: '{result.get('reply')}'")
     except Exception as e:
         print(f"[chat.py/send_message] ❌ 에러: GPT 추론 실패: {e}")
@@ -153,17 +162,21 @@ def send_message(
     session.messages = messages
 
     print("[chat.py/send_message] 대화 상태 DB 저장(Commit) 시도...")
+    db_commit_start = time.perf_counter()
     try:
         db.commit()
         db.refresh(session)
+        print(f"[CHAT_TIMING] db_commit_ms={round((time.perf_counter() - db_commit_start) * 1000)}")
         print("[chat.py/send_message] DB 저장 성공.")
     except Exception as e:
         print(f"[chat.py/send_message] ❌ 에러: DB 저장 실패: {e}")
+        print(f"[CHAT_TIMING] db_commit_ms={round((time.perf_counter() - db_commit_start) * 1000)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"대화 세션 저장 실패: {str(e)}")
 
     # response_model 이 ChatFrontendEnvelope 이므로 envelope({status, data}) 형태로 반환한다.
     # ChatFrontendData 에 대화 제어 필드(next_action·question_index 등)가 모두 포함된다.
+    print(f"[CHAT_TIMING] total_chat_ms={round((time.perf_counter() - total_start) * 1000)}")
     return ChatFrontendEnvelope(
         status="success",
         data=ChatFrontendData(
