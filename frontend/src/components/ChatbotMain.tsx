@@ -744,6 +744,7 @@ export default function ChatbotMain() {
     // 대화 시작 시 수집하는 첫 자유발화 한 건만 그날의 CHATBOT 목소리 날씨 근거로 사용한다.
     if (
       !audioUriToSave ||
+      role !== "elder" ||
       sampleType !== "sustained_vowel" ||
       sampleStatus !== "ok" ||
       !voiceAnalysisTargetSeniorId ||
@@ -751,6 +752,7 @@ export default function ChatbotMain() {
     ) {
       console.log("[CHATBOT_VOICE_SAMPLE_SKIP]", {
         noAudioUri: !audioUriToSave,
+        notElder: role !== "elder",
         wrongSampleType: sampleType !== "sustained_vowel",
         wrongSampleStatus: sampleStatus !== "ok",
         noVoiceAnalysisTarget: !voiceAnalysisTargetSeniorId,
