@@ -11,6 +11,9 @@ const ONBOARDING_STATE_KEY = "moa.session.onboarding";
 
 const isWeb = Platform.OS === "web";
 
+// 토큰 자동 갱신(/auth/refresh) 호출용. 다른 api 모듈과 동일 기준.
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
 async function secureSet(key: string, value: string): Promise<void> {
   if (isWeb) {
     try {
@@ -72,6 +75,61 @@ export async function saveToken(token: string): Promise<void> {
   await secureSet(ACCESS_TOKEN_KEY, token);
 }
 
+// JWT payload 의 exp(초) → 밀리초. 디코드 불가(atob 미지원 등)면 null.
+function tokenExpiryMs(token: string): number | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload || !globalThis.atob) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    const json = JSON.parse(globalThis.atob(padded)) as { exp?: number };
+    return typeof json.exp === "number" ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// 동시 다발 갱신 방지용 in-flight 프라미스(단일 세션 가정 — 한 번에 하나만 갱신).
+let refreshInFlight: Promise<string | null> | null = null;
+
+// refresh_token 으로 새 access_token 을 발급받아 저장한다. 실패 시 토큰 정리 후 null.
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = await getRefreshToken();
+    if (!refreshToken) {
+      await clearStoredAuthTokens();
+      return null;
+    }
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!res.ok) throw new Error("REFRESH_FAILED");
+      const body = (await res.json()) as {
+        data?: { access_token?: string; refresh_token?: string };
+      };
+      const newAccess = body.data?.access_token;
+      const newRefresh = body.data?.refresh_token;
+      if (!newAccess) throw new Error("REFRESH_NO_TOKEN");
+      await saveToken(newAccess);
+      if (newRefresh) await saveRefreshToken(newRefresh);
+      return newAccess;
+    } catch {
+      // 갱신 실패(만료·무효 refresh) → 세션 정리, 재로그인 유도
+      await clearStoredAuthTokens();
+      return null;
+    }
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
+}
+
 export async function getToken(): Promise<string | null> {
   if (!memoryAccessToken) {
     memoryAccessToken = await secureGet(ACCESS_TOKEN_KEY);
@@ -83,6 +141,15 @@ export async function getToken(): Promise<string | null> {
     );
     await clearStoredAuthTokens();
     return null;
+  }
+
+  if (!memoryAccessToken) return null;
+
+  // 만료됐거나 60초 내 만료 예정이면 선제 갱신 → 모든 API 호출이 유효 토큰을 쓰게 한다.
+  // exp 디코드 불가(예: atob 미지원 환경)면 갱신을 건너뛰고 저장 토큰을 그대로 반환한다.
+  const expMs = tokenExpiryMs(memoryAccessToken);
+  if (expMs !== null && expMs - Date.now() < 60_000) {
+    return refreshAccessToken();
   }
 
   return memoryAccessToken;

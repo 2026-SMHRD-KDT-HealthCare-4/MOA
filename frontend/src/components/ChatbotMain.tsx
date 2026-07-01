@@ -951,9 +951,15 @@ export default function ChatbotMain() {
         // 대화가 활성이고 일반대화(NORMAL_CHAT) 흐름이면 한 턴으로 정상 전송한다.
         // 이 보강이 없으면 mode=null 인 done 오디오를 통째로 버려, 응답 없이
         // "계속 듣기만" 하는 상태(턴 유실)가 된다. (콘솔 [TURN_READY] mode:null 증상)
+        // recordingMode 가 직전 턴 cleanup(아래 finally)으로 null 로 churn 돼도, 대화 중이면
+        // 턴을 살린다. voiceModeRef 는 finally 가 건드리지 않아 churn 과 무관하게 '대화 턴'을
+        // 신뢰성 있게 식별한다(홈 화면 대화처럼 flowStep 이 IDLE 로 남는 경로도 포함).
+        // sustainedVowel 턴은 이 지점 위에서 이미 처리되므로 여기 걸리지 않는다.
         const isConversationTurn =
           recordingMode === "conversation" ||
-          (conversationActiveRef.current && flowStepRef.current === "NORMAL_CHAT");
+          (conversationActiveRef.current &&
+            (voiceModeRef.current === "conversation" ||
+              flowStepRef.current === "NORMAL_CHAT"));
         if (!isConversationTurn) {
           resetRecorder();
           return;
@@ -1416,9 +1422,10 @@ export default function ChatbotMain() {
     void startFirstGreeting();
   }, [startFirstGreeting, startedFromIntro]);
 
-  function handleStartConversation() {
+  async function handleStartConversation() {
     console.log("[START_BUTTON_CLICKED]");
 
+    await endConversationSession();
     resetConversationSession();
 
     autoStartedRef.current = true;

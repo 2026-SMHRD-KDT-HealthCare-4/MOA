@@ -24,6 +24,7 @@ from app.models.models import ChatSession, Guardian, UrgentAlert
 from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
     ChatMessageRequest,
+    ChatSessionStartResponse,
     ChatSessionEndRequest,
     ChatSessionResponse,
     ChatFrontendEnvelope,
@@ -99,6 +100,8 @@ def send_message(
         if session is None:
             print("[chat.py/send_message] ❌ 에러: 세션을 찾을 수 없음")
             raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
+        if session.ended_at is not None:
+            raise HTTPException(status_code=409, detail="이미 종료된 대화 세션입니다.")
     else:
         print("[chat.py/send_message] 신규 세션 시작")
         session = ChatSession(
@@ -191,6 +194,31 @@ def send_message(
             question_index=result.get("question_index", 0),
             session_id=session.session_id,
         ),
+    )
+
+
+@router.post("/session/start", response_model=ChatSessionStartResponse)
+def start_session(
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """한 번의 대화에 사용할 세션을 명시적으로 시작한다.
+
+    프런트는 여기서 받은 session_id를 모든 후속 /chat 요청에 전달하고, 대화를 마칠 때
+    /chat/end를 호출한다. 화면별 훅 인스턴스가 달라도 같은 ID를 공유해 턴마다 세션이
+    쪼개지지 않도록 하는 수명주기의 시작점이다.
+    """
+    session = ChatSession(
+        senior_id=user_id,
+        started_at=datetime.utcnow(),
+        messages=[],
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return ChatSessionStartResponse(
+        session_id=session.session_id,
+        started_at=session.started_at,
     )
 
 

@@ -1,27 +1,35 @@
-// 챗봇 대화 세션 ID 전역 스토어.
-//
-// 문제: 세션 ID를 useMoaChat 훅 내부의 useRef 에 저장하면,
-//   - ChatbotMain 과 ChatPage 가 각각 useMoaChat() 을 호출해 서로 다른 ref 를 가지고
-//   - 화면 전환/재마운트 시 ref 가 null 로 초기화되어
-//   한 대화가 여러 세션으로 쪼개진다(백엔드가 매 턴 새 session 생성).
-//
-// 해결: 세션 ID를 컴포넌트 바깥의 zustand 스토어에 두어, 어느 컴포넌트에서
-//   useMoaChat 을 호출하든 같은 세션 ID를 공유하고, 재마운트되어도 유지되게 한다.
-//
-// 사용:
-//   const { sessionId, setSessionId, clearSession } = useChatSessionStore();
-//   또는 렌더 밖(콜백/비동기)에서는 useChatSessionStore.getState() 로 직접 접근.
-
 import { create } from "zustand";
 
 interface ChatSessionState {
-  sessionId: string | null;
-  setSessionId: (id: string | null) => void;
-  clearSession: () => void;
+  activeSessionByUser: Record<string, string>;
+  getActiveSession: (userId: string) => string | null;
+  setActiveSession: (userId: string, sessionId: string) => void;
+  clearActiveSession: (userId: string, expectedSessionId?: string) => void;
 }
 
-export const useChatSessionStore = create<ChatSessionState>((set) => ({
-  sessionId: null,
-  setSessionId: (id) => set({ sessionId: id }),
-  clearSession: () => set({ sessionId: null }),
+// ChatbotMain과 ChatPage가 서로 다른 useMoaChat 훅 인스턴스를 사용하더라도
+// 인증 사용자별 활성 session_id는 하나를 공유한다. 앱을 새로고침하면 메모리 상태가
+// 사라져 새 대화로 시작하며, 일반 화면 전환·컴포넌트 재마운트에는 유지된다.
+export const useChatSessionStore = create<ChatSessionState>((set, get) => ({
+  activeSessionByUser: {},
+
+  getActiveSession: (userId) => get().activeSessionByUser[userId] ?? null,
+
+  setActiveSession: (userId, sessionId) =>
+    set((state) => ({
+      activeSessionByUser: {
+        ...state.activeSessionByUser,
+        [userId]: sessionId,
+      },
+    })),
+
+  clearActiveSession: (userId, expectedSessionId) =>
+    set((state) => {
+      const current = state.activeSessionByUser[userId];
+      if (!current || (expectedSessionId && current !== expectedSessionId)) return state;
+
+      const next = { ...state.activeSessionByUser };
+      delete next[userId];
+      return { activeSessionByUser: next };
+    }),
 }));

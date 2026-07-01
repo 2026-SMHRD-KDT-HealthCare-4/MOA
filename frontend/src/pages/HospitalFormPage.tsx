@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { ArrowLeft } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { createElement, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useMedicationStore } from "../stores/medicationStore";
 import {
@@ -271,25 +271,33 @@ export default function HospitalFormPage() {
         </Field>
 
         <Field label="방문일">
-          <TextInput
-            value={visitDate}
-            onChangeText={setVisitDate}
-            placeholder="2026-06-24"
-            placeholderTextColor="#A8968D"
-            keyboardType="numbers-and-punctuation"
-            style={styles.input}
-          />
+          {Platform.OS === "web" ? (
+            <WebInput type="date" value={visitDate} onChange={setVisitDate} />
+          ) : (
+            <TextInput
+              value={visitDate}
+              onChangeText={setVisitDate}
+              placeholder="2026-06-24"
+              placeholderTextColor="#A8968D"
+              keyboardType="numbers-and-punctuation"
+              style={styles.input}
+            />
+          )}
         </Field>
 
         <Field label="시간">
-          <TextInput
-            value={visitTime}
-            onChangeText={setVisitTime}
-            placeholder="10:00"
-            placeholderTextColor="#A8968D"
-            keyboardType="numbers-and-punctuation"
-            style={styles.input}
-          />
+          {Platform.OS === "web" ? (
+            <WebInput type="time" value={visitTime} onChange={setVisitTime} />
+          ) : (
+            <TextInput
+              value={visitTime}
+              onChangeText={setVisitTime}
+              placeholder="10:00"
+              placeholderTextColor="#A8968D"
+              keyboardType="numbers-and-punctuation"
+              style={styles.input}
+            />
+          )}
         </Field>
 
         <Field label="메모">
@@ -309,7 +317,7 @@ export default function HospitalFormPage() {
           <View>
             <Text style={styles.noticeTitle}>알림 설정</Text>
             <Text style={styles.noticeSub}>
-              방문 3일 전, 1일 전에 알려드려요.
+              방문 3일 전, 1일 전, 당일 아침 7시에 알려드려요.
             </Text>
           </View>
 
@@ -342,6 +350,38 @@ function Field({
       {children}
     </View>
   );
+}
+
+// 웹 전용 네이티브 피커: type=date → 브라우저 캘린더, type=time → 시간 스크롤.
+// RN Web 에서 실제 <input> DOM 을 렌더한다(네이티브에서는 호출되지 않음 — Platform.OS 가드).
+// value: date="YYYY-MM-DD", time="HH:MM" (DB 포맷과 동일).
+function WebInput({
+  type,
+  value,
+  onChange,
+}: {
+  type: "date" | "time";
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return createElement("input", {
+    type,
+    value,
+    onChange: (e: { target: { value: string } }) => onChange(e.target.value),
+    style: {
+      width: "100%",
+      minHeight: 54,
+      boxSizing: "border-box",
+      backgroundColor: "rgba(255,255,255,0.88)",
+      border: "1px solid #E2CFC0",
+      borderRadius: 15,
+      padding: "0 15px",
+      fontSize: 18,
+      fontWeight: 700,
+      color: "#3B2318",
+      fontFamily: "inherit",
+    },
+  });
 }
 
 const styles = StyleSheet.create({
