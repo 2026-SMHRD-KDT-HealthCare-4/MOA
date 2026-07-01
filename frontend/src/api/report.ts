@@ -91,3 +91,28 @@ export async function getReportAlerts(seniorId: string, reportMonth: string): Pr
   });
   return res.alerts ?? [];
 }
+
+// GET /report/patterns/{seniorId}?month= — '이번 달 주목할 변화'(음성 영역별 관찰).
+// 질환 점수가 아니라 음향 피처의 월별 변화를 요약한 값이다(점수·병명 비노출).
+export interface VoicePatternItem {
+  area: string;
+  status: "normal" | "caution";
+  text: string;
+}
+interface PatternsDto {
+  patterns: { area: string; status: string; text: string }[];
+}
+export async function getReportPatterns(
+  seniorId: string,
+  reportMonth: string,
+): Promise<VoicePatternItem[]> {
+  const res = await apiFetch<PatternsDto>(`/report/patterns/${seniorId}?month=${reportMonth}`, {
+    method: "GET",
+    auth: true,
+  });
+  return (res.patterns ?? []).map((p) => ({
+    area: p.area,
+    status: p.status === "caution" ? "caution" : "normal",
+    text: p.text,
+  }));
+}

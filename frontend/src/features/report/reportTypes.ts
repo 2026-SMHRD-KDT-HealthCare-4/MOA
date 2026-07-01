@@ -13,7 +13,7 @@ export interface VoicePattern {
   text: string;
 }
 
-// 목소리 변화 추이 차트 한 점. value: 0 정상 / 1 주의 / 2 변화감지
+// 목소리 변화 추이 차트 한 점. value: 0 정상 / 1 주의 / 2 관찰필요
 export interface ChartPoint {
   date: string; // 'M/D'
   value: 0 | 1 | 2;
@@ -24,12 +24,13 @@ export interface ReportAlert {
   text: string;
 }
 
-// 캘린더 날짜별 체크인 상태.
-// 'normal'  체크인 완료 + 정상
-// 'caution' 체크인 완료 + 변화감지
-// 'missed'  미체크인
+// 캘린더 날짜별 체크인 상태. 심각도 3단계(정상<주의<관찰필요)를 그래프와 동일하게 맞춘다.
+// 'normal'    체크인 완료 + 정상(맑음)
+// 'caution'   체크인 완료 + 주의(흐림)
+// 'attention' 체크인 완료 + 관찰필요(비) — 가장 높은 단계
+// 'missed'    미체크인
 // (맵에 없는 날짜 = 오늘 이후 → 표시하지 않음)
-export type CalendarDayStatus = "normal" | "caution" | "missed";
+export type CalendarDayStatus = "normal" | "caution" | "attention" | "missed";
 export type CheckinCalendar = Record<number, CalendarDayStatus>;
 
 export interface FamilyReport {
@@ -44,9 +45,10 @@ export interface FamilyReport {
   alerts: ReportAlert[];
 }
 
-// 차트 y축 라벨 (수치 대신 의미 표기)
+// 차트 y축 라벨 (수치 대신 의미 표기). 심각도: 정상 < 주의 < 관찰필요.
+// ('변화감지'는 추이의 최고 단계 라벨로 오해를 줘 '관찰필요'로 정리 — 색은 초록/노랑/앰버로 상승.)
 export const STATUS_LABELS: Record<0 | 1 | 2, string> = {
   0: "정상",
   1: "주의",
-  2: "변화감지",
+  2: "관찰필요",
 };

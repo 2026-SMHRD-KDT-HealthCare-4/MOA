@@ -9,6 +9,7 @@
 """
 
 import random
+import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -606,6 +607,44 @@ def _generate_unique_reconnect_code(db: Session) -> str:
             return code
 
 
+def _ensure_senior_auth_user(senior: Senior) -> None:
+    """Supabase Auth 사용자가 DB senior_id와 같은 UUID로 존재하도록 보장한다.
+
+    public.senior 데이터만 복원되고 auth.users가 비어 있는 환경에서 magiclink를 바로
+    생성하면 Supabase가 같은 이메일의 사용자를 새 UUID로 만들 수 있다. 그러면 세션의
+    sub와 senior_id가 달라져 /auth/me 및 모든 직접사용자 API가 실패하므로, 매직링크
+    생성 전에 명시적으로 기존 senior_id를 사용해 Auth 사용자를 복원한다.
+    """
+    senior_id = str(senior.senior_id)
+    try:
+        response = supabase_admin.auth.admin.get_user_by_id(senior_id)
+        auth_user = response.user
+    except Exception:
+        try:
+            response = supabase_admin.auth.admin.create_user(
+                {
+                    "id": senior_id,
+                    "email": senior.email,
+                    # 직접사용자는 재연결 코드만 사용한다. 임의 비밀번호는 외부에 노출하지 않는다.
+                    "password": secrets.token_urlsafe(32),
+                    "email_confirm": True,
+                    "user_metadata": {"role": "senior", "name": senior.name},
+                }
+            )
+            auth_user = response.user
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"직접사용자 인증 정보 복구 실패: {e}",
+            )
+
+    if auth_user is None or str(auth_user.id) != senior_id:
+        raise HTTPException(
+            status_code=500,
+            detail="직접사용자 인증 정보와 프로필 ID가 일치하지 않습니다.",
+        )
+
+
 @router.post("/senior/{senior_id}/reconnect-code", response_model=ReconnectCodeResponse)
 def create_reconnect_code(
     senior_id: UUID,
@@ -663,6 +702,8 @@ def reconnect_senior(req: ReconnectRequest, db: Session = Depends(get_db)):
     if senior is None:
         raise HTTPException(status_code=404, detail="고령층 정보를 찾을 수 없습니다.")
 
+    _ensure_senior_auth_user(senior)
+
     try:
         # 매직링크 생성 — 이메일은 보내지 않고 hashed_token만 추출 (service_role 필수)
         link_res = supabase_admin.auth.admin.generate_link({
@@ -677,8 +718,14 @@ def reconnect_senior(req: ReconnectRequest, db: Session = Depends(get_db)):
             "type": "magiclink",
         })
         session = session_res.session
-        if session is None:
+        session_user = session_res.user
+        if session is None or session_user is None:
             raise HTTPException(status_code=500, detail="세션 발급에 실패했습니다.")
+        if str(session_user.id) != str(senior.senior_id):
+            raise HTTPException(
+                status_code=500,
+                detail="재연결 세션과 직접사용자 프로필 ID가 일치하지 않습니다.",
+            )
     except HTTPException:
         raise
     except Exception as e:

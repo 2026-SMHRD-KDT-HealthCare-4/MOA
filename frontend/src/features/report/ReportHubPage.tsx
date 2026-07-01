@@ -19,9 +19,11 @@ import {
   getMonthlyStats,
   getAvailableMonths,
   getReportAlerts,
+  getReportPatterns,
   type TrendPoint,
   type TrendStatus,
   type ReportAlert,
+  type VoicePatternItem,
 } from "../../api/report";
 
 // real 모드에서만 서버 조회. 그 외(mock)·조회 실패 시 빈 상태로 처리한다.
@@ -32,13 +34,13 @@ function currentReportMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-// 추이 상태 → 차트 y값(0 정상 / 1 주의 / 2 변화감지)
+// 추이 상태 → 차트 y값(0 정상 / 1 주의 / 2 관찰필요)
 function chartValue(s: TrendStatus): 0 | 1 | 2 {
   return s === "rainy" ? 2 : s === "cloudy" ? 1 : 0;
 }
 
 // 서버 실데이터만으로 해당 월 리포트를 구성한다(mock 베이스 없음).
-// 백엔드 미지원 항목(voicePatterns)은 빈 배열 → 화면에서 "준비 중" 빈 상태로 처리한다.
+// voicePatterns 는 /report/patterns 집계 결과. 데이터 부족 시 빈 배열 → "준비 중" 빈 상태.
 function buildReport(
   elderName: string,
   month: string,
@@ -46,6 +48,7 @@ function buildReport(
   participatedDays: number,
   totalDays: number,
   alerts: ReportAlert[],
+  patterns: VoicePatternItem[],
 ): FamilyReportData {
   // 추이는 최근치를 함께 받으므로 선택된 월의 데이터만 사용한다.
   const monthTrend = trend.filter((p) => p.date.startsWith(month));
@@ -59,7 +62,8 @@ function buildReport(
   for (let day = 1; day <= totalDays; day++) checkinCalendar[day] = "missed";
   monthTrend.forEach((p) => {
     const day = Number(p.date.split("-")[2]);
-    checkinCalendar[day] = p.status === "rainy" ? "caution" : "normal";
+    checkinCalendar[day] =
+      p.status === "rainy" ? "attention" : p.status === "cloudy" ? "caution" : "normal";
   });
 
   const latest: TrendStatus = monthTrend.length
@@ -77,7 +81,13 @@ function buildReport(
     checkinRate: { done: participatedDays, total: totalDays },
     checkinCalendar,
     chartData,
-    voicePatterns: [], // 백엔드 미지원 → 빈 상태 UI ("준비 중")
+    // icon 은 화면 렌더에서 쓰지 않으므로 빈 문자열(타입 충족용). area/status/text 만 사용.
+    voicePatterns: patterns.map((p) => ({
+      area: p.area,
+      icon: "",
+      status: p.status,
+      text: p.text,
+    })),
     alerts,
   };
 }
@@ -160,10 +170,15 @@ export default function ReportHubPage() {
     let alive = true;
     (async () => {
       try {
-        const [trend, stats, alerts] = await Promise.all([
+        const [trend, stats, alerts, patterns] = await Promise.all([
           getReportTrend(effectiveId, 31),
           getMonthlyStats(effectiveId, selectedMonth),
           getReportAlerts(effectiveId, selectedMonth),
+          // '주목할 변화'는 보조 섹션. 엔드포인트 미배포/실패해도 리포트 전체를 죽이지 않고
+          // 빈 배열로 폴백해 해당 카드만 "준비 중"으로 둔다.
+          getReportPatterns(effectiveId, selectedMonth).catch(
+            (): VoicePatternItem[] => [],
+          ),
         ]);
         if (alive) {
           setRealReports((prev) => ({
@@ -175,6 +190,7 @@ export default function ReportHubPage() {
               stats.participatedDays,
               stats.totalDays,
               alerts,
+              patterns,
             ),
           }));
         }
@@ -198,9 +214,12 @@ export default function ReportHubPage() {
       </View>
 
       {/* 상단 가로 스크롤 칩 셀렉터 */}
+      {/* style에 flexGrow/Shrink 0 을 줘서 가로 ScrollView 가 세로로 눌리지 않게 한다.
+          (RNW 가로 ScrollView 는 overflow-y:hidden 이라 세로가 눌리면 칩 글자가 잘린다) */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.chipScroll}
         contentContainerStyle={styles.chipRow}
       >
         {chips.map((chip) => {
@@ -281,6 +300,8 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: "#3B2318",
   },
+  // 가로 ScrollView 자체는 콘텐츠 높이를 그대로 쓰게 고정(세로 눌림/잘림 방지)
+  chipScroll: { flexGrow: 0, flexShrink: 0 },
   chipRow: {
     paddingHorizontal: 20,
     paddingVertical: 10,
@@ -289,6 +310,7 @@ const styles = StyleSheet.create({
   chip: {
     flexShrink: 0,
     minWidth: 72,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
