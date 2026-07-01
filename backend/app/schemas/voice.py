@@ -57,6 +57,8 @@ class AnalyzeResponseData(BaseModel):
     feature_id: UUID
     features: Dict[str, float]
     risk_prediction: Optional["RiskPredictionResponse"] = None
+    sample_type: Optional[Literal["free_speech_intro", "sustained_vowel", "normal_chat"]] = None
+    sample_status: Optional[Literal["ok", "too_short", "failed"]] = None
     # 녹음 직후 피드백용 — 캘린더/리포트와 동일한 단일 소스(weather_status)로 산출한 날씨.
     status: Optional[Literal["sunny", "cloudy", "rainy"]] = None
     # 직전 기록 대비: 첫 기록 first / 같은 상태 similar / 달라짐 changed.

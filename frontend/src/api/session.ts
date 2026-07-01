@@ -49,14 +49,42 @@ async function secureDelete(key: string): Promise<void> {
 // ── access 토큰 (메모리 + SecureStore / 웹 localStorage) ──────────────
 let memoryAccessToken: string | null = null;
 
+function isMockAccessToken(token: string | null | undefined): token is string {
+  return Boolean(token?.startsWith("mock-token-"));
+}
+
+async function clearStoredAuthTokens(): Promise<void> {
+  memoryAccessToken = null;
+  await secureDelete(ACCESS_TOKEN_KEY);
+  await secureDelete(REFRESH_TOKEN_KEY);
+}
+
 export async function saveToken(token: string): Promise<void> {
+  if (isMockAccessToken(token)) {
+    console.warn(
+      "[MOA_SESSION] 실제 로그인 토큰이 필요합니다. mock-token이 감지되어 저장하지 않고 세션 토큰을 정리합니다.",
+    );
+    await clearStoredAuthTokens();
+    return;
+  }
+
   memoryAccessToken = token;
   await secureSet(ACCESS_TOKEN_KEY, token);
 }
 
 export async function getToken(): Promise<string | null> {
-  if (memoryAccessToken) return memoryAccessToken;
-  memoryAccessToken = await secureGet(ACCESS_TOKEN_KEY);
+  if (!memoryAccessToken) {
+    memoryAccessToken = await secureGet(ACCESS_TOKEN_KEY);
+  }
+
+  if (isMockAccessToken(memoryAccessToken)) {
+    console.warn(
+      "[MOA_SESSION] 실제 로그인 토큰이 필요합니다. mock-token이 감지되어 저장된 세션 토큰을 정리합니다.",
+    );
+    await clearStoredAuthTokens();
+    return null;
+  }
+
   return memoryAccessToken;
 }
 
@@ -98,7 +126,5 @@ export async function getOnboardingDone(userId: string): Promise<boolean> {
 
 // 로그아웃: access(메모리) + refresh(보관소) 모두 폐기.
 export async function clearToken(): Promise<void> {
-  memoryAccessToken = null;
-  await secureDelete(ACCESS_TOKEN_KEY);
-  await clearRefreshToken();
+  await clearStoredAuthTokens();
 }

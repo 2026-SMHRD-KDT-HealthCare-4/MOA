@@ -10,7 +10,8 @@
 """
 
 from datetime import datetime
-from typing import Optional
+import traceback
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -28,25 +29,39 @@ from app.services.weather_status import status_from_prediction
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 
+def _log_analyze_error(error: Exception) -> None:
+    print("[ANALYZE_ERROR]")
+    print(f"Type: {type(error).__name__}")
+    print(f"Repr: {repr(error)}")
+    print("Traceback:")
+    print(traceback.format_exc())
+
+
 @router.post("", response_model=AnalyzeResponseData)
 async def analyze_voice(
     collect_type: str = Form(..., description="SCRIPT 또는 CHATBOT"),
-    sample_type: Optional[str] = Form(
+    sample_type: Optional[Literal["free_speech_intro", "sustained_vowel", "normal_chat"]] = Form(
         None,
         description="free_speech_intro, sustained_vowel, normal_chat",
     ),
-    sample_status: Optional[str] = Form(None, description="ok, too_short, failed"),
+    sample_status: Optional[Literal["ok", "too_short", "failed"]] = Form(
+        None,
+        description="ok, too_short, failed",
+    ),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     senior: Senior = Depends(get_current_senior),
 ):
+    print("[ANALYZE] request received")
     if collect_type not in ("SCRIPT", "CHATBOT"):
         raise HTTPException(status_code=400, detail="collect_type은 SCRIPT 또는 CHATBOT 이어야 합니다.")
 
     senior_id = senior.senior_id
 
     # 1. 음성 데이터를 메모리로만 읽음 (디스크 저장 X)
+    print("[ANALYZE] file.read start")
     audio_bytes = await file.read()
+    print("[ANALYZE] file.read success")
 
     # 당뇨 모델 입력용 사용자 정보 구성 (senior 테이블에서) — 토큰 기반이라 신뢰 가능
     if senior.birth_date is not None:
@@ -61,16 +76,16 @@ async def analyze_voice(
 
     try:
         # 2. 특징 벡터 추출 (VOICE_FEATURE 저장용) — 내부 임시파일은 함수 종료 시 즉시 삭제됨
+        print("[ANALYZE] extract_features start")
         features = extract_features(audio_bytes)
-        if sample_type:
-            features["_sample_type"] = sample_type
-        if sample_status:
-            features["_sample_status"] = sample_status
-
+        print("[ANALYZE] extract_features success")
         # 3. ML 위험도 추론 (음성 원본 바이트 + 사용자정보 → 4개 질환 score/level)
         #    ML팀 통합 엔진(MOAInferenceEngine.predict_all)을 다리(ml_inference)를 통해 호출한다.
+        print("[ANALYZE] predict_risk_from_wav start")
         risk_result = predict_risk_from_wav(audio_bytes, user_info)
+        print("[ANALYZE] predict_risk_from_wav success")
     except Exception as e:
+        _log_analyze_error(e)
         raise HTTPException(status_code=500, detail=f"음성 분석 실패: {str(e)}")
     finally:
         # 4. ZDR: 메모리상의 음성 데이터 즉시 폐기
@@ -88,10 +103,13 @@ async def analyze_voice(
     db.add(voice_feature)
 
     try:
+        print("[ANALYZE] VoiceFeature save start")
         db.commit()
         db.refresh(voice_feature)
+        print("[ANALYZE] VoiceFeature save success")
     except Exception as e:
         db.rollback()
+        _log_analyze_error(e)
         raise HTTPException(status_code=500, detail=f"음성분석결과 저장 실패: {str(e)}")
 
     # 6. 위험도 예측 결과(RISK_PREDICTION) 저장 (위 3에서 ML 추론 완료)
@@ -109,10 +127,13 @@ async def analyze_voice(
     db.add(risk_prediction)
 
     try:
+        print("[ANALYZE] RiskPrediction save start")
         db.commit()
         db.refresh(risk_prediction)
+        print("[ANALYZE] RiskPrediction save success")
     except Exception as e:
         db.rollback()
+        _log_analyze_error(e)
         # 음성분석결과는 이미 저장되었으므로 위험도 예측 실패는 별도로 알리되 분석 자체는 성공 처리
         raise HTTPException(status_code=500, detail=f"위험도 예측 결과 저장 실패: {str(e)}")
 
@@ -124,7 +145,8 @@ async def analyze_voice(
             create_risk_notifications_for_active_guardians(
                 db, senior_id, risk_prediction.prediction_id
             )
-    except Exception:
+    except Exception as e:
+        _log_analyze_error(e)
         # 알림 생성 실패는 분석 응답에 영향을 주지 않는다 (로깅 후 무시).
         db.rollback()
 
@@ -144,10 +166,13 @@ async def analyze_voice(
     else:
         comparison = "similar" if status_from_prediction(prev) == status else "changed"
 
+    print("[ANALYZE] response build")
     return AnalyzeResponseData(
         feature_id=voice_feature.feature_id,
         features=features,
         risk_prediction=risk_prediction,
         status=status,
         comparison=comparison,
+        sample_type=sample_type,
+        sample_status=sample_status,
     )
