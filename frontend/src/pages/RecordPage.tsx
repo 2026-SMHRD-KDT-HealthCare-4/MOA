@@ -29,7 +29,7 @@ const RING_STROKE = 5;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-const REAL_API = process.env.EXPO_PUBLIC_AUTH_API_MODE === "real";
+const REAL_API = authApi.getAuthApiMode() === "real";
 
 function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
