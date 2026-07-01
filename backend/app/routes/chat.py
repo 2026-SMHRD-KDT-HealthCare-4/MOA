@@ -82,7 +82,8 @@ def send_message(
     total_start = time.perf_counter()
     print("[CHAT_TIMING] request_start")
     print(f"\n[chat.py/send_message] >>> 요청 수신. user_id={user_id}, message='{req.message}'")
-    senior_id = user_id  # 토큰의 본인 ID 사용 (guardian·senior 공통, req.senior_id는 신뢰하지 않음)
+    senior_id = req.senior_id
+    verify_senior_access(user_id, senior_id, db)
 
     session_start = time.perf_counter()
     if req.session_id is not None:
@@ -154,9 +155,10 @@ def send_message(
 
     # 3. 봇 응답도 비식별화(생년월일/주소/전화번호) 후 누적
     #    chat_for_frontend 는 'reply' 키로 응답한다(구버전 chat_with_gpt 의 'message' 가 아님).
-    reply = deidentify(result.get("reply", ""))
+    reply = result.get("reply", "")
+    stored_reply = deidentify(reply)
     messages.append(
-        {"user": BOT_SPEAKER, "content": reply, "time": datetime.utcnow().isoformat()}
+        {"user": BOT_SPEAKER, "content": stored_reply, "time": datetime.utcnow().isoformat()}
     )
 
     session.messages = messages
@@ -201,8 +203,7 @@ def end_session(
     session = db.query(ChatSession).filter(ChatSession.session_id == req.session_id).first()
     if session is None:
         raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
-    if session.senior_id != user_id:
-        raise HTTPException(status_code=403, detail="본인의 대화 세션만 종료할 수 있습니다.")
+    verify_senior_access(user_id, session.senior_id, db)
 
     session.ended_at = datetime.utcnow()
     db.commit()
