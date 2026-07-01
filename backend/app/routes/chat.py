@@ -73,7 +73,7 @@ def send_dev_message(req: DevChatRequest):
     return {"status": "success", "data": result}
 
 
-@router.post("", response_model=ChatFrontendEnvelope)
+@router.post("", response_model=ChatMessageResponseData)
 def send_message(
     req: ChatMessageRequest,
     db: Session = Depends(get_db),

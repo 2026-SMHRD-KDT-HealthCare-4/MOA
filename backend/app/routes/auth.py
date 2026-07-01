@@ -412,48 +412,105 @@ def claim_senior(req: SeniorClaimRequest, db: Session = Depends(get_db)):
     if invite.expired_at < datetime.utcnow():
         raise HTTPException(status_code=400, detail="만료된 초대코드입니다. 재발송을 요청해주세요.")
 
-    random_uuid = str(uuid.uuid4())
-    email = f"senior-{random_uuid}@moa.app"
-    password = f"moa-{random_uuid[:12]}"
+    clean_phone = "".join(filter(str.isdigit, req.phone))
+    email = f"senior-{clean_phone}@moa.app"
+    password = f"moa-{clean_phone}"
     senior_name = invite.senior_name if invite.senior_name else "직접사용자"
 
-    user = _supabase_sign_up(email, password, role="senior", name=senior_name)
+    existing_senior = db.query(Senior).filter(Senior.phone == req.phone).first()
 
-    senior = Senior(
-        senior_id=UUID(user.id),
-        email=email,
-        name=senior_name,
-        birth_date=req.birth_date,
-        gender=req.gender,
-        phone=req.phone,
-        smoking_yn=req.smoking_yn,
-        bmi=req.bmi,
-        medical_history=req.medical_history,
-        biometric_consent_yn=req.biometric_consent_yn,
-        consent_at=datetime.utcnow() if req.biometric_consent_yn else None,
-    )
+    if existing_senior:
+        # 기존 가입자가 존재하는 경우 -> Supabase Auth 업데이트 및 기존 DB 시니어 정보 갱신
+        try:
+            supabase.auth.admin.update_user_by_id(
+                uid=str(existing_senior.senior_id),
+                attributes={
+                    "email": email,
+                    "password": password,
+                    "email_confirm": True
+                }
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"기존 Supabase Auth 정보 갱신 실패: {e}")
 
-    try:
-        db.add(senior)
-        db.flush()
+        existing_senior.email = email
+        existing_senior.name = senior_name
+        existing_senior.birth_date = req.birth_date
+        existing_senior.gender = req.gender
+        existing_senior.smoking_yn = req.smoking_yn
+        existing_senior.bmi = req.bmi
+        existing_senior.medical_history = req.medical_history
+        existing_senior.biometric_consent_yn = req.biometric_consent_yn
+        existing_senior.consent_at = datetime.utcnow() if req.biometric_consent_yn else None
 
-        link = GuardianSenior(
-            guardian_id=invite.guardian_id,
-            senior_id=senior.senior_id,
-            link_status=LinkStatus.ACTIVE.value,
-            linked_at=datetime.utcnow(),
+        try:
+            link = (
+                db.query(GuardianSenior)
+                .filter(
+                    GuardianSenior.guardian_id == invite.guardian_id,
+                    GuardianSenior.senior_id == existing_senior.senior_id
+                )
+                .first()
+            )
+            if link is None:
+                link = GuardianSenior(
+                    guardian_id=invite.guardian_id,
+                    senior_id=existing_senior.senior_id,
+                    link_status=LinkStatus.ACTIVE.value,
+                    linked_at=datetime.utcnow(),
+                )
+                db.add(link)
+            else:
+                link.link_status = LinkStatus.ACTIVE.value
+                link.linked_at = datetime.utcnow()
+
+            invite.is_used = True
+            db.add(invite)
+            db.commit()
+            db.refresh(existing_senior)
+            senior = existing_senior
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"기존 고령층 프로필 업데이트 실패: {e}")
+    else:
+        # 신규 가입자인 경우 -> Supabase Auth 가입 및 DB Senior 신규 등록
+        user = _supabase_sign_up(email, password, role="senior", name=senior_name)
+
+        senior = Senior(
+            senior_id=UUID(user.id),
+            email=email,
+            name=senior_name,
+            birth_date=req.birth_date,
+            gender=req.gender,
+            phone=req.phone,
+            smoking_yn=req.smoking_yn,
+            bmi=req.bmi,
+            medical_history=req.medical_history,
+            biometric_consent_yn=req.biometric_consent_yn,
+            consent_at=datetime.utcnow() if req.biometric_consent_yn else None,
         )
-        db.add(link)
 
-        invite.is_used = True
-        db.add(invite)
+        try:
+            db.add(senior)
+            db.flush()
 
-        db.commit()
-        db.refresh(senior)
-    except Exception as e:
-        db.rollback()
-        _supabase_delete_user(user.id)
-        raise HTTPException(status_code=400, detail=f"고령층 프로필 저장 실패: {e}")
+            link = GuardianSenior(
+                guardian_id=invite.guardian_id,
+                senior_id=senior.senior_id,
+                link_status=LinkStatus.ACTIVE.value,
+                linked_at=datetime.utcnow(),
+            )
+            db.add(link)
+
+            invite.is_used = True
+            db.add(invite)
+
+            db.commit()
+            db.refresh(senior)
+        except Exception as e:
+            db.rollback()
+            _supabase_delete_user(user.id)
+            raise HTTPException(status_code=400, detail=f"신규 고령층 프로필 저장 실패: {e}")
 
     try:
         res = supabase.auth.sign_in_with_password(
