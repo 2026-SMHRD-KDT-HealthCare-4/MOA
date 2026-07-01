@@ -2,6 +2,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import os
 import json
+import time
 
 from app.services.conversation_rules import (
     detect_rule,
@@ -12,6 +13,76 @@ from app.services.conversation_rules import (
 load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+class EmptyChatCompletionContentError(ValueError):
+    """Raised when OpenAI returns a chat choice without JSON text content."""
+
+
+def _message_field(message, field: str):
+    if hasattr(message, field):
+        return getattr(message, field)
+    if isinstance(message, dict):
+        return message.get(field)
+    return None
+
+
+def _response_choice_diagnostics(response) -> dict:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return {"choices": 0}
+
+    choice = choices[0]
+    message = getattr(choice, "message", None)
+    tool_calls = _message_field(message, "tool_calls")
+    return {
+        "choices": len(choices),
+        "finish_reason": getattr(choice, "finish_reason", None),
+        "refusal": _message_field(message, "refusal"),
+        "tool_calls_count": len(tool_calls or []),
+    }
+
+
+def _load_chat_completion_json(response, context: str) -> dict:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        raise ValueError(f"{context}: OpenAI 응답에 choices가 없습니다.")
+
+    choice = choices[0]
+    message = getattr(choice, "message", None)
+    if message is None:
+        raise ValueError(f"{context}: OpenAI 응답 choice에 message가 없습니다.")
+
+    content = _message_field(message, "content")
+    if content is None:
+        raise EmptyChatCompletionContentError(
+            f"{context}: OpenAI message.content가 None입니다. diagnostics={_response_choice_diagnostics(response)}"
+        )
+    if not isinstance(content, str):
+        raise ValueError(f"{context}: OpenAI message.content가 문자열이 아닙니다. type={type(content).__name__}")
+    if not content.strip():
+        raise ValueError(f"{context}: OpenAI message.content가 빈 문자열입니다.")
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{context}: OpenAI 응답 JSON 파싱 실패: {exc}. content={content[:300]!r}") from exc
+
+
+def _frontend_recovery_response(message: str, current_topic: str | None, question_index: int) -> dict:
+    return validate_llm_response(
+        {
+            "reply": "말씀은 들었는데 답을 정리하지 못했어요. 다시 한 번 말씀해 주세요.",
+            "user_intent": "unknown",
+            "bot_emotion": "worried",
+            "next_action": "continue",
+            "chat_state": "botSpeaking",
+            "should_end": False,
+        },
+        message,
+        current_topic,
+        question_index,
+    )
 
 
 SYSTEM_PROMPT = """
@@ -129,7 +200,7 @@ def chat_with_gpt(message: str, history: list = []) -> dict:
         response_format={"type": "json_object"},
     )
 
-    result = json.loads(response.choices[0].message.content)
+    result = _load_chat_completion_json(response, "chat_with_gpt")
     return result
 
 
@@ -174,18 +245,39 @@ def chat_for_frontend(
     messages += history
     messages.append({"role": "user", "content": message})
 
-    response = client.chat.completions.create(
-        model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=0.55,
-    )
+    def request_completion():
+        gpt_start = time.perf_counter()
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=0.55,
+        )
+        print(f"[CHAT_TIMING] gpt_ms={round((time.perf_counter() - gpt_start) * 1000)}")
+        return response
 
-    result = json.loads(response.choices[0].message.content)
+    response = request_completion()
+    response_parse_start = time.perf_counter()
+    try:
+        result = _load_chat_completion_json(response, "chat_for_frontend")
+    except EmptyChatCompletionContentError as exc:
+        print(f"[chatbot.py/chat_for_frontend] GPT JSON content 없음. 1회 재시도: {exc}")
+        print(f"[CHAT_TIMING] response_parse_ms={round((time.perf_counter() - response_parse_start) * 1000)}")
+        retry_response = request_completion()
+        response_parse_start = time.perf_counter()
+        try:
+            result = _load_chat_completion_json(retry_response, "chat_for_frontend retry")
+        except EmptyChatCompletionContentError as retry_exc:
+            print(f"[chatbot.py/chat_for_frontend] GPT JSON content 재시도 실패. 복구 응답 사용: {retry_exc}")
+            recovery = _frontend_recovery_response(message, current_topic, question_index)
+            print(f"[CHAT_TIMING] response_parse_ms={round((time.perf_counter() - response_parse_start) * 1000)}")
+            return recovery
 
-    return validate_llm_response(
+    validated = validate_llm_response(
         result,
         message,
         current_topic,
         question_index,
     )
+    print(f"[CHAT_TIMING] response_parse_ms={round((time.perf_counter() - response_parse_start) * 1000)}")
+    return validated
