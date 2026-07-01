@@ -139,11 +139,19 @@ def send_hospital_notification(db: Session, visit: HospitalVisit, alarm_type: st
 
 
 def check_hospital_alarms():
-    """매 분마다 병원 알림 조건(12시간 전, 당일 아침 7시)을 체크해 전송한다."""
+    """매 분마다 병원 알림 조건(방문 3일 전·1일 전·당일)을 체크해 아침 7시에 전송한다.
+
+    세 알림 모두 해당 날짜 아침 7:00 에 발송한다(당일 아침 7시 포함). 스케줄러는 매 분
+    돌지만 07:00~07:10 창에서만 처리하고, 같은 날 같은 방문에 중복 발송하지 않는다.
+    """
     db: Session = SessionLocal()
     try:
         now = datetime.datetime.now()
         today = now.date()
+
+        # 아침 7:00~7:10 창에서만 발송(그 외 시간엔 아무것도 안 함).
+        if not (now.hour == 7 and 0 <= now.minute <= 10):
+            return
 
         active_visits = db.query(HospitalVisit).filter(
             HospitalVisit.is_active == True,
@@ -151,48 +159,30 @@ def check_hospital_alarms():
         ).all()
 
         for visit in active_visits:
-            visit_datetime = datetime.datetime.combine(visit.visit_date, visit.visit_time)
+            days_left = (visit.visit_date - today).days
+            visit_hm = visit.visit_time.strftime('%H:%M')
 
-            # 1. 12시간 전 알림 체크
-            time_12h_ago = visit_datetime - datetime.timedelta(hours=12)
-            is_12h_window = time_12h_ago <= now <= (time_12h_ago + datetime.timedelta(minutes=10))
+            if days_left == 3:
+                label = "방문 3일 전"
+                body = f"{visit.hospital_name} 방문이 3일 남았어요. 일정을 확인해 주세요 ({visit_hm})."
+            elif days_left == 1:
+                label = "방문 1일 전"
+                body = f"{visit.hospital_name} 방문이 내일이에요. 일정을 확인해 주세요 ({visit_hm})."
+            elif days_left == 0:
+                label = "당일 방문 안내"
+                body = f"오늘 {visit.hospital_name} 방문 일정이 있어요. 방문 시간을 확인해 주세요 ({visit_hm})."
+            else:
+                continue
 
-            # 2. 당일 아침 7시 알림 체크
-            is_morning_window = (visit.visit_date == today) and (now.hour == 7 and 0 <= now.minute <= 10)
+            # 오늘 이 방문에 대해 이미 HOSPITAL 알림이 나갔으면 중복 방지(하루 1건).
+            already_sent = db.query(Notification).filter(
+                Notification.hospital_visit_id == visit.visit_id,
+                Notification.notification_type == "HOSPITAL",
+                Notification.sent_at >= datetime.datetime.combine(today, datetime.time(0, 0)),
+            ).first()
 
-            # 12시간 전 발송 처리
-            if is_12h_window:
-                sent_12h = db.query(Notification).filter(
-                    Notification.hospital_visit_id == visit.visit_id,
-                    Notification.notification_type == "HOSPITAL",
-                    Notification.sent_at >= visit_datetime - datetime.timedelta(hours=13),
-                    Notification.sent_at <= visit_datetime - datetime.timedelta(hours=11)
-                ).first()
-
-                if not sent_12h:
-                    send_hospital_notification(
-                        db,
-                        visit,
-                        "방문 12시간 전",
-                        f"방문 12시간 전입니다. {visit.hospital_name}에 방문할 일정이 있으니 확인해 주세요 ({visit.visit_time.strftime('%H:%M')})."
-                    )
-
-            # 당일 아침 7시 발송 처리
-            if is_morning_window:
-                sent_morning = db.query(Notification).filter(
-                    Notification.hospital_visit_id == visit.visit_id,
-                    Notification.notification_type == "HOSPITAL",
-                    Notification.sent_at >= datetime.datetime.combine(today, datetime.time(6, 0)),
-                    Notification.sent_at <= datetime.datetime.combine(today, datetime.time(8, 0))
-                ).first()
-
-                if not sent_morning:
-                    send_hospital_notification(
-                        db,
-                        visit,
-                        "당일 방문 안내",
-                        f"오늘 {visit.hospital_name} 방문 일정이 있습니다. 방문 시간을 확인해 주세요 ({visit.visit_time.strftime('%H:%M')})."
-                    )
+            if not already_sent:
+                send_hospital_notification(db, visit, label, body)
 
     except Exception as e:
         logger.error(f"Error in check_hospital_alarms: {e}")

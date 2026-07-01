@@ -48,6 +48,7 @@ from app.schemas.auth import (
     LinkStatusUpdateRequest,
     LoginRequest,
     MeResponse,
+    RefreshRequest,
     ReconnectCodeResponse,
     ReconnectRequest,
     ReconnectResponse,
@@ -293,6 +294,30 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             "refresh_token": res.session.refresh_token,
             "role": role,
             "name": name,
+        },
+    }
+
+
+@router.post("/refresh")
+def refresh(req: RefreshRequest):
+    """refresh_token 으로 새 access_token(+refresh_token)을 발급한다.
+
+    Supabase access_token 은 단명(약 1시간)이라, 프런트는 만료 임박 시 이 엔드포인트로
+    조용히 갱신해 세션이 끊기지 않게 한다. 갱신 실패(만료/무효 refresh)는 401 → 재로그인.
+    """
+    try:
+        res = supabase.auth.refresh_session(req.refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="세션 갱신에 실패했습니다.")
+
+    if res.session is None:
+        raise HTTPException(status_code=401, detail="세션 갱신에 실패했습니다.")
+
+    return {
+        "status": "success",
+        "data": {
+            "access_token": res.session.access_token,
+            "refresh_token": res.session.refresh_token,
         },
     }
 

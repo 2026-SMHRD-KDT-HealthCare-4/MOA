@@ -55,11 +55,6 @@ type MedicationState = {
   removeHospitalSchedule: (id: string) => void;
 };
 
-const now = new Date().toISOString();
-const makeMedication = (id: string, medicineName: string, times: string[], status: MedicationStatus): MedicationItem => ({
-  id, medicineName, cycleType: "daily", scheduleType: "daily", daysOfWeek: [], times, startDate: now.slice(0, 10), endDate: null, scheduledTime: times[0], isActive: true, status, reminderCount: 0, createdAt: now, updatedAt: now,
-});
-
 const negative = ["안먹었어", "아직", "나중에", "까먹었어", "안했어"];
 
 const medicationStorage = createJSONStorage(() => ({
@@ -69,15 +64,10 @@ const medicationStorage = createJSONStorage(() => ({
 }));
 
 export const useMedicationStore = create<MedicationState>()(persist((set, get) => ({
-  medications: [
-    makeMedication("med-blood-pressure", "혈압약", ["08:00"], "completed"),
-    makeMedication("med-diabetes", "당뇨약", ["08:00", "13:00", "19:00"], "pending"),
-    makeMedication("med-vitamin", "종합비타민", ["19:00"], "reminder_scheduled"),
-  ],
-  hospitalSchedules: [
-    { id: "hospital-hyundai", hospitalName: "남양주 현대병원", visitDate: "2026-06-20", visitTime: "10:00", memo: "정기 검진", enabled: true, createdAt: now, updatedAt: now },
-    { id: "hospital-asan", hospitalName: "서울아산병원", visitDate: "2026-07-03", visitTime: "14:00", memo: "정기 검사", enabled: true, createdAt: now, updatedAt: now },
-  ],
+  // 목업 시드 제거 — 알림/복약 화면은 실제 DB(listMedications/listHospitalVisits)를 소스로 쓴다.
+  // 이 스토어는 복약 리마인더 대화 상태 등 로컬 상태 용도로만 남긴다(빈 상태로 시작).
+  medications: [],
+  hospitalSchedules: [],
   addMedication: (input) => {
     const id = `med-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; const updatedAt = new Date().toISOString();
     set((state) => ({ medications: [...state.medications, { ...input, id, scheduledTime: input.times[0], status: "pending", reminderCount: 0, createdAt: updatedAt, updatedAt }] }));
@@ -99,7 +89,7 @@ export const useMedicationStore = create<MedicationState>()(persist((set, get) =
   updateHospitalSchedule: (id, input) => set((state) => ({ hospitalSchedules: state.hospitalSchedules.map((item) => item.id === id ? { ...item, ...input, updatedAt: new Date().toISOString() } : item) })),
   removeHospitalSchedule: (id) => set((state) => ({ hospitalSchedules: state.hospitalSchedules.filter((item) => item.id !== id) })),
 }), {
-  name: "moa-medications-v1",
+  name: "moa-medications-v2",
   storage: medicationStorage,
   partialize: (state) => ({ medications: state.medications }),
 }));
