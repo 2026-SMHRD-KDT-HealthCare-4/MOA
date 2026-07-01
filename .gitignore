@@ -51,3 +51,6 @@ ml/serab-byols/serab_byols.zip
 ml/serab-byols/checkpoints/resnetish34_BYOLAs64x96-2105271915-e100-bs256-lr0003-rs42.pth
 ml/serab-byols/serab_byols.zip
 ml/serab-byols/checkpoints/resnetish34_BYOLAs64x96-2105271915-e100-bs256-lr0003-rs42.pth
+
+.vscode/
+*.pkl
