@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   UIManager,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronDown, ChevronUp, ChevronRight, MapPin } from "lucide-react-native";
+import { ChevronDown, ChevronUp, ChevronRight, ChevronLeft, MapPin } from "lucide-react-native";
 import {
   VictoryChart,
   VictoryLine,
@@ -27,8 +27,8 @@ import {
 import { colors } from "../../styles/tokens";
 import CareCenterCard from "./CareCenterCard";
 
-// 보호자 리포트 네이비 컬러 시스템 (Family 탭과 통일). 레드 금지.
-// 네이비=주요 정보 · 세이지=안정 · 앰버=주의/변화감지 · 베이지=배경.
+// 보호자 리포트 컬러 시스템 (Family 탭과 통일). 레드 금지.
+// 네이비=주요 정보/버튼 · 베이지=배경 · 추이/캘린더 심각도는 초록<노랑<앰버로 상승.
 const G = {
   bg: "#FFF8EF",
   card: "#FFFFFF",
@@ -40,16 +40,39 @@ const G = {
   primaryLight: "#EEF4FB",
   gridline: "#E5ECF5",
   trackBg: "#E8EEF6",
-  chartNormal: "#7FA38A", // 그래프 정상 점 + 캘린더 정상 — 가족 탭 안정 세이지그린
-  chartLine: "#B8C7DD", // 추이 그래프 연결선 — 블루톤(점 색과 분리)
-  chartChange: "#4F76A8", // 변화감지 라인/범례
-  chartChangeDot: "#355A8A", // 변화감지 dot
-  warning: "#E8943A", // 주의(앰버)
+  chartLine: "#B8C7DD", // 추이 그래프 연결선 — 중립 톤(점 색과 분리)
+  // 심각도 3단계 색(초록→노랑→앰버). 색만이 아니라 라벨 텍스트 병행(규칙 5).
+  statusNormal: "#7FA38A", // 정상 — 세이지그린
+  statusCaution: "#F2C94C", // 주의 — 노랑
+  statusAttention: "#E8943A", // 관찰필요 — 앰버(최고 단계)
 };
 
-// "이번 달 주목할 변화" 항목 상태별 색상 — 안정=세이지그린 / 변화감지=앰버 (Family 탭과 동일)
+// "이번 달 주목할 변화" 항목 상태별 색상 — 안정=세이지그린 / 주의=앰버 (Family 탭과 동일)
 const PATTERN_CAUTION = { bg: "#FDF1E5", bar: "#E8943A", text: "#C26A1F" };
 const PATTERN_NORMAL = { bg: "#EDF5EF", bar: "#7FA38A", text: "#6F9C7A" };
+
+// 추이 점 색: 정상(0)=초록 / 주의(1)=노랑 / 관찰필요(2)=앰버. (색만이 아니라 범례 텍스트 병행)
+function dotFill(value?: number): string {
+  const v = value ?? 0;
+  if (v >= 2) return G.statusAttention;
+  if (v === 1) return G.statusCaution;
+  return G.statusNormal;
+}
+
+// 하루 단위 추이를 7일씩 묶어 '주차' 데이터로 집계. 대표값 = 그 주의 최악(최댓값) 상태.
+// x축이 한 달치 날짜로 겹치는 문제를 막기 위한 기본 뷰. range 는 일별 드릴다운 헤더에 쓴다.
+function toWeeklyTrend(
+  daily: { date: string; value: 0 | 1 | 2 }[],
+): { label: string; value: 0 | 1 | 2; range: string }[] {
+  const weeks: { label: string; value: 0 | 1 | 2; range: string }[] = [];
+  for (let i = 0; i < daily.length; i += 7) {
+    const chunk = daily.slice(i, i + 7);
+    const worst = (chunk.length ? Math.max(...chunk.map((p) => p.value)) : 0) as 0 | 1 | 2;
+    const range = chunk.length ? `${chunk[0].date}~${chunk[chunk.length - 1].date}` : "";
+    weeks.push({ label: `${weeks.length + 1}주`, value: worst, range });
+  }
+  return weeks;
+}
 
 // Android 에서 LayoutAnimation 활성화
 if (
@@ -105,12 +128,15 @@ function CheckinCalendarGrid({
           }
           const status = calendar[day]; // undefined = 오늘 이후
           const isFuture = status === undefined;
-          const isDone = status === "normal" || status === "caution";
+          const isDone =
+            status === "normal" || status === "caution" || status === "attention";
           const circleStyle =
             status === "normal"
               ? styles.dotNormal
               : status === "caution"
               ? styles.dotCaution
+              : status === "attention"
+              ? styles.dotAttention
               : status === "missed"
               ? styles.dotMissed
               : null; // future → 원 없음
@@ -142,7 +168,11 @@ function CheckinCalendarGrid({
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.calLegendDot, styles.dotCaution]} />
-          <Text style={styles.legendText}>변화감지</Text>
+          <Text style={styles.legendText}>주의</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.calLegendDot, styles.dotAttention]} />
+          <Text style={styles.legendText}>관찰필요</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.calLegendDot, styles.dotMissed]} />
@@ -178,6 +208,8 @@ export function FamilyReport({
 
   const [monthOpen, setMonthOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  // 목소리 변화 추이: null = 주차별 보기, number = 해당 주(0-기반)의 일별 보기
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   function toggleCalendar() {
     LayoutAnimation.easeInEaseOut();
@@ -186,10 +218,34 @@ export function FamilyReport({
 
   const monthLabel = monthLabelOf(selectedMonth);
 
-  const checkinPct = useMemo(
-    () => Math.round((report.checkinRate.done / report.checkinRate.total) * 100),
-    [report.checkinRate]
-  );
+  // 참여율. 분모(경과일수) 0 방어 + 0~100% 클램프.
+  // 테스트 데이터로 참여일수 > 경과일수인 비정상 케이스에서도 100% 를 넘겨 표시하지 않는다.
+  const checkinPct = useMemo(() => {
+    const { done, total } = report.checkinRate;
+    if (total <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.round((done / total) * 100)));
+  }, [report.checkinRate]);
+
+  // '근처 전문의 찾기' 안내 문구용: 이번 달 실제 변화(관찰필요일 또는 변화 알림) 여부.
+  // 변화가 없으면 "변화가 감지됐어요" 대신 중립 문구를 써서 불필요한 불안을 주지 않는다.
+  const hasNotableChange =
+    report.chartData.some((p) => p.value >= 2) || report.alerts.length > 0;
+
+  // 주차별 집계. 직접사용자/월이 바뀌면 다시 주차별 보기로 초기화한다.
+  const weeklyTrend = useMemo(() => toWeeklyTrend(report.chartData), [report.chartData]);
+  useEffect(() => setSelectedWeek(null), [report.month, report.elderlyName]);
+
+  // 데이터 재조회로 주 개수가 줄면 선택 인덱스가 범위를 벗어날 수 있으므로 방어.
+  const isWeekly = selectedWeek === null || selectedWeek >= weeklyTrend.length;
+  const weekIdx = isWeekly ? 0 : selectedWeek;
+
+  // 차트에 그릴 점: 주차별이면 주 대표값, 일별이면 선택 주의 7일.
+  const trendPoints = useMemo(() => {
+    if (isWeekly) return weeklyTrend.map((w) => ({ x: w.label, value: w.value }));
+    return report.chartData
+      .slice(weekIdx * 7, weekIdx * 7 + 7)
+      .map((d) => ({ x: d.date, value: d.value }));
+  }, [isWeekly, weekIdx, weeklyTrend, report.chartData]);
 
   return (
     <View style={styles.wrap}>
@@ -277,80 +333,118 @@ export function FamilyReport({
         ) : null}
       </View>
 
-      {/* 4. 목소리 변화 추이 그래프 */}
+      {/* 4. 목소리 변화 추이 그래프 — 기본은 주차별, 특정 주를 누르면 일별로 드릴다운 */}
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>목소리 변화 추이</Text>
-        <VictoryChart
-          width={chartWidth}
-          height={220}
-          padding={{ top: 16, bottom: 36, left: 56, right: 16 }}
-          domain={{ y: [-0.2, 2.2] }}
-          domainPadding={{ x: 14 }}
-        >
-          <VictoryAxis
-            style={{
-              tickLabels: {
-                fontSize: 11,
-                fill: G.sub,
-                fontFamily: "Pretendard-Medium",
-              },
-              axis: { stroke: G.gridline },
-              grid: { stroke: "transparent" },
-            }}
-          />
-          <VictoryAxis
-            dependentAxis
-            tickValues={[0, 1, 2]}
-            tickFormat={(t: 0 | 1 | 2) => STATUS_LABELS[t] ?? ""}
-            style={{
-              tickLabels: {
-                fontSize: 11,
-                fill: G.sub,
-                fontFamily: "Pretendard-Medium",
-              },
-              axis: { stroke: "transparent" },
-              grid: { stroke: G.gridline, strokeDasharray: "4" },
-            }}
-          />
-          <VictoryLine
-            data={report.chartData}
-            x="date"
-            y="value"
-            interpolation="monotoneX"
-            style={{ data: { stroke: G.chartLine, strokeWidth: 2.5 } }}
-          />
-          <VictoryScatter
-            data={report.chartData}
-            x="date"
-            y="value"
-            size={4.5}
-            style={{
-              data: {
-                // 3단계: 정상(0)=네이비그레이 · 주의(1)=앰버 · 변화감지(2)=네이비
-                fill: ({ datum }: { datum?: { value?: number } }) => {
-                  const v = datum?.value ?? 0;
-                  if (v >= 2) return G.chartChangeDot;
-                  if (v === 1) return G.warning;
-                  return G.chartNormal;
+        <View style={styles.trendHead}>
+          <Text style={styles.sectionTitle}>목소리 변화 추이</Text>
+          {isWeekly ? (
+            weeklyTrend.length > 0 ? (
+              <Text style={styles.trendHint}>주를 누르면 일별로 볼 수 있어요</Text>
+            ) : null
+          ) : (
+            <Pressable
+              onPress={() => setSelectedWeek(null)}
+              accessibilityRole="button"
+              accessibilityLabel="주별 보기로 돌아가기"
+              hitSlop={8}
+              style={styles.backBtn}
+            >
+              <ChevronLeft size={16} color={G.primary} />
+              <Text style={styles.backBtnText}>주별 보기</Text>
+            </Pressable>
+          )}
+        </View>
+        {!isWeekly ? (
+          <Text style={styles.trendSubLabel}>
+            {`${weekIdx + 1}주`}
+            {weeklyTrend[weekIdx]?.range ? ` · ${weeklyTrend[weekIdx].range}` : ""}
+          </Text>
+        ) : null}
+
+        <View style={styles.chartWrap}>
+          <VictoryChart
+            width={chartWidth}
+            height={220}
+            padding={{ top: 16, bottom: 36, left: 56, right: 16 }}
+            domain={{ y: [-0.2, 2.2] }}
+            domainPadding={{ x: 14 }}
+          >
+            <VictoryAxis
+              style={{
+                tickLabels: {
+                  fontSize: 11,
+                  fill: G.sub,
+                  fontFamily: "Pretendard-Medium",
                 },
-                stroke: "#FFFFFF",
-                strokeWidth: 2,
-              },
-            }}
-          />
-        </VictoryChart>
+                axis: { stroke: G.gridline },
+                grid: { stroke: "transparent" },
+              }}
+            />
+            <VictoryAxis
+              dependentAxis
+              tickValues={[0, 1, 2]}
+              tickFormat={(t: 0 | 1 | 2) => STATUS_LABELS[t] ?? ""}
+              style={{
+                tickLabels: {
+                  fontSize: 11,
+                  fill: G.sub,
+                  fontFamily: "Pretendard-Medium",
+                },
+                axis: { stroke: "transparent" },
+                grid: { stroke: G.gridline, strokeDasharray: "4" },
+              }}
+            />
+            <VictoryLine
+              data={trendPoints}
+              x="x"
+              y="value"
+              interpolation="monotoneX"
+              style={{ data: { stroke: G.chartLine, strokeWidth: 2.5 } }}
+            />
+            <VictoryScatter
+              data={trendPoints}
+              x="x"
+              y="value"
+              size={isWeekly ? 6 : 4.5}
+              style={{
+                data: {
+                  // 3단계: 정상(0)=초록 · 주의(1)=노랑 · 관찰필요(2)=앰버
+                  fill: ({ datum }: { datum?: { value?: number } }) => dotFill(datum?.value),
+                  stroke: "#FFFFFF",
+                  strokeWidth: 2,
+                },
+              }}
+            />
+          </VictoryChart>
+
+          {/* 주차별 보기에서만: plot 영역 위에 주별 투명 탭 컬럼을 얹어 '그 주 클릭 → 일별' 진입.
+              차트 패딩(left56/right16/top16/bottom36)에 맞춰 균등 분할한다. */}
+          {isWeekly && weeklyTrend.length > 0 ? (
+            <View style={styles.chartTapOverlay}>
+              {weeklyTrend.map((w, i) => (
+                <Pressable
+                  key={w.label}
+                  style={styles.tapColumn}
+                  onPress={() => setSelectedWeek(i)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${w.label} 일별로 보기`}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
         <View style={styles.legendRow}>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: G.chartNormal }]} />
+            <View style={[styles.legendDot, { backgroundColor: G.statusNormal }]} />
             <Text style={styles.legendText}>정상</Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: G.chartChange }]} />
-            <Text style={styles.legendText}>변화감지</Text>
+            <View style={[styles.legendDot, { backgroundColor: G.statusCaution }]} />
+            <Text style={styles.legendText}>주의</Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: G.warning }]} />
-            <Text style={styles.legendText}>주의</Text>
+            <View style={[styles.legendDot, { backgroundColor: G.statusAttention }]} />
+            <Text style={styles.legendText}>관찰필요</Text>
           </View>
         </View>
       </View>
@@ -432,7 +526,9 @@ export function FamilyReport({
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>근처 전문의 찾기</Text>
         <Text style={styles.hospitalLead}>
-          목소리 변화가 감지됐어요. 전문의 상담을 고려해보세요.
+          {hasNotableChange
+            ? "목소리 변화가 감지됐어요. 전문의 상담을 고려해보세요."
+            : "정기적인 목소리 점검에 참고하세요."}
         </Text>
         <View style={styles.hospitalRow}>
           {HOSPITAL_DEPTS.map((d) => (
@@ -566,6 +662,52 @@ const styles = StyleSheet.create({
     color: G.text,
   },
 
+  // 목소리 변화 추이 (주차별 ↔ 일별)
+  trendHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  trendHint: {
+    fontFamily: "Pretendard-Medium",
+    fontSize: 12,
+    color: G.sub,
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginVertical: -4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+  },
+  backBtnText: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 13,
+    color: G.primary,
+  },
+  trendSubLabel: {
+    fontFamily: "Pretendard-Bold",
+    fontSize: 13,
+    color: G.sub,
+    marginTop: -4,
+  },
+  chartWrap: { position: "relative" },
+  // plot 영역 위 투명 탭 레이어. 차트 padding 과 동일한 인셋으로 맞춘다.
+  chartTapOverlay: {
+    position: "absolute",
+    top: 16,
+    bottom: 36,
+    left: 56,
+    right: 16,
+    flexDirection: "row",
+  },
+  tapColumn: { flex: 1, height: "100%" },
+
   // 체크인
   checkinHead: { gap: 12 },
   checkinHeadRow: {
@@ -615,8 +757,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dotNormal: { backgroundColor: G.chartNormal },
-  dotCaution: { backgroundColor: G.chartChange },
+  dotNormal: { backgroundColor: G.statusNormal },
+  dotCaution: { backgroundColor: G.statusCaution },
+  dotAttention: { backgroundColor: G.statusAttention },
   dotMissed: {
     backgroundColor: "transparent",
     borderWidth: 1.5,

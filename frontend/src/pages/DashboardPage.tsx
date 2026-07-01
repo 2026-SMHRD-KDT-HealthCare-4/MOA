@@ -10,7 +10,7 @@ import {
 } from "../api/report";
 import { colors } from "../styles/tokens";
 
-type BarState = "normal" | "detected" | "pending";
+type BarState = "normal" | "caution" | "attention" | "pending";
 
 interface DayBar {
   day: string;
@@ -60,7 +60,7 @@ function buildReportView(trend: TrendPoint[], measurementCount: number, riskAler
   const weeklyVoice: DayBar[] = trend.map((p) => ({
     day: WEEKDAY[new Date(`${p.date}T00:00:00`).getDay()],
     value: STATUS_HEIGHT[p.status],
-    state: p.status === "rainy" ? "detected" : "normal",
+    state: p.status === "rainy" ? "attention" : p.status === "cloudy" ? "caution" : "normal",
   }));
 
   // 말미의 연속 '비' 일수 → 알림 기간 문구.
@@ -99,6 +99,9 @@ const COLOR = {
   brand: "#FF7955",
   warning: "#E8943A",
   chart: "#C8D0E0",
+  // 심각도 3단계(정상<주의<관찰필요) — 보호자 리포트와 동일. 초록→노랑→앰버(=warning). 레드 금지.
+  statusNormal: "#7FA38A",
+  statusCaution: "#F2C94C",
 } as const;
 
 const CHART_HEIGHT = 154;
@@ -220,7 +223,8 @@ export default function DashboardPage() {
                       style={[
                         styles.bar,
                         { height: `${item.value}%` },
-                        item.state === "detected" && styles.detectedBar,
+                        item.state === "caution" && styles.cautionBar,
+                        item.state === "attention" && styles.attentionBar,
                       ]}
                     />
                   )}
@@ -240,8 +244,12 @@ export default function DashboardPage() {
                 <Text style={styles.legendText}>정상</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendDot, styles.detectedDot]} />
-                <Text style={styles.legendText}>변화감지</Text>
+                <View style={[styles.legendDot, styles.cautionDot]} />
+                <Text style={styles.legendText}>주의</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, styles.attentionDot]} />
+                <Text style={styles.legendText}>관찰필요</Text>
               </View>
             </View>
           </View>
@@ -447,9 +455,12 @@ const styles = StyleSheet.create({
     width: "68%",
     minWidth: 18,
     borderRadius: 7,
-    backgroundColor: COLOR.chart,
+    backgroundColor: COLOR.statusNormal,
   },
-  detectedBar: {
+  cautionBar: {
+    backgroundColor: COLOR.statusCaution,
+  },
+  attentionBar: {
     backgroundColor: COLOR.warning,
   },
   pendingBar: {
@@ -492,9 +503,12 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   normalDot: {
-    backgroundColor: COLOR.chart,
+    backgroundColor: COLOR.statusNormal,
   },
-  detectedDot: {
+  cautionDot: {
+    backgroundColor: COLOR.statusCaution,
+  },
+  attentionDot: {
     backgroundColor: COLOR.warning,
   },
   legendText: {

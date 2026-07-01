@@ -46,7 +46,7 @@ function isDepartment(value: unknown): value is Department {
 }
 
 type Coords = { lat: number; lng: number };
-type Phase = "noKey" | "idle" | "loading" | "addressNotFound" | "error" | "empty" | "ready";
+type Phase = "idle" | "loading" | "addressNotFound" | "error" | "empty" | "ready";
 
 interface Hospital {
   id: string;
@@ -55,16 +55,6 @@ interface Hospital {
   distance?: string;
   phone?: string;
   url?: string;
-}
-
-interface KakaoDocument {
-  id: string;
-  place_name: string;
-  address_name?: string;
-  road_address_name?: string;
-  phone?: string;
-  distance?: string;
-  place_url?: string;
 }
 
 // === 주소 → 좌표 변환 (카카오 지오코딩) =====================================
@@ -92,21 +82,6 @@ async function searchHospitals(dept: Department, coords: Coords): Promise<Hospit
   if (!res.ok) throw new Error("hospital search failed");
   const json = (await res.json()) as Hospital[];
   return json;
-}
-
-function formatDistance(meters: number): string {
-  return meters < 1000 ? `${meters}m` : `${(meters / 1000).toFixed(1)}km`;
-}
-
-function toHospital(doc: KakaoDocument): Hospital {
-  return {
-    id: doc.id,
-    name: doc.place_name,
-    address: doc.road_address_name || doc.address_name || "",
-    distance: doc.distance ? formatDistance(Number(doc.distance)) : undefined,
-    phone: doc.phone || undefined,
-    url: doc.place_url || undefined,
-  };
 }
 
 // 근처 전문의 찾기 — 부모님(직접사용자) 주소를 기준으로 병원을 찾는다.
@@ -300,14 +275,6 @@ export default function NearbyHospitalsPage() {
         <StateMessage
           title="주변에 검색 결과가 없어요"
           body={`반경 ${SEARCH_RADIUS / 1000}km 안에서 ${dept}를 찾지 못했어요.`}
-        />
-      );
-    }
-    if (phase === "noKey") {
-      return (
-        <StateMessage
-          title="검색 키가 설정되지 않았어요"
-          body="EXPO_PUBLIC_KAKAO_REST_KEY 환경변수를 설정한 뒤 앱을 다시 시작해 주세요."
         />
       );
     }

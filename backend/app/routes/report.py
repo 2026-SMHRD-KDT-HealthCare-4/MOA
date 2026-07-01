@@ -21,6 +21,7 @@ from app.schemas.report import (
     MonthlyReportResponse,
 )
 from app.services.monthly_stats import aggregate_monthly_stats, _month_range
+from app.services.voice_patterns import analyze_voice_patterns
 # 날씨 매핑은 단일 소스(weather_status)만 사용한다 — 캘린더/리포트/녹음 피드백 일치 보장.
 from app.services.weather_status import status_from_prediction as _status_from_prediction
 
@@ -224,3 +225,20 @@ def get_report_alerts(
 
     alerts.reverse()  # 최신순
     return {"status": "success", "alerts": alerts}
+
+
+@router.get("/patterns/{senior_id}")
+def get_report_patterns(
+    senior_id: UUID,
+    month: str,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """해당 월 '이번 달 주목할 변화'(음성 영역별 관찰)를 반환한다(점수·병명 비노출, 규칙6).
+
+    risk_prediction(질환 점수)이 아니라 voice_feature 원시 음향 피처를 월 단위로 집계해
+    기준선 대비 변화가 큰 영역만 '변화 감지'로 표시한다. 데이터가 부족하면 빈 배열.
+    """
+    verify_senior_access(user_id, senior_id, db)
+    patterns = analyze_voice_patterns(db, senior_id, month)
+    return {"status": "success", "patterns": patterns}
