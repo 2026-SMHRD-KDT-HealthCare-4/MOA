@@ -865,6 +865,7 @@ export interface ClaimSeniorPayload {
   token: string;
   name?: string;
   birth_date: string;
+  gender: "M" | "F";
   phone: string;
   consent?: boolean;
 }
@@ -882,6 +883,7 @@ export async function claimSenior({
   token,
   name,
   birth_date,
+  gender,
   phone,
   consent,
 }: ClaimSeniorPayload): Promise<ApiEnvelope<ClaimSeniorData>> {
@@ -898,6 +900,7 @@ export async function claimSenior({
       body: JSON.stringify({
         invite_token: normalizedToken,
         birth_date: birth_date,
+        gender: gender,
         phone: phone,
         biometric_consent_yn: !!consent,
       }),

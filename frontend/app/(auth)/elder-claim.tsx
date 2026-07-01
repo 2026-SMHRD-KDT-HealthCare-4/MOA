@@ -72,6 +72,7 @@ export default function ElderClaimPage() {
       const res = await authApi.claimSenior({
         token: code,
         birth_date: birthDate,
+        gender: gender === "male" ? "M" : "F",
         phone,
         consent: agreed,
       });
