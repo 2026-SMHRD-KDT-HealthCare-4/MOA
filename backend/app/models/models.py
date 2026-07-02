@@ -202,8 +202,9 @@ class VoiceFeature(Base):
 
 class RiskPrediction(Base):
     """질환별_위험도_예측결과 (RISK_PREDICTION) — 요구사항 9번.
-    음성분석결과를 입력으로 AI 모델이 추론한 4개 질환(파킨슨/치매/우울/당뇨)의
+    음성분석결과를 입력으로 AI 모델이 추론한 3개 질환(파킨슨/치매/당뇨)의
     위험도(확률값)와 등급을 컬럼 단위로 저장한다.
+    depression_* 컬럼은 기존 DB/API 호환용 레거시이며 0/GREEN으로만 저장한다.
     """
     __tablename__ = "risk_prediction"
 

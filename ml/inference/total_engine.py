@@ -93,7 +93,6 @@ class MOAInferenceEngine:
                     "score_pkn":          round(float(score_pkn), 4),
                     "score_dem":          round(float(score_dem), 4),
                     "score_dm":           round(float(score_dm),  4),
-                    "score_dep":          0.0,
                     "overall_risk_level": risk_level,
                 },
                 "model_metadata": {

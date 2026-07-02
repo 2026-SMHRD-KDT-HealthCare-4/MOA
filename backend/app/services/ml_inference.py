@@ -208,18 +208,16 @@ def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
     rs  = result["data"]["risk_score"]
     pkn = float(rs["score_pkn"])
     dem = float(rs["score_dem"])
-    dep = float(rs["score_dep"])
     dm  = float(rs["score_dm"])
 
     # ── 디버그: ML이 백엔드에 넘기는 최종 점수 ──
     # 이 값과 DB(risk_prediction)의 값을 비교하면 0이 어디서 생기는지 알 수 있다.
     #  - 여기서 이미 0 → ML 엔진(total_engine) 계산/입력 문제
     #  - 여기선 0이 아닌데 DB가 0 → 저장(컬럼/스키마) 문제
-    print(f"🎯 ML 최종 점수 → pkn={pkn}, dem={dem}, dm={dm}, dep={dep}")
+    print(f"🎯 ML 최종 점수 → pkn={pkn}, dem={dem}, dm={dm}")
 
     return {
         "parkinson":  {"score": pkn, "level": _score_to_level(pkn, "parkinson")},
         "dementia":   {"score": dem, "level": _score_to_level(dem, "dementia")},
-        "depression": {"score": dep, "level": _score_to_level(dep, "depression")},
         "diabetes":   {"score": dm,  "level": _score_to_level(dm,  "diabetes")},
     }

@@ -2,14 +2,14 @@
 위험도 기반 자동 알림 트리거 판정 — AMBER 즉시 / YELLOW 누적
 
 정책
-- AMBER: 4개 질환(파킨슨/치매/우울/당뇨) 중 하나라도 AMBER 등급이면 즉시 알림 대상.
+- AMBER: 3개 질환(파킨슨/치매/당뇨) 중 하나라도 AMBER 등급이면 즉시 알림 대상.
 - YELLOW 누적(질환 통합, 날짜 기준):
     하루 "대표 등급"이 YELLOW 이상인 날이
       (a) 연속 3일 이상  또는
       (b) 최근 7일 중 4일 이상
     이면 알림 대상.
   · 하루 대표 등급 = 그날 측정된 RISK_PREDICTION 중 가장 높은 등급
-    (AMBER > YELLOW > GREEN). 4개 질환 통합이므로, 한 행에서 질환 하나라도
+    (AMBER > YELLOW > GREEN). 3개 질환 통합이므로, 한 행에서 질환 하나라도
     YELLOW면 그 행은 YELLOW, 하나라도 AMBER면 그 행은 AMBER로 본다.
 
   · "YELLOW 이상"으로 집계하는 이유: AMBER인 날도 '경고성 상태가 지속됐다'는
@@ -103,11 +103,10 @@ YELLOW_WINDOW_THRESHOLD = 4      # M일 이상
 
 
 def _row_level(pred: RiskPrediction) -> str:
-    """한 RISK_PREDICTION 행에서 4개 질환 중 가장 높은 등급을 반환."""
+    """한 RISK_PREDICTION 행에서 분석 대상 3개 질환 중 가장 높은 등급을 반환."""
     levels = [
         pred.parkinson_level,
         pred.dementia_level,
-        pred.depression_level,
         pred.diabetes_level,
     ]
     return max(levels, key=lambda lv: _LEVEL_RANK.get(lv, 0))

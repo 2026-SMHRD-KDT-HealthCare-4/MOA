@@ -75,11 +75,17 @@ class RiskPredictionResponse(BaseModel):
     senior_id: UUID
     parkinson_score: float = Field(ge=0, le=1)
     dementia_score: float = Field(ge=0, le=1)
-    depression_score: float = Field(ge=0, le=1)
+    depression_score: float = Field(
+        ge=0,
+        le=1,
+        description="레거시 호환 필드. 우울은 분석 대상에서 제외되어 항상 0입니다.",
+    )
     diabetes_score: float = Field(ge=0, le=1)
     parkinson_level: RiskLevelLiteral
     dementia_level: RiskLevelLiteral
-    depression_level: RiskLevelLiteral
+    depression_level: RiskLevelLiteral = Field(
+        description="레거시 호환 필드. 우울은 분석 대상에서 제외되어 항상 GREEN입니다.",
+    )
     diabetes_level: RiskLevelLiteral
     created_at: datetime
 

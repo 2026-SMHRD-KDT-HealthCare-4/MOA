@@ -2,7 +2,7 @@
 질환별 위험도 추론 서비스
 
 ⚠️ ML팀 모델 연동 전까지 사용하는 임시(더미) 구현입니다.
-   voice_features(dict)를 입력으로 받아 4개 질환의 (score, level) 딕셔너리를 반환하는
+   voice_features(dict)를 입력으로 받아 3개 질환의 (score, level) 딕셔너리를 반환하는
    동일한 시그니처(predict_risk)를 ML팀 실제 모델로 그대로 교체하면 됩니다.
 
    교체 시 체크리스트:
@@ -15,7 +15,7 @@ import hashlib
 import random
 
 
-RISK_KEYS = ["parkinson", "dementia", "depression", "diabetes"]
+RISK_KEYS = ["parkinson", "dementia", "diabetes"]
 
 
 def _score_to_level(score: float) -> str:
