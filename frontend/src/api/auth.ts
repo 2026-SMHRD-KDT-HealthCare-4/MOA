@@ -868,6 +868,8 @@ export interface ClaimSeniorPayload {
   gender: "M" | "F";
   phone: string;
   consent?: boolean;
+  smoking_yn?: boolean;
+  bmi?: number; // 프론트에서 키·몸무게로 산출한 값(raw 키/몸무게는 저장하지 않음)
 }
 
 export interface ClaimSeniorData {
@@ -886,6 +888,8 @@ export async function claimSenior({
   gender,
   phone,
   consent,
+  smoking_yn,
+  bmi,
 }: ClaimSeniorPayload): Promise<ApiEnvelope<ClaimSeniorData>> {
   const normalizedToken = normalizeSeniorPairingCode(token);
 
@@ -903,6 +907,8 @@ export async function claimSenior({
         gender: gender,
         phone: phone,
         biometric_consent_yn: !!consent,
+        smoking_yn: smoking_yn ?? null,
+        bmi: bmi ?? null,
       }),
     });
 

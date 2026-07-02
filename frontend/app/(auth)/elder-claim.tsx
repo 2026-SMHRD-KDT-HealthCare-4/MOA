@@ -51,6 +51,9 @@ export default function ElderClaimPage() {
   const [birthDate, setBirthDate] = useState("");
   const [phone, setPhone] = useState("");
   const [gender, setGender] = useState<SeniorGender | null>(null);
+  const [smoking, setSmoking] = useState<boolean | null>(null);
+  const [height, setHeight] = useState(""); // cm
+  const [weight, setWeight] = useState(""); // kg
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,7 +66,20 @@ export default function ElderClaimPage() {
       return setError("전화번호를 010-1234-5678 형식으로 입력해 주세요.");
     }
     if (!gender) return setError("성별을 선택해 주세요.");
+    if (smoking === null) return setError("흡연 여부를 선택해 주세요.");
+    const heightCm = Number(height);
+    if (!height.trim() || !Number.isFinite(heightCm) || heightCm < 80 || heightCm > 250) {
+      return setError("키를 cm 단위로 정확히 입력해 주세요. (예: 165)");
+    }
+    const weightKg = Number(weight);
+    if (!weight.trim() || !Number.isFinite(weightKg) || weightKg < 20 || weightKg > 300) {
+      return setError("몸무게를 kg 단위로 정확히 입력해 주세요. (예: 60)");
+    }
     if (!agreed) return setError("음성 데이터 활용에 동의해 주세요.");
+
+    // 키·몸무게로 BMI 산출(소수 1자리). raw 키/몸무게는 저장하지 않고 bmi만 전송한다.
+    const heightM = heightCm / 100;
+    const bmi = Math.round((weightKg / (heightM * heightM)) * 10) / 10;
 
     setSubmitting(true);
     try {
@@ -75,6 +91,8 @@ export default function ElderClaimPage() {
         gender: gender === "male" ? "M" : "F",
         phone,
         consent: agreed,
+        smoking_yn: smoking,
+        bmi,
       });
       const { user, refreshToken, consentDone, familyGroup, links, guardianMembers } = res.data;
 
@@ -175,6 +193,61 @@ export default function ElderClaimPage() {
             keyboardType="phone-pad"
             maxLength={13}
             accessibilityLabel="전화번호 입력"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>흡연 여부</Text>
+          <View style={styles.choiceRow}>
+            {([
+              { value: true, label: "흡연해요" },
+              { value: false, label: "안 해요" },
+            ] as const).map(({ value, label }) => {
+              const selected = smoking === value;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  style={[styles.choice, selected ? styles.choiceSelected : styles.choiceUnselected]}
+                  onPress={() => setSmoking(value)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={label}
+                >
+                  <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>키 (cm)</Text>
+          <TextInput
+            style={styles.infoInput}
+            value={height}
+            onChangeText={(v) => setHeight(v.replace(/[^\d.]/g, "").slice(0, 5))}
+            placeholder="예: 165"
+            placeholderTextColor="#c4b5ae"
+            keyboardType="decimal-pad"
+            maxLength={5}
+            accessibilityLabel="키 입력 (센티미터)"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.inputLabel}>몸무게 (kg)</Text>
+          <TextInput
+            style={styles.infoInput}
+            value={weight}
+            onChangeText={(v) => setWeight(v.replace(/[^\d.]/g, "").slice(0, 5))}
+            placeholder="예: 60"
+            placeholderTextColor="#c4b5ae"
+            keyboardType="decimal-pad"
+            maxLength={5}
+            accessibilityLabel="몸무게 입력 (킬로그램)"
           />
         </View>
 
