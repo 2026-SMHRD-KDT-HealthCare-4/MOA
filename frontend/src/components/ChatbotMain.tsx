@@ -29,6 +29,7 @@ import * as authApi from "../api/auth";
 import {
   splitIntoSentenceChunks,
   useMoaChat,
+  appendAssistantMessage,
 } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
@@ -60,15 +61,20 @@ const SHOW_STT_DEBUG =
 const RETURN_GREETING_COOLDOWN_MS = 40 * 1000;
 const SUSTAINED_VOWEL_MIN_MEANINGFUL_MS = 500;
 const SUSTAINED_VOWEL_SILENCE_MS = 3_000;
-const SUSTAINED_VOWEL_TARGET_MS = 4_000;
+// 통과 기준(감지 발성 길이). 안내 문구 "3초"에 맞추되, VAD 감지시간은 실제 발성보다
+// 짧게 잡히므로 2.5초로 완화해 정상적인 3초 발성이 반복 실패하지 않게 한다.
+const SUSTAINED_VOWEL_TARGET_MS = 2_500;
 const SUSTAINED_VOWEL_MAX_MS = 7_000;
 const FREE_TALK_MIN_MS = 1_200; // 자유대화 최소 발화 길이(ms) — 노이즈성 단답 컷용, 임시값
+// 재시도 상한: 이 횟수를 넘으면 음성검사를 종료(finishVoiceCheck(false))하고 일반 대화로 넘어간다.
+// (상한이 없으면 기준 미달 시 "'아' 소리 내주세요"가 무한 반복됨)
+const SUSTAINED_VOWEL_MAX_RETRIES = 2;
 const BUBBLE_SENTENCE_PAUSE_MS = 120;
 const BUBBLE_TEXT_MAX_CHARS = 34;
 
 const VOICE_CHECK_PROMPTS = [
   "목소리만 잠깐 확인할게요.",
-  "'아' 소리 4초만 해주세요.",
+  "'아' 소리 3초만 해주세요.",
   "짧게 목소리 확인할게요.",
 ];
 
@@ -79,9 +85,26 @@ const VOICE_CHECK_DONE_PROMPTS = [
   "아주 잘하셨어요. 이제 오늘 이야기를 더 들려주세요.",
 ];
 
+// 안부 대화 시작 질문 후보. 매일 사용해도 식상하지 않도록 주제를 넓게 두고,
+// 직전에 쓴 질문은 피해서(pickNextStartPrompt) 연속 반복을 막는다.
+// 규칙: 진단/처방/치료 표현 금지, "어르신" 미사용, 따뜻한 시니어 톤의 열린 질문.
 const NORMAL_CHAT_START_PROMPTS = [
-  "오늘 점심은 맛있게 드셨어요? 어떤 반찬이랑 드셨는지 궁금해요.",
-  "오늘 아침이나 낮에 가볍게 동네 산책은 다녀오셨어요?",
+  "오늘 점심은 뭘 드셨어요? 맛있게 드셨는지 궁금해요.",
+  "오늘 아침은 든든하게 챙겨 드셨어요?",
+  "오늘 동네 산책이나 마실은 다녀오셨어요?",
+  "오늘 날씨는 어떤가요? 바깥 공기는 좀 쐬셨어요?",
+  "요즘 밤에 잠은 잘 주무세요?",
+  "요즘 즐겨 보시는 TV 프로그램이나 드라마가 있으세요?",
+  "요즘 자주 듣는 노래나 트로트가 있으세요?",
+  "가족들 소식은 좀 들으셨어요? 다들 잘 지내죠?",
+  "오늘은 어떤 기분으로 하루를 시작하셨어요?",
+  "요즘 키우는 화분이나 텃밭은 잘 자라고 있나요?",
+  "가까이 지내는 친구나 이웃은 자주 만나세요?",
+  "오늘은 어떤 음식이 드시고 싶으세요?",
+  "따뜻한 물이나 차 한 잔 하셨어요?",
+  "요즘 시장이나 마트에는 다녀오셨어요?",
+  "오늘 하루는 어떻게 보내고 계세요?",
+  "옛날에 좋아하시던 음식이나 추억, 하나 들려주실래요?",
 ];
 
 type BotEmotion =
@@ -129,6 +152,18 @@ function chatTimingNowMs() {
 
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+// 안부 시작 질문 선택 — 직전에 쓴 질문은 피해 연속 반복을 막는다.
+// (앱 세션 내 기억. 후보 풀이 넓어 날짜가 바뀌어도 같은 질문이 이어질 확률은 낮다.)
+let lastStartPromptIndex = -1;
+function pickNextStartPrompt(): string {
+  const prompts = NORMAL_CHAT_START_PROMPTS;
+  if (prompts.length <= 1) return prompts[0] ?? "";
+  let index = Math.floor(Math.random() * prompts.length);
+  if (index === lastStartPromptIndex) index = (index + 1) % prompts.length;
+  lastStartPromptIndex = index;
+  return prompts[index];
 }
 
 function splitLongBubbleText(text: string): string[] {
@@ -921,7 +956,7 @@ export default function ChatbotMain() {
     const donePrompt = succeeded
       ? pickRandom(VOICE_CHECK_DONE_PROMPTS)
       : "목소리 확인은 여기까지 할게요.";
-    const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
+    const nextPrompt = pickNextStartPrompt();
 
     const fullText = `${donePrompt} ${nextPrompt}`;
 
@@ -933,6 +968,11 @@ export default function ChatbotMain() {
     } finally {
       greetingInProgressRef.current = false;
     }
+
+    // 오프닝 질문(대화 유도)만 세션 대화기록에 남겨 LLM이 다음 턴에 반복하지 않게 한다(비차단).
+    // 검사 종료 안내(donePrompt)는 제외하고, 실제 질문(nextPrompt)만 저장한다.
+    void appendAssistantMessage(nextPrompt);
+
     flowStepRef.current = "NORMAL_CHAT";
     normalChatStartedRef.current = true;
     console.log("[VOICE_CHECK_DEBUG] flowStep NORMAL_CHAT", {
@@ -980,7 +1020,7 @@ export default function ChatbotMain() {
     conversationActiveRef.current = true;
     setIsConversationActive(true);
 
-    const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
+    const nextPrompt = pickNextStartPrompt();
 
     try {
       greetingInProgressRef.current = true;
@@ -997,6 +1037,16 @@ export default function ChatbotMain() {
     if (showConversationResultRef.current || !conversationActiveRef.current) return;
     if (sustainedRetryInProgressRef.current) return;
 
+    // 재시도 상한 초과 → 무한 반복 대신 음성검사를 종료하고 일반 대화로 넘어간다.
+    if (sustainedRetryRef.current >= SUSTAINED_VOWEL_MAX_RETRIES) {
+      console.warn("[SUSTAINED_VOWEL_GIVE_UP]", {
+        retry: sustainedRetryRef.current,
+        reason,
+      });
+      await finishVoiceCheck(false);
+      return;
+    }
+
     sustainedRetryInProgressRef.current = true;
     sustainedRetryRef.current += 1;
     voiceModeRef.current = null;
@@ -1009,7 +1059,7 @@ export default function ChatbotMain() {
     const retryPrompt =
       reason === "noSpeech"
         ? "목소리가 잘 들리지 않았어요. 준비되시면 ‘아’ 소리를 길게 이어서 말씀해주세요."
-        : "조금 더 길게 들려주시면 좋아요. ‘아’ 소리를 4초 정도 이어서 말씀해주세요.";
+        : "조금 더 길게 들려주시면 좋아요. ‘아’ 소리를 3초 정도 이어서 말씀해주세요.";
 
     try {
       resetRecorder();
@@ -1036,6 +1086,7 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
     setBotEmotion("listening");
     setChatState("listening");
+    setBotReply("3초 동안 '아' 소리를 내어주세요");
 
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
@@ -1063,7 +1114,7 @@ export default function ChatbotMain() {
     setFlowStep("VOICE_CHECK_INTRO");
     greetingInProgressRef.current = true;
 
-    const fullText = "고마워요, '아' 소리 4초만 해볼게요, 셋, 둘, 하나.";
+    const fullText = "고마워요, '아' 소리 3초만 해볼게요, 셋, 둘, 하나.";
 
     try {
       await speakBotLine(fullText, "happy");
@@ -1166,7 +1217,7 @@ const sampleStatus =
           await saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus);
         }
 
-        // 'sustainedVowel' (아~~~ 4초 측정) 모드
+        // 'sustainedVowel' (아~~~ 3초 측정) 모드
         if (recordingMode === "sustainedVowel") {
           resetRecorder();
           if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
@@ -1481,7 +1532,7 @@ const sampleStatus =
       flowStepRef.current = "GREETING";
       setFlowStep("GREETING");
       const greeting = getTimeBasedVoiceCheckGreeting();
-      const firstReply = `${greeting} '아' 소리 4초만 해볼게요, 셋, 둘, 하나.`;
+      const firstReply = `${greeting} '아' 소리 3초만 해볼게요, 셋, 둘, 하나.`;
 
       silenceRetryRef.current = 0;
       flowStepRef.current = "VOICE_CHECK_INTRO";
@@ -1528,6 +1579,9 @@ const sampleStatus =
       const reply = getReturnGreeting();
       silenceRetryRef.current = 0;
       await speakBotLine(reply, "happy");
+
+      // 복귀 인사(대화 유도)도 세션 대화기록에 남긴다(비차단).
+      void appendAssistantMessage(reply);
 
       greetingInProgressRef.current = false;
       conversationActiveRef.current = true;
@@ -1933,7 +1987,7 @@ const sampleStatus =
   const characterVideoTopOffset = Math.round(170 * v);
   const recordingInstruction =
     flowStep === "SUSTAINED_VOWEL_RECORDING"
-      ? "4초 동안 '아~~~' 하고 말해주세요"
+      ? "3초 동안 '아~~~' 하고 말해주세요"
       : null;
 
   if (showConversationResult) {

@@ -19,7 +19,6 @@ def create_mock_prediction(senior_id, date, level):
     pred.senior_id = senior_id
     pred.parkinson_level = level
     pred.dementia_level = "GREEN"
-    pred.depression_level = "GREEN"
     pred.diabetes_level = "GREEN"
     
     # We mock created_at to be a datetime on that date

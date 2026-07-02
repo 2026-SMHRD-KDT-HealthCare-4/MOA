@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../stores/authStore";
+import { getGuardianSeniors } from "../../api/auth";
 import {
   type FamilyReport as FamilyReportData,
   type CheckinCalendar,
@@ -102,6 +103,26 @@ export default function ReportHubPage() {
 
   // 실제 연동된 직접사용자(ACTIVE elder link)만 칩으로 노출한다.
   const links = useAuthStore((s) => s.links);
+  const authUser = useAuthStore((s) => s.user);
+  const role = useAuthStore((s) => s.role);
+  const setLinks = useAuthStore((s) => s.setLinks);
+
+  // 리포트 탭 진입 시 링크를 최신으로 갱신한다. (로그인/세션복원 때의 링크에는 PDF 기본정보용
+  // 성별/생년월일/흡연/BMI/보호자 연락처가 없을 수 있어, 여기서 getGuardianSeniors 로 다시 받는다.)
+  useEffect(() => {
+    if (!REAL_API || role !== "guardian" || !authUser) return;
+    let alive = true;
+    getGuardianSeniors(authUser.id)
+      .then((res) => {
+        if (alive) setLinks(res.data);
+      })
+      .catch(() => {
+        // 실패 시 기존 링크 유지
+      });
+    return () => {
+      alive = false;
+    };
+  }, [authUser, role, setLinks]);
   const chips = useMemo(() => {
     return links
       .filter((l) => l.status === "ACTIVE" && l.relation === "elder")

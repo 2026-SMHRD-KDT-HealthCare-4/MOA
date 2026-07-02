@@ -78,7 +78,6 @@ def aggregate_monthly_stats(db: Session, senior_id: UUID, report_month: str) -> 
     avg_risk = {
         "parkinson": None,
         "dementia": None,
-        "depression": None,
         "diabetes": None,
     }
 

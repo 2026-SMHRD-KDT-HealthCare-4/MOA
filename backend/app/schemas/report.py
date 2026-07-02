@@ -29,7 +29,6 @@ class MonthlyReportResponse(BaseModel):
 class AvgRisk(BaseModel):
     parkinson: Optional[float] = None
     dementia: Optional[float] = None
-    depression: Optional[float] = None
     diabetes: Optional[float] = None
 
 

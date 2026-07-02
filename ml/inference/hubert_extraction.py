@@ -1,7 +1,7 @@
 """
 HuBERT 임베딩 추출 모듈
 facebook/hubert-base-ls960 모델을 서버 시작 시 1회만 로드해서
-치매(및 추후 우울증/ALS) 파이프라인에서 공용으로 사용한다.
+치매(및 추후 ALS) 파이프라인에서 공용으로 사용한다.
 """
 import warnings
 warnings.filterwarnings("ignore")

@@ -282,54 +282,56 @@ export function FamilyReport({
   const router = useRouter();
   const [exporting, setExporting] = useState(false);
 
-  // "PDF 내보내기" — 리포트 실데이터 + 복약 실데이터로 HTML을 만들어 PDF 파일 생성 후 공유 화면으로 이동.
+  // 리포트 실데이터 + 복약 실데이터로 PDF용 HTML/파일명을 만든다. (내보내기·공유 공통)
+  async function buildReportPdfHtml(): Promise<{ html: string; fileName: string; createdLabel: string }> {
+    let current: ReportPdfMedication[] = [];
+    let past: ReportPdfMedication[] = [];
+    try {
+      const meds = await listMedications(seniorId, false);
+      ({ current, past } = groupMedications(meds));
+    } catch {
+      // 복약 조회 실패 시 빈 상태로 둔다(리포트 생성 자체는 계속 진행).
+    }
+
+    const now = new Date();
+    const createdLabel = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
+
+    const html = buildReportHtml({
+      elderlyName: report.elderlyName,
+      periodLabel: periodLabelOf(report.month),
+      createdLabel,
+      // 기본정보 실데이터 — /auth/guardian/seniors 응답. null 은 템플릿에서 "정보없음" 처리.
+      gender: elderGender === "M" ? "남성" : elderGender === "F" ? "여성" : undefined,
+      birthDate: elderBirthDate ? elderBirthDate.slice(0, 10) : undefined,
+      smoking: elderSmokingYn == null ? undefined : elderSmokingYn ? "흡연" : "비흡연",
+      bmi: elderBmi == null ? undefined : String(elderBmi),
+      guardianPhone: guardianPhone ?? undefined,
+      voicePatterns: report.voicePatterns.map((p) => ({
+        area: p.area,
+        status: p.status,
+        text: p.text,
+      })),
+      currentMeds: current,
+      pastMeds: past,
+      participation: { done: report.checkinRate.done, total: report.checkinRate.total },
+    });
+
+    const safeName = (report.elderlyName || "직접사용자").replace(/[^\w가-힣]/g, "");
+    const fileName = `MOA_report_${safeName}_${report.month.replace("-", "")}.pdf`;
+    return { html, fileName, createdLabel };
+  }
+
+  // "PDF 내보내기" — PDF를 만들어 공유 화면(저장/공유/의사공유)으로 이동. 웹은 인쇄 대화상자.
   async function handleExportPdf() {
     if (exporting) return;
     setExporting(true);
     try {
-      let current: ReportPdfMedication[] = [];
-      let past: ReportPdfMedication[] = [];
-      try {
-        const meds = await listMedications(seniorId, false);
-        ({ current, past } = groupMedications(meds));
-      } catch {
-        // 복약 조회 실패 시 빈 상태로 둔다(리포트 생성 자체는 계속 진행).
-      }
-
-      const now = new Date();
-      const createdLabel = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
-
-      const html = buildReportHtml({
-        elderlyName: report.elderlyName,
-        periodLabel: periodLabelOf(report.month),
-        createdLabel,
-        // 기본정보 실데이터 — /auth/guardian/seniors 응답. null 은 템플릿에서 "정보없음" 처리.
-        gender: elderGender === "M" ? "남성" : elderGender === "F" ? "여성" : undefined,
-        birthDate: elderBirthDate ? elderBirthDate.slice(0, 10) : undefined,
-        smoking: elderSmokingYn == null ? undefined : elderSmokingYn ? "흡연" : "비흡연",
-        bmi: elderBmi == null ? undefined : String(elderBmi),
-        guardianPhone: guardianPhone ?? undefined,
-        voicePatterns: report.voicePatterns.map((p) => ({
-          area: p.area,
-          status: p.status,
-          text: p.text,
-        })),
-        currentMeds: current,
-        pastMeds: past,
-        participation: { done: report.checkinRate.done, total: report.checkinRate.total },
-      });
-
-      // 웹: 파일 생성/공유시트가 없으므로 인쇄 대화상자(→PDF 저장)로 처리하고 종료.
-      // 파일 저장·공유(카카오톡/의사 공유)는 네이티브 전용 흐름이다.
+      const { html, fileName, createdLabel } = await buildReportPdfHtml();
       if (Platform.OS === "web") {
         webPrintHtml(html);
         return;
       }
-
       const { uri } = await Print.printToFileAsync({ html });
-      const safeName = (report.elderlyName || "직접사용자").replace(/[^\w가-힣]/g, "");
-      const fileName = `MOA_report_${safeName}_${report.month.replace("-", "")}.pdf`;
-
       router.push({
         pathname: "/(guardian)/report-share",
         params: { uri, fileName, createdAt: createdLabel },

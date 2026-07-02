@@ -2,9 +2,9 @@
 음성 분석 라우터
 
 - 프론트에서 음성 파일을 받아 특징 벡터를 추출해 VOICE_FEATURE 테이블에 저장한다.
-- 음성 원본 + 사용자정보(age/bmi/gender)를 ML 통합 엔진에 넘겨 4개 질환 위험도를 추론하고
+- 음성 원본 + 사용자정보(age/bmi/gender)를 ML 통합 엔진에 넘겨 3개 질환 위험도를 추론하고
   RISK_PREDICTION 테이블에 저장한다. (app/services/ml_inference.py 가 ML팀 엔진을 호출)
-  현재는 파킨슨만 실제 추론되고, 치매/당뇨는 입력(과제 분할/BYOL-S 임베딩) 준비 후 확장한다.
+  분석 대상은 파킨슨/치매/당뇨이며 우울은 제외한다.
 - ZDR 원칙: 음성 원본은 메모리에서만 처리하고, 특징추출+추론 직후 즉시 폐기한다. 어떤 테이블에도
   WAV 원본은 저장하지 않는다. (요구사항 8번)
 """
@@ -79,7 +79,7 @@ async def analyze_voice(
         print("[ANALYZE] extract_features start")
         features = extract_features(audio_bytes)
         print("[ANALYZE] extract_features success")
-        # 3. ML 위험도 추론 (음성 원본 바이트 + 사용자정보 → 4개 질환 score/level)
+        # 3. ML 위험도 추론 (음성 원본 바이트 + 사용자정보 → 3개 질환 score/level)
         #    ML팀 통합 엔진(MOAInferenceEngine.predict_all)을 다리(ml_inference)를 통해 호출한다.
         print("[ANALYZE] predict_risk_from_wav start")
         risk_result = predict_risk_from_wav(audio_bytes, user_info, sample_type=sample_type)
@@ -117,11 +117,12 @@ async def analyze_voice(
         senior_id=senior_id,
         parkinson_score=risk_result["parkinson"]["score"],
         dementia_score=risk_result["dementia"]["score"],
-        depression_score=risk_result["depression"]["score"],
+        # 기존 DB/API 호환을 위한 레거시 컬럼. 우울은 분석·판정 대상에서 제외한다.
+        depression_score=0.0,
         diabetes_score=risk_result["diabetes"]["score"],
         parkinson_level=risk_result["parkinson"]["level"],
         dementia_level=risk_result["dementia"]["level"],
-        depression_level=risk_result["depression"]["level"],
+        depression_level="GREEN",
         diabetes_level=risk_result["diabetes"]["level"],
     )
     db.add(risk_prediction)

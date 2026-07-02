@@ -149,11 +149,12 @@ def main(clean_only: bool = False) -> None:
                     senior_id=senior.senior_id,
                     parkinson_score=predictions["parkinson"]["score"],
                     dementia_score=predictions["dementia"]["score"],
-                    depression_score=predictions["depression"]["score"],
+                    # 기존 DB 호환용 레거시 컬럼. 우울은 분석 대상에서 제외한다.
+                    depression_score=0.0,
                     diabetes_score=predictions["diabetes"]["score"],
                     parkinson_level=predictions["parkinson"]["level"],
                     dementia_level=predictions["dementia"]["level"],
-                    depression_level=predictions["depression"]["level"],
+                    depression_level="GREEN",
                     diabetes_level=predictions["diabetes"]["level"],
                     created_at=measured_time + timedelta(minutes=5),  # 5분 후 예측 완료
                 )
