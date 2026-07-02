@@ -49,6 +49,12 @@ export interface FamilyLink {
   relation: UserRole;
   status: LinkStatus;
   linkedAt?: string; // ACTIVE 전환 시각
+  // 리포트 PDF 기본정보용 — 직접사용자 성별('M'|'F')/생년월일/흡연여부/BMI, 연동 보호자 연락처
+  gender?: string | null;
+  birthDate?: string | null;
+  smokingYn?: boolean | null;
+  bmi?: number | null;
+  guardianPhone?: string | null;
 }
 
 export interface GuardianMember {

@@ -17,6 +17,8 @@ export default function GuardianLayout() {
       <Tabs.Screen name="report-guide" options={{ title: "음성 건강 가이드" }} />
       {/* 근처 전문의 찾기 — 탭바엔 노출하지 않고 리포트에서 진입 */}
       <Tabs.Screen name="nearby-hospitals" options={{ title: "근처 전문의 찾기" }} />
+      {/* PDF 공유 — 탭바엔 노출하지 않고 리포트 PDF 내보내기 후 진입 */}
+      <Tabs.Screen name="report-share" options={{ title: "PDF 공유" }} />
     </Tabs>
   );
 }

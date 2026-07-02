@@ -10,6 +10,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -129,13 +130,23 @@ def get_trend_data(
     db: Session = Depends(get_db),
     user_id: UUID = Depends(get_current_user_id),
 ):
-    """Return a guardian-safe recent trend without exposing medical scores or diagnoses."""
+    """Return a guardian-safe recent trend without exposing medical scores or diagnoses.
+
+    캘린더/리포트는 '하루 한 개의 날씨'만 쓴다. 하루에 분석(예측)이 여러 번 있어도
+    (대화 턴마다 /analyze 가 예측을 만들기 때문) 날짜별 '최신 1건'으로 접은 뒤,
+    최근 `limit` '일자'를 반환한다. 이렇게 해야 특정 날짜에 예측이 몰려도 과거 날짜가
+    조회 창(limit) 밖으로 밀려나지 않는다. (원본 예측/음성 피처는 그대로 보존)
+    """
     verify_senior_access(user_id, senior_id, db)
-    limit = max(1, min(limit, 31))
+    # 일자 단위 조회이므로 상한을 넉넉히(약 3개월) 둬 월 이동 시에도 과거 달이 보이게 한다.
+    limit = max(1, min(limit, 92))
+    day = func.date(RiskPrediction.created_at)
+    # DISTINCT ON (날짜) + 날짜/시각 내림차순 → 각 날짜의 '최신' 예측 1건을 최근 순으로.
     predictions = (
         db.query(RiskPrediction)
         .filter(RiskPrediction.senior_id == senior_id)
-        .order_by(RiskPrediction.created_at.desc())
+        .distinct(day)
+        .order_by(day.desc(), RiskPrediction.created_at.desc())
         .limit(limit)
         .all()
     )

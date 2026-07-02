@@ -239,6 +239,8 @@ export default function ChatbotMain() {
   const links = useAuthStore((s) => s.links);
   const wakePrompt = useWakeWordStore((s) => s.wakePrompt);
   const clearWakePrompt = useWakeWordStore((s) => s.clearWakePrompt);
+  const disableWakeWord = useWakeWordStore((s) => s.disable);
+  const enableWakeWord = useWakeWordStore((s) => s.enable);
 
   const hasStoredUserInteracted = useInteractionStore(
     (s) => s.hasUserInteracted,
@@ -270,7 +272,7 @@ export default function ChatbotMain() {
     endConversationSession,
     nextAction,
     resetChatSession,
-  } = useMoaChat();
+  } = useMoaChat({ restoreWakeWordAfterTurn: false });
 
   const {
     state: recorderState,
@@ -288,6 +290,7 @@ export default function ChatbotMain() {
     clearAudio,
   } = useRecorder({
     autoStopOnSilence: true,
+    manageWakeWord: false,
     keepAudio: true,
     skipSTT: true,
   });
@@ -330,6 +333,9 @@ export default function ChatbotMain() {
   const sustainedStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sustainedCompletionStopRequestedRef = useRef(false);
   const sustainedRetryInProgressRef = useRef(false);
+  const listeningStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listeningStartPendingRef = useRef(false);
+  const silenceHandlingRef = useRef(false);
 
   const voiceAnalysisTargetSeniorId =
     role === "elder"
@@ -374,6 +380,21 @@ export default function ChatbotMain() {
   useEffect(() => {
     isBotTypingRef.current = isBotTyping;
   }, [isBotTyping]);
+
+  useEffect(() => {
+    if (isConversationActive) {
+      disableWakeWord();
+    } else {
+      enableWakeWord();
+    }
+  }, [disableWakeWord, enableWakeWord, isConversationActive]);
+
+  useEffect(
+    () => () => {
+      enableWakeWord();
+    },
+    [enableWakeWord],
+  );
 
   // 상단 헤더의 날짜를 현재 날짜로 표시한다. 날짜가 바뀌는 자정 경계에서만 갱신하고,
   // 같은 날이면 setNow 가 같은 참조를 반환해 불필요한 리렌더를 피한다.
@@ -431,7 +452,11 @@ export default function ChatbotMain() {
   useEffect(() => {
     if (!wakePrompt) return;
 
-    void speakBotLine(wakePrompt, "happy");
+    // GlobalWakeWordListener가 호출어 안내 TTS를 이미 재생한다.
+    // 여기서 다시 speakBotLine을 호출하면 같은 안내가 중복 재생되고
+    // botSpeaking 상태가 실제 재생 상태와 어긋날 수 있으므로 화면만 갱신한다.
+    setBotReply(wakePrompt);
+    setBotEmotion("happy");
     clearWakePrompt();
   }, [clearWakePrompt, wakePrompt]);
 
@@ -584,6 +609,10 @@ export default function ChatbotMain() {
       clearTimeout(wakeTimeoutRef.current);
       wakeTimeoutRef.current = null;
     }
+    if (listeningStartTimeoutRef.current) {
+      clearTimeout(listeningStartTimeoutRef.current);
+      listeningStartTimeoutRef.current = null;
+    }
 
     resetChatSession();
     resetRecorder();
@@ -606,6 +635,8 @@ export default function ChatbotMain() {
     flowStepRef.current = "IDLE";
     normalChatStartedRef.current = false;
     sustainedRetryRef.current = 0;
+    listeningStartPendingRef.current = false;
+    silenceHandlingRef.current = false;
     sustainedRetryInProgressRef.current = false;
     bubbleDisplaySequenceRef.current += 1;
     bubbleDisplayInProgressRef.current = false;
@@ -700,6 +731,63 @@ export default function ChatbotMain() {
     console.log("[SEND_MESSAGE_CALLED]");
   }
 
+  function handleSilentConversationTurn() {
+    if (!conversationActiveRef.current || silenceHandlingRef.current) return;
+
+    silenceHandlingRef.current = true;
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    listeningStartPendingRef.current = false;
+    if (listeningStartTimeoutRef.current) {
+      clearTimeout(listeningStartTimeoutRef.current);
+      listeningStartTimeoutRef.current = null;
+    }
+    resetRecorder();
+
+    if (silenceRetryRef.current >= 1) {
+      conversationActiveRef.current = false;
+      silenceRetryRef.current = 0;
+      greetingInProgressRef.current = true;
+
+      void (async () => {
+        try {
+          await speakBotLine(
+            "잘 안 들렸네요. 필요하시면 다시 말 걸어 주세요.",
+            "happy",
+          );
+        } finally {
+          // 대화 내용은 매 /chat 요청에서 이미 저장된다. 무음 종료 시에는
+          // 세션 종료 시각을 기록하고 활성 세션 ID를 비워 다음 대화를 분리한다.
+          await endConversationSession();
+          greetingInProgressRef.current = false;
+          silenceHandlingRef.current = false;
+          finishActionPendingRef.current = false;
+          setIsConversationActive(false);
+          setChatState("completed");
+          setBotEmotion("clapping");
+          setConversationResultVisible(true);
+          console.log("[SILENCE_COMPLETE_SHOW_RESULT]");
+        }
+      })();
+      return;
+    }
+
+    silenceRetryRef.current = 1;
+    greetingInProgressRef.current = true;
+
+    void speakBotLine(
+      "잘 안 들렸어요. 다시 한번 말씀해 주세요.",
+      "worried",
+    ).finally(() => {
+      greetingInProgressRef.current = false;
+      silenceHandlingRef.current = false;
+
+      if (conversationActiveRef.current) {
+        beginConversationListening();
+      }
+    });
+  }
+
   useEffect(() => {
     const text = voiceText?.trim();
 
@@ -716,6 +804,9 @@ export default function ChatbotMain() {
       bubbleDisplayInProgressRef.current = false;
       botLineSpeakingRef.current = false;
       if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
+      if (listeningStartTimeoutRef.current) {
+        clearTimeout(listeningStartTimeoutRef.current);
+      }
       if (sustainedStopTimeoutRef.current) {
         clearTimeout(sustainedStopTimeoutRef.current);
       }
@@ -1143,13 +1234,19 @@ export default function ChatbotMain() {
 
         console.log("[CHAT_TIMING] recording_end");
         console.log("[SEND_VOICE_MESSAGE_START]", turnAudioUri);
-        await sendVoiceMessage(turnAudioUri, turnDurationMs, { recordingEndAt });
-        console.log("[SEND_VOICE_MESSAGE_DONE]");
+        const result = await sendVoiceMessage(turnAudioUri, turnDurationMs, { recordingEndAt });
+        console.log("[SEND_VOICE_MESSAGE_DONE]", result);
 
         // 업로드가 끝난 뒤에 녹음기를 초기화한다(타이머·웹 VAD 모니터·autoStoppingRef
         // 리셋, 상태 idle). 그래야 다음 턴 녹음이 깔끔하게 새로 시작되고 자동정지가
         // 정상 동작한다. 전송 전에 부르면 blob URL이 revoke돼 업로드가 깨지므로 반드시 이후.
         resetRecorder();
+
+        if (result === "empty") {
+          handleSilentConversationTurn();
+        } else if (result === "ok") {
+          silenceRetryRef.current = 0;
+        }
       } catch (err) {
         console.error("[VOICE_TURN_ERROR]", err);
         resetRecorder();
@@ -1222,45 +1319,21 @@ export default function ChatbotMain() {
       return;
     }
 
-    if (silenceRetryRef.current >= 1) {
-      if (
-        recorderStateRef.current === "recording" ||
-        recorderStateRef.current === "processing" ||
-        submittingTranscriptRef.current
-      ) {
-        console.log("[ACTIVE_FALSE_SKIP]", {
-          reason: "no_speech_while_capture_pending",
-          recorderState: recorderStateRef.current,
-          submitting: submittingTranscriptRef.current,
-        });
-        return;
-      }
-
-      voiceModeRef.current = null;
-      activeRecordingModeRef.current = null;
-      conversationActiveRef.current = false;
-      setChatState("idle");
-      setIsConversationActive(false);
-      resetRecorder();
+    if (
+      recorderStateRef.current === "recording" ||
+      recorderStateRef.current === "processing" ||
+      submittingTranscriptRef.current
+    ) {
+      console.log("[ACTIVE_FALSE_SKIP]", {
+        reason: "no_speech_while_capture_pending",
+        recorderState: recorderStateRef.current,
+        submitting: submittingTranscriptRef.current,
+      });
       return;
     }
 
-    const prompt = lastPromptRef.current || botReply;
-
-    if (!prompt) return;
-
-    silenceRetryRef.current = 1;
-    voiceModeRef.current = null;
-    activeRecordingModeRef.current = null;
-    void speakBotLine(prompt, botEmotion);
-  }, [
-    botReply,
-    chatState,
-    isConversationActive,
-    noSpeechDetected,
-    resetRecorder,
-    speakText,
-  ]);
+    handleSilentConversationTurn();
+  }, [botReply, isConversationActive, noSpeechDetected, resetRecorder, speakText]);
 
   useEffect(() => {
     if (
@@ -1334,16 +1407,6 @@ export default function ChatbotMain() {
       bubbleDisplayInProgressRef.current ||
       botLineSpeakingRef.current;
 
-    console.log("[FINISH_CHECK]", {
-      nextAction,
-      chatState,
-      isBotTyping,
-      isBotSpeaking,
-      isConversationActive,
-      isReplyTyping,
-      finishPending: finishActionPendingRef.current,
-    });
-
     if (!isConversationActive || greetingInProgressRef.current) {
       return;
     }
@@ -1385,6 +1448,7 @@ export default function ChatbotMain() {
       return;
     }
 
+    console.log("[NEXT_LISTEN_AFTER_BOT]");
     setChatState("listening");
     beginConversationListening();
   }, [
@@ -1690,6 +1754,10 @@ export default function ChatbotMain() {
       console.log("[LISTEN_SKIP] not active");  // ← 이게 찍히면?
       return false;
     }
+    if (listeningStartPendingRef.current) {
+      console.log("[LISTEN_SKIP] start already pending");
+      return false;
+    }
     if (
       isBotSpeakingRef.current ||
       isBotTypingRef.current ||
@@ -1699,11 +1767,15 @@ export default function ChatbotMain() {
       console.log("[LISTEN_SKIP] bot speaking");
       return false;
     }
-    if (recorderState === "recording" || recorderState === "processing") {
-      console.log("[LISTEN_SKIP] recorder busy:", recorderState);  // ← 이게 찍히면?
+    if (
+      recorderStateRef.current === "recording" ||
+      recorderStateRef.current === "processing"
+    ) {
+      console.log("[LISTEN_SKIP] recorder busy:", recorderStateRef.current);
       return false;
     }
 
+    listeningStartPendingRef.current = true;
     voiceModeRef.current = "conversation";
     console.log("[VOICE_MODE_SET]", voiceModeRef.current);
     activeRecordingModeRef.current = "conversation";
@@ -1712,21 +1784,28 @@ export default function ChatbotMain() {
     setBotEmotion("listening");
     setChatState("listening");
 
-    setTimeout(() => {
+    listeningStartTimeoutRef.current = setTimeout(() => {
+      listeningStartTimeoutRef.current = null;
+
       if (
         !conversationActiveRef.current ||
         voiceModeRef.current !== "conversation" ||
+        recorderStateRef.current === "recording" ||
+        recorderStateRef.current === "processing" ||
         isBotSpeakingRef.current ||
         isBotTypingRef.current ||
         bubbleDisplayInProgressRef.current ||
         botLineSpeakingRef.current
       ) {
+        listeningStartPendingRef.current = false;
         console.log("[START_RECORDING_SKIP] bot still speaking or inactive");
         return;
       }
 
       console.log("[START_RECORDING]", voiceModeRef.current);
-      void startRecording(1500);
+      void startRecording(1500).finally(() => {
+        listeningStartPendingRef.current = false;
+      });
     }, 350);
     return true;
   }

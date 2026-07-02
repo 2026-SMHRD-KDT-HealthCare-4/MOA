@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, ChevronDown, ChevronUp, Info } from "lucide-react-native";
 import { colors } from "../../styles/tokens";
+import { breathItems, languageItems, VoiceGuideItem } from "./guideItems";
 
 const G = colors.guardian;
 
@@ -16,6 +17,7 @@ interface GuideSection {
   body: string;
   metrics?: string[];
   mappings?: Array<{ change: string; research: string }>;
+  items?: VoiceGuideItem[]; // 관찰 문장 → 연구 참고 → 관련 진료과(3행) 카드
 }
 
 const SECTIONS: GuideSection[] = [
@@ -42,6 +44,7 @@ const SECTIONS: GuideSection[] = [
     body:
       "숨이 쉽게 끊기거나 목소리를 오래 유지하기 어려운 변화는 호흡과 발성 기능 변화를 살펴보는 데 활용되는 특징입니다.",
     metrics: ["MPT", "RMS", "HNR"],
+    items: breathItems,
   },
   {
     id: "language",
@@ -50,6 +53,7 @@ const SECTIONS: GuideSection[] = [
     body:
       "말을 하다가 자주 멈추거나 같은 표현을 반복하거나 단어를 찾는 시간이 길어지는 변화는 인지 기능 변화 연구에서 함께 살펴보는 특징입니다.",
     metrics: ["Silent Pause", "Filled Pause", "Speaking Rate"],
+    items: languageItems,
   },
   {
     id: "connections",
@@ -158,6 +162,18 @@ export default function VoiceGuidePage() {
                             <Text style={styles.mappingChange}>{mapping.change}</Text>
                             <Text style={styles.mappingArrow}>→</Text>
                             <Text style={styles.mappingResearch}>{mapping.research}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    {s.items?.length ? (
+                      <View style={styles.mappingList}>
+                        {s.items.map((item) => (
+                          <View key={item.observation} style={styles.mappingRow}>
+                            <Text style={styles.mappingChange}>{item.observation}</Text>
+                            <Text style={styles.mappingArrow}>→</Text>
+                            <Text style={styles.mappingResearch}>{item.reference}</Text>
+                            <Text style={styles.mappingDepartment}>{item.department}</Text>
                           </View>
                         ))}
                       </View>
@@ -314,6 +330,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: G.textSecondary,
+  },
+  // 3행: 관련 진료과 영역(보조 정보). 본문보다 톤 다운 — 기존 보조 텍스트 토큰 + 작은 폰트.
+  mappingDepartment: {
+    fontFamily: "Pretendard-Medium",
+    fontSize: 13,
+    lineHeight: 19,
+    color: G.textSecondary,
+    marginTop: 4,
   },
 
   source: {

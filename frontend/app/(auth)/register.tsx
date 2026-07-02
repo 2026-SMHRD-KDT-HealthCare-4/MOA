@@ -6,6 +6,13 @@ import { ArrowLeft, UserPlus, Link2 } from "lucide-react-native";
 import { useAuthStore } from "../../src/stores/authStore";
 import * as authApi from "../../src/api/auth";
 
+function formatPhone(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -16,6 +23,8 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [gender, setGender] = useState<"M" | "F" | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,10 +43,15 @@ export default function RegisterPage() {
     if (!name.trim()) return setError("이름을 입력해 주세요.");
     if (!email.includes("@")) return setError("올바른 이메일을 입력해 주세요.");
     if (password.length < 8) return setError("비밀번호는 8자 이상이어야 해요.");
+    if (!phone.trim()) return setError("연락처를 입력해 주세요.");
+    if (!/^\d{3}-\d{3,4}-\d{4}$/.test(phone)) {
+      return setError("연락처를 010-1234-5678 형식으로 입력해 주세요.");
+    }
+    if (!gender) return setError("성별을 선택해 주세요.");
 
     setSubmitting(true);
     try {
-      const user = await authApi.register({ name: name.trim(), email, password, role: "guardian" });
+      const user = await authApi.register({ name: name.trim(), email, password, role: "guardian", phone, gender });
       setSession(user);
       // 가입 직후 보호자 주도 온보딩(어른 등록 + 음성 동의)으로 이동.
       router.replace("/onboarding");
@@ -97,6 +111,42 @@ export default function RegisterPage() {
                 placeholderTextColor="#c4b5ae"
                 secureTextEntry
               />
+            </View>
+            <View style={styles.inputWrap}>
+              <Text style={styles.label}>연락처</Text>
+              <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={(v) => setPhone(formatPhone(v))}
+                placeholder="010-1234-5678"
+                placeholderTextColor="#c4b5ae"
+                keyboardType="phone-pad"
+                maxLength={13}
+              />
+            </View>
+            <View style={styles.inputWrap}>
+              <Text style={styles.label}>성별</Text>
+              <View style={styles.genderRow}>
+                {([
+                  { value: "M", label: "남성" },
+                  { value: "F", label: "여성" },
+                ] as const).map(({ value, label }) => {
+                  const selected = gender === value;
+                  return (
+                    <TouchableOpacity
+                      key={value}
+                      style={[styles.genderBtn, selected ? styles.genderBtnSelected : styles.genderBtnUnselected]}
+                      onPress={() => setGender(value)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={label}
+                    >
+                      <Text style={[styles.genderText, selected && styles.genderTextSelected]}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
           </View>
 
@@ -260,6 +310,19 @@ const styles = StyleSheet.create({
     color: "#292321",
     backgroundColor: "white",
   },
+  genderRow: { flexDirection: "row", gap: 12 },
+  genderBtn: {
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  genderBtnUnselected: { borderColor: "#e8ddd9", backgroundColor: "white" },
+  genderBtnSelected: { borderColor: "#FF7955", backgroundColor: "#FFF1EC" },
+  genderText: { fontSize: 18, fontWeight: "600", color: "#8a7a72" },
+  genderTextSelected: { color: "#FF7955", fontWeight: "800" },
   submitBtn: {
     height: 56,
     borderRadius: 15,

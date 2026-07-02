@@ -223,7 +223,7 @@ export default function HistoryPage() {
     (async () => {
       try {
         const [trend, records, sessions] = await Promise.all([
-          getReportTrend(seniorId, 31),
+          getReportTrend(seniorId, 92),
           listScriptRecords(seniorId),
           listChatSessions(seniorId).catch(() => []), // 대화 조회 실패는 무시(지정문구는 그대로 표시)
         ]);

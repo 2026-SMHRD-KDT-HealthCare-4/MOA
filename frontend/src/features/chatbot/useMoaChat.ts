@@ -434,7 +434,11 @@ async function callChatbotApi(
   }
 }
 
-export function useMoaChat() {
+export function useMoaChat({
+  restoreWakeWordAfterTurn = true,
+}: {
+  restoreWakeWordAfterTurn?: boolean;
+} = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isBotTyping, setIsBotTyping] = useState(false);
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
@@ -607,7 +611,7 @@ export function useMoaChat() {
     } finally {
       sendingMessageRef.current = false;
       setIsBotTyping(false);
-      enableWakeWord();
+      if (restoreWakeWordAfterTurn) enableWakeWord();
     }
   }
 
@@ -615,8 +619,8 @@ export function useMoaChat() {
     audioUri: string,
     durationMs: number,
     timing?: { recordingEndAt?: number },
-  ) {
-    if (sendingMessageRef.current) return;
+  ): Promise<"ok" | "empty" | "busy" | "error"> {
+    if (sendingMessageRef.current) return "busy";
     sendingMessageRef.current = true;
     disableWakeWord();
     setIsBotTyping(true);
@@ -673,45 +677,23 @@ export function useMoaChat() {
       const userMessageText = transcribeRes.text?.trim() ?? "";
       console.log("[sendVoiceMessage] 1. STT 요청 성공. 인식된 텍스트:", userMessageText);
 
-      // 테스트 편의상 빈 텍스트(무음/단발음) 시 "안녕하세요"로 폴백하여 강제 테스트
-      const finalUserText = userMessageText || "안녕하세요";
-
-
       if (!userMessageText) {
-        console.log("[sendVoiceMessage] 경고: 인식된 음성 텍스트가 비어 있음 (무음 감지 처리)");
-        setIsBotTyping(false);
-        enableWakeWord();
-        sendingMessageRef.current = false;
-
-        const silentMsg: ChatMessage = {
-          id: `b_silent_${Date.now()}`,
-          role: "bot",
-          text: "목소리가 잘 들리지 않았어요. 다시 한번 차분하게 말씀해 주세요.",
-          emotion: "worried",
-        };
-        let didShowMessage = false;
-        const showMessage = () => {
-          if (didShowMessage) return;
-          didShowMessage = true;
-          setMessages((prev) => [...prev, silentMsg]);
-        };
-        void speakText("목소리가 잘 들리지 않았어요. 다시 한번 말씀해 주세요.", showMessage).finally(showMessage);
-        return;
+        console.log("[sendVoiceMessage] STT 빈 결과 → 상위 무음 처리로 위임");
+        return "empty";
       }
-
 
       // 사용자 발화 말풍선 추가
       const userMsg: ChatMessage = {
         id: `u_${Date.now()}`,
         role: "user",
-        text: finalUserText,
+        text: userMessageText,
       };
       setMessages((prev) => [...prev, userMsg]);
 
       // 2. Chat API 호출 (기존 sendMessage 파이프라인 매개변수 적용)
       const activeSessionId = await getOrStartChatSession();
       const params: ChatbotApiParams = {
-        message: finalUserText,
+        message: userMessageText,
         conversation_turn: conversationTurnRef.current,
         valid_speech_duration_ms: validSpeechDurationRef.current,
         history: messages.slice(-8).map((message) => ({
@@ -794,6 +776,7 @@ export function useMoaChat() {
       }
       setIsBotSpeaking(false);
       console.log("[sendVoiceMessage] <<< 모든 프로세스 정상 종료");
+      return "ok";
     } catch (err: any) {
       console.error("[sendVoiceMessage] ❌ 예외 발생 상세 로그:", err);
       setBotEmotion("worried");
@@ -806,10 +789,11 @@ export function useMoaChat() {
       setMessages((prev) => [...prev, fallbackMsg]);
       setIsBotTyping(false);
       setIsBotSpeaking(false);
+      return "error";
     } finally {
       sendingMessageRef.current = false;
       setIsBotTyping(false);
-      enableWakeWord();
+      if (restoreWakeWordAfterTurn) enableWakeWord();
     }
   }
 
