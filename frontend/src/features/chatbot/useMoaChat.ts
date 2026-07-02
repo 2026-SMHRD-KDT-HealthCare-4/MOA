@@ -75,6 +75,46 @@ function logChatTiming(label: string, ms?: number) {
   console.log(`[CHAT_TIMING] ${label}`);
 }
 
+export async function unlockTTSPlayback() {
+  try {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+
+      if (AudioContextCtor) {
+        const context = new AudioContextCtor();
+        if (context.state === "suspended") {
+          await context.resume();
+        }
+        await context.close().catch(() => undefined);
+      }
+
+      const silentAudio = new window.Audio(
+        "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQQAAAAAAA==",
+      );
+      silentAudio.muted = true;
+      await silentAudio.play();
+      silentAudio.pause();
+      silentAudio.src = "";
+      console.log("[MOA_TTS_UNLOCK_SUCCESS]", { platform: "web" });
+      return;
+    }
+
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: false,
+    });
+    console.log("[MOA_TTS_UNLOCK_SUCCESS]", { platform: Platform.OS });
+  } catch (error) {
+    console.warn("[MOA_TTS_UNLOCK_FAILED]", error);
+  }
+}
+
 /** Shared MOA voice playback. Both chat replies and wake prompts use this server TTS path. */
 export async function playTTS(
   text: string,
@@ -182,7 +222,10 @@ export async function playTTS(
       });
       const audioPlayStartAt = nowMs();
       logChatTiming("tts_ready_to_audio_play_start_ms", audioPlayStartAt - ttsReadyAt);
-      void sound.playAsync().catch(finish);
+      void sound.playAsync().catch((error) => {
+        console.warn("[MOA_TTS_PLAY_ASYNC_FAILED]", error);
+        finish();
+      });
     });
   } catch (error) {
     console.warn("[MOA_TTS_ERROR]", error);

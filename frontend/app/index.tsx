@@ -6,6 +6,7 @@ import { useAuthStore } from "../src/stores/authStore";
 import { useInteractionStore } from "../src/stores/interactionStore";
 import { CharacterPlayer } from "../src/components/CharacterPlayer";
 import { TouchIcon } from "../src/components/icons/TouchIcon";
+import { unlockTTSPlayback } from "../src/features/chatbot/useMoaChat";
 
 export default function IntroScreen() {
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function IntroScreen() {
   const logoPaddingTop = Math.round(64 * v) + insets.top;
 
   function handleTouch() {
+    void unlockTTSPlayback();
     markUserInteracted();
 
     if (!isLoggedIn) {
