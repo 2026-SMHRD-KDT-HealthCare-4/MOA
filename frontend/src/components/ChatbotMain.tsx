@@ -1854,14 +1854,20 @@ export default function ChatbotMain() {
     flowStepRef.current === "SUSTAINED_VOWEL_RECORDING" ||
     voiceModeRef.current === "sustainedVowel" ||
     activeRecordingModeRef.current === "sustainedVowel";
+  const isVoiceCheckUi =
+    flowStep === "GREETING" ||
+    flowStep === "VOICE_CHECK_INTRO" ||
+    flowStep === "VOICE_CHECK_DONE" ||
+    flowStepRef.current === "GREETING" ||
+    flowStepRef.current === "VOICE_CHECK_INTRO" ||
+    flowStepRef.current === "VOICE_CHECK_DONE" ||
+    isSustainedVowelUi;
   const showEndConversationButton =
     isConversationActive &&
-    !isSustainedVowelUi &&
-    (normalChatStartedRef.current ||
-      flowStep === "NORMAL_CHAT" ||
-      flowStepRef.current === "NORMAL_CHAT" ||
-      voiceModeRef.current === "conversation" ||
-      activeRecordingModeRef.current === "conversation");
+    !showConversationResult &&
+    chatState !== "completed" &&
+    chatState !== "error" &&
+    !isVoiceCheckUi;
 
   const [pendingInvites, setPendingInvites] = useState<
     authApi.PendingInvite[]
