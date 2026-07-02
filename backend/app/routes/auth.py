@@ -593,6 +593,8 @@ def list_seniors_for_guardian(
                 senior_name=senior.name if senior else None,
                 senior_gender=senior.gender if senior else None,
                 senior_birth_date=senior.birth_date if senior else None,
+                senior_smoking_yn=senior.smoking_yn if senior else None,
+                senior_bmi=float(senior.bmi) if senior and senior.bmi is not None else None,
                 guardian_phone=guardian_phone_map.get(link.guardian_id),
                 link_status=link.link_status,
                 linked_at=link.linked_at,

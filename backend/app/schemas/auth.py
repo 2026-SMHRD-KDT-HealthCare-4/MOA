@@ -141,9 +141,11 @@ class GuardianSeniorResponse(BaseModel):
     guardian_id: UUID
     senior_id: UUID
     senior_name: Optional[str] = None
-    # 리포트 PDF 기본정보용 — 직접사용자 성별/생년월일, 연동 보호자 연락처
+    # 리포트 PDF 기본정보용 — 직접사용자 성별/생년월일/흡연여부/BMI, 연동 보호자 연락처
     senior_gender: Optional[str] = None
     senior_birth_date: Optional[date] = None
+    senior_smoking_yn: Optional[bool] = None
+    senior_bmi: Optional[float] = None
     guardian_phone: Optional[str] = None
     link_status: Literal["PENDING", "ACTIVE", "REVOKED"]
     linked_at: Optional[datetime]

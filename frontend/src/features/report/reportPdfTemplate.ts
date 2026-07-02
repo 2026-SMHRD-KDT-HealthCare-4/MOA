@@ -33,6 +33,8 @@ export interface ReportPdfProps {
   // 기본정보
   gender?: string; // "남성" | "여성"
   birthDate?: string; // "YYYY-MM-DD"
+  smoking?: string; // "흡연" | "비흡연"
+  bmi?: string; // 예: "22.5"
   guardianPhone?: string;
   // 이번 달 주목할 변화 (report.voicePatterns 재사용 — 정성 문구만)
   voicePatterns: { area: string; status: "normal" | "caution"; text: string }[];
@@ -101,6 +103,8 @@ export function buildReportHtml(props: ReportPdfProps): string {
     createdLabel,
     gender,
     birthDate,
+    smoking,
+    bmi,
     guardianPhone,
     voicePatterns,
     currentMeds,
@@ -110,7 +114,7 @@ export function buildReportHtml(props: ReportPdfProps): string {
 
   const name = escapeHtml(elderlyName || "직접사용자");
   const infoRow = (label: string, value?: string) =>
-    `<tr><th>${label}</th><td>${value ? escapeHtml(value) : "-"}</td></tr>`;
+    `<tr><th>${label}</th><td>${value ? escapeHtml(value) : "정보없음"}</td></tr>`;
 
   const participationText =
     participation.total > 0
@@ -182,6 +186,8 @@ export function buildReportHtml(props: ReportPdfProps): string {
         ${infoRow("이름", elderlyName)}
         ${infoRow("성별", gender)}
         ${infoRow("생년월일", birthDate)}
+        ${infoRow("흡연 여부", smoking)}
+        ${infoRow("BMI", bmi)}
         ${infoRow("보호자 연락처", guardianPhone)}
       </table>
     </div>

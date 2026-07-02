@@ -524,6 +524,8 @@ interface BackendGuardianSeniorResponse {
   senior_name?: string | null;
   senior_gender?: string | null;
   senior_birth_date?: string | null;
+  senior_smoking_yn?: boolean | null;
+  senior_bmi?: number | null;
   guardian_phone?: string | null;
   link_status: "PENDING" | "ACTIVE" | "REVOKED";
   linked_at?: string | null;
@@ -1003,6 +1005,8 @@ export async function getGuardianSeniors(
         linkedAt: row.linked_at ?? undefined,
         gender: row.senior_gender ?? null,
         birthDate: row.senior_birth_date ?? null,
+        smokingYn: row.senior_smoking_yn ?? null,
+        bmi: row.senior_bmi ?? null,
         guardianPhone: row.guardian_phone ?? null,
       })),
     };

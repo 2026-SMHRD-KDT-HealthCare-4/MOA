@@ -250,9 +250,11 @@ interface FamilyReportProps {
   report: FamilyReportData;
   /** 선택된 직접사용자 id — PDF 복약 현황 조회에 사용 */
   seniorId: string;
-  /** PDF 기본정보 — 직접사용자 성별('M'|'F')/생년월일, 연동 보호자 연락처 */
+  /** PDF 기본정보 — 직접사용자 성별('M'|'F')/생년월일/흡연여부/BMI, 연동 보호자 연락처 */
   elderGender?: string | null;
   elderBirthDate?: string | null;
+  elderSmokingYn?: boolean | null;
+  elderBmi?: number | null;
   guardianPhone?: string | null;
   /** 조회 가능한 월 목록('YYYY-MM', 내림차순) */
   months: string[];
@@ -269,6 +271,8 @@ export function FamilyReport({
   seniorId,
   elderGender,
   elderBirthDate,
+  elderSmokingYn,
+  elderBmi,
   guardianPhone,
   months,
   selectedMonth,
@@ -299,9 +303,11 @@ export function FamilyReport({
         elderlyName: report.elderlyName,
         periodLabel: periodLabelOf(report.month),
         createdLabel,
-        // 기본정보 실데이터 — /auth/guardian/seniors 응답(성별/생년월일/보호자 연락처).
+        // 기본정보 실데이터 — /auth/guardian/seniors 응답. null 은 템플릿에서 "정보없음" 처리.
         gender: elderGender === "M" ? "남성" : elderGender === "F" ? "여성" : undefined,
         birthDate: elderBirthDate ? elderBirthDate.slice(0, 10) : undefined,
+        smoking: elderSmokingYn == null ? undefined : elderSmokingYn ? "흡연" : "비흡연",
+        bmi: elderBmi == null ? undefined : String(elderBmi),
         guardianPhone: guardianPhone ?? undefined,
         voicePatterns: report.voicePatterns.map((p) => ({
           area: p.area,

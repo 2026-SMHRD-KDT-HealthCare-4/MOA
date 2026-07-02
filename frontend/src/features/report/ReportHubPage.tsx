@@ -276,6 +276,8 @@ export default function ReportHubPage() {
             seniorId={effectiveId as string}
             elderGender={selectedLink?.gender ?? null}
             elderBirthDate={selectedLink?.birthDate ?? null}
+            elderSmokingYn={selectedLink?.smokingYn ?? null}
+            elderBmi={selectedLink?.bmi ?? null}
             guardianPhone={selectedLink?.guardianPhone ?? null}
             months={availableMonths}
             selectedMonth={selectedMonth}
