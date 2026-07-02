@@ -78,9 +78,26 @@ const VOICE_CHECK_DONE_PROMPTS = [
   "아주 잘하셨어요. 이제 오늘 이야기를 더 들려주세요.",
 ];
 
+// 안부 대화 시작 질문 후보. 매일 사용해도 식상하지 않도록 주제를 넓게 두고,
+// 직전에 쓴 질문은 피해서(pickNextStartPrompt) 연속 반복을 막는다.
+// 규칙: 진단/처방/치료 표현 금지, "어르신" 미사용, 따뜻한 시니어 톤의 열린 질문.
 const NORMAL_CHAT_START_PROMPTS = [
-  "오늘 점심은 맛있게 드셨어요? 어떤 반찬이랑 드셨는지 궁금해요.",
-  "오늘 아침이나 낮에 가볍게 동네 산책은 다녀오셨어요?",
+  "오늘 점심은 뭘 드셨어요? 맛있게 드셨는지 궁금해요.",
+  "오늘 아침은 든든하게 챙겨 드셨어요?",
+  "오늘 동네 산책이나 마실은 다녀오셨어요?",
+  "오늘 날씨는 어떤가요? 바깥 공기는 좀 쐬셨어요?",
+  "요즘 밤에 잠은 잘 주무세요?",
+  "요즘 즐겨 보시는 TV 프로그램이나 드라마가 있으세요?",
+  "요즘 자주 듣는 노래나 트로트가 있으세요?",
+  "가족들 소식은 좀 들으셨어요? 다들 잘 지내죠?",
+  "오늘은 어떤 기분으로 하루를 시작하셨어요?",
+  "요즘 키우는 화분이나 텃밭은 잘 자라고 있나요?",
+  "가까이 지내는 친구나 이웃은 자주 만나세요?",
+  "오늘은 어떤 음식이 드시고 싶으세요?",
+  "따뜻한 물이나 차 한 잔 하셨어요?",
+  "요즘 시장이나 마트에는 다녀오셨어요?",
+  "오늘 하루는 어떻게 보내고 계세요?",
+  "옛날에 좋아하시던 음식이나 추억, 하나 들려주실래요?",
 ];
 
 type BotEmotion =
@@ -128,6 +145,18 @@ function chatTimingNowMs() {
 
 function pickRandom<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
+}
+
+// 안부 시작 질문 선택 — 직전에 쓴 질문은 피해 연속 반복을 막는다.
+// (앱 세션 내 기억. 후보 풀이 넓어 날짜가 바뀌어도 같은 질문이 이어질 확률은 낮다.)
+let lastStartPromptIndex = -1;
+function pickNextStartPrompt(): string {
+  const prompts = NORMAL_CHAT_START_PROMPTS;
+  if (prompts.length <= 1) return prompts[0] ?? "";
+  let index = Math.floor(Math.random() * prompts.length);
+  if (index === lastStartPromptIndex) index = (index + 1) % prompts.length;
+  lastStartPromptIndex = index;
+  return prompts[index];
 }
 
 function splitLongBubbleText(text: string): string[] {
@@ -920,7 +949,7 @@ export default function ChatbotMain() {
     const donePrompt = succeeded
       ? pickRandom(VOICE_CHECK_DONE_PROMPTS)
       : "목소리 확인은 여기까지 할게요.";
-    const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
+    const nextPrompt = pickNextStartPrompt();
 
     const fullText = `${donePrompt} ${nextPrompt}`;
 
@@ -979,7 +1008,7 @@ export default function ChatbotMain() {
     conversationActiveRef.current = true;
     setIsConversationActive(true);
 
-    const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
+    const nextPrompt = pickNextStartPrompt();
 
     try {
       greetingInProgressRef.current = true;
