@@ -548,6 +548,26 @@ export default function ChatbotMain() {
     setShowConversationResult(visible);
   }
 
+  function completeConversationAndShowResult(source: "voice" | "button") {
+    finishActionPendingRef.current = false;
+    console.log("[FINISH_COMPLETE_SHOW_RESULT]", { source });
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    conversationActiveRef.current = false;
+    conversationRunningRef.current = false;
+    void endConversationSession();
+    setIsConversationActive(false);
+    setChatState("completed");
+    setBotEmotion("clapping");
+    setConversationResultVisible(true);
+    console.log("[CONVERSATION_FINISH]", {
+      source,
+      nextAction,
+      chatState: "completed",
+      showConversationResult: true,
+    });
+  }
+
   function resetConversationSession(options: { blockAutoRestart?: boolean } = {}) {
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
@@ -810,6 +830,10 @@ export default function ChatbotMain() {
       greetingInProgressRef.current = false;
     }
     flowStepRef.current = "NORMAL_CHAT";
+    console.log("[VOICE_CHECK_DEBUG] flowStep NORMAL_CHAT", {
+      succeeded,
+      detectedSpeechDurationMs,
+    });
     setFlowStep("NORMAL_CHAT");
     conversationActiveRef.current = true;
     setIsConversationActive(true);
@@ -969,7 +993,12 @@ export default function ChatbotMain() {
 
     void (async () => {
       try {
-        if (turnAudioUri && sampleType) {
+        const saveSamplePromise =
+          recordingMode === "sustainedVowel" && turnAudioUri && sampleType
+            ? saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus)
+            : Promise.resolve();
+
+        if (recordingMode !== "sustainedVowel" && turnAudioUri && sampleType) {
           await saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus);
         }
 
@@ -1000,6 +1029,11 @@ export default function ChatbotMain() {
             return;
           }
 
+          console.log("[VOICE_CHECK_DEBUG] finishVoiceCheck(true) before call", {
+            durationMs: turnDurationMs,
+            detectedSpeechDurationMs,
+          });
+          void saveSamplePromise;
           await finishVoiceCheck(true);
           return;
         }
@@ -1092,11 +1126,20 @@ export default function ChatbotMain() {
       return;
     }
 
+    console.log("[VOICE_CHECK_DEBUG] detectedSpeechDurationMs target reached", {
+      detectedSpeechDurationMs,
+      recorderState,
+      flowStep: flowStepRef.current,
+    });
     sustainedCompletionStopRequestedRef.current = true;
     if (sustainedStopTimeoutRef.current) {
       clearTimeout(sustainedStopTimeoutRef.current);
       sustainedStopTimeoutRef.current = null;
     }
+    console.log("[VOICE_CHECK_DEBUG] stopRecording before call", {
+      detectedSpeechDurationMs,
+      recorderState,
+    });
     void stopRecording();
   }, [detectedSpeechDurationMs, recorderState, stopRecording]);
 
@@ -1241,21 +1284,7 @@ export default function ChatbotMain() {
         return;
       }
 
-      finishActionPendingRef.current = false;
-      console.log("[FINISH_COMPLETE_SHOW_RESULT]");
-      voiceModeRef.current = null;
-      activeRecordingModeRef.current = null;
-      conversationActiveRef.current = false;
-      void endConversationSession();
-      setIsConversationActive(false);
-      setChatState("completed");
-      setBotEmotion("clapping");
-      setConversationResultVisible(true);
-      console.log("[CONVERSATION_FINISH]", {
-        nextAction,
-        chatState: "completed",
-        showConversationResult: true,
-      });
+      completeConversationAndShowResult("voice");
       return;
     }
 
@@ -1492,7 +1521,7 @@ export default function ChatbotMain() {
   ]);
 
   useEffect(() => {
-    if (!startedFromIntro || autoStartedRef.current) return;
+    if (!startedFromIntro || !hasUserInteracted || autoStartedRef.current) return;
 
     resetConversationSession();
 
@@ -1503,7 +1532,7 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
 
     void startFirstGreeting();
-  }, [startFirstGreeting, startedFromIntro]);
+  }, [hasUserInteracted, startFirstGreeting, startedFromIntro]);
 
   async function handleStartConversation() {
     console.log("[START_BUTTON_CLICKED]");
@@ -1518,6 +1547,31 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
 
     void startFirstGreeting();
+  }
+
+  function handleEndConversationByButton() {
+    if (
+      !isConversationActive ||
+      chatState !== "listening" ||
+      voiceModeRef.current === "sustainedVowel" ||
+      activeRecordingModeRef.current === "sustainedVowel" ||
+      flowStepRef.current === "SUSTAINED_VOWEL_RECORDING"
+    ) {
+      return;
+    }
+
+    console.log("[END_CONVERSATION_BUTTON_CLICKED]", {
+      recorderState: recorderStateRef.current,
+      flowStep: flowStepRef.current,
+    });
+
+    if (wakeTimeoutRef.current) {
+      clearTimeout(wakeTimeoutRef.current);
+      wakeTimeoutRef.current = null;
+    }
+
+    resetRecorder();
+    completeConversationAndShowResult("button");
   }
 
   function beginConversationListening() {
@@ -1613,6 +1667,19 @@ export default function ChatbotMain() {
   }
 
   const showGuardianNotice = false;
+  const isSustainedVowelUi =
+    flowStep === "SUSTAINED_VOWEL_RECORDING" ||
+    flowStepRef.current === "SUSTAINED_VOWEL_RECORDING" ||
+    voiceModeRef.current === "sustainedVowel" ||
+    activeRecordingModeRef.current === "sustainedVowel";
+  const showEndConversationButton =
+    isConversationActive &&
+    chatState === "listening" &&
+    !isSustainedVowelUi &&
+    (flowStep === "NORMAL_CHAT" ||
+      flowStepRef.current === "NORMAL_CHAT" ||
+      voiceModeRef.current === "conversation" ||
+      activeRecordingModeRef.current === "conversation");
 
   const [pendingInvites, setPendingInvites] = useState<
     authApi.PendingInvite[]
@@ -1925,14 +1992,24 @@ export default function ChatbotMain() {
         style={({ pressed }) => [
           styles.conversationButton,
           { bottom: recordBottom + 90 },
-          pressed && !isConversationActive && styles.pressed,
-          isConversationActive && styles.conversationButtonDisabled,
+          pressed && (!isConversationActive || showEndConversationButton) && styles.pressed,
+          isConversationActive &&
+            !showEndConversationButton &&
+            styles.conversationButtonDisabled,
         ]}
-        onPress={handleStartConversation}
-        disabled={isConversationActive}
+        onPress={
+          showEndConversationButton
+            ? handleEndConversationByButton
+            : handleStartConversation
+        }
+        disabled={isConversationActive && !showEndConversationButton}
         accessibilityRole="button"
         accessibilityLabel={
-          isConversationActive ? "모아가 듣고 있어요" : "모아와 대화 시작하기"
+          showEndConversationButton
+            ? "대화 종료"
+            : isConversationActive
+              ? "모아가 듣고 있어요"
+              : "모아와 대화 시작하기"
         }
       >
         <View style={styles.conversationIconWrap}>
@@ -1952,7 +2029,11 @@ export default function ChatbotMain() {
 
         <View style={styles.conversationTextWrap}>
           <Text style={styles.conversationTitle}>
-            {isConversationActive ? "듣고 있어요..." : "모아와 대화 시작하기"}
+            {showEndConversationButton
+              ? "대화 종료"
+              : isConversationActive
+                ? "듣고 있어요..."
+                : "모아와 대화 시작하기"}
           </Text>
         </View>
 
