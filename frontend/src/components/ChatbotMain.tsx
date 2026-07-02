@@ -64,10 +64,9 @@ const BUBBLE_SENTENCE_PAUSE_MS = 120;
 const BUBBLE_TEXT_MAX_CHARS = 34;
 
 const VOICE_CHECK_PROMPTS = [
-  "오늘 목소리 상태를 잠깐 확인해볼게요. '아' 소리를 3초 정도 이어서 말씀해주세요.",
-  "목소리가 잘 들리는지 확인해볼게요. 편하게 '아' 소리를 이어서 말씀해주세요.",
-  "마이크도 잘 들리는지 같이 확인할게요. '아' 소리를 잠깐 이어서 말씀해주세요.",
-  "오늘도 목소리를 잠깐 확인해볼게요. 편하게 '아' 소리를 이어서 말씀해주세요.",
+  "목소리만 잠깐 확인할게요.",
+  "'아' 소리 3초만 해주세요.",
+  "짧게 목소리 확인할게요.",
 ];
 
 const VOICE_CHECK_DONE_PROMPTS = [
@@ -740,12 +739,11 @@ export default function ChatbotMain() {
       voiceAnalysisTargetSeniorId,
       hasUser: !!user,
     });
-    // 한 대화에서 여러 턴을 모두 분석하면 예측·알림이 중복된다.
-    // 대화 시작 시 수집하는 첫 자유발화 한 건만 그날의 CHATBOT 목소리 날씨 근거로 사용한다.
+    // 직접사용자 발화는 샘플 종류별로 /analyze에 저장한다.
+    // 보호자 음성, 실패/너무 짧은 샘플, 사용자 정보가 없는 경우만 제외한다.
     if (
       !audioUriToSave ||
       role !== "elder" ||
-      sampleType !== "sustained_vowel" ||
       sampleStatus !== "ok" ||
       !voiceAnalysisTargetSeniorId ||
       !user
@@ -753,7 +751,6 @@ export default function ChatbotMain() {
       console.log("[CHATBOT_VOICE_SAMPLE_SKIP]", {
         noAudioUri: !audioUriToSave,
         notElder: role !== "elder",
-        wrongSampleType: sampleType !== "sustained_vowel",
         wrongSampleStatus: sampleStatus !== "ok",
         noVoiceAnalysisTarget: !voiceAnalysisTargetSeniorId,
         noUser: !user,
@@ -813,12 +810,7 @@ export default function ChatbotMain() {
   async function retrySustainedVowel() {
     sustainedRetryRef.current = 1;
 
-    await speakBotLine("조금만 더 길게 해볼게요.", "happy");
-    await speakBotLine(
-      "제가 셋을 세면 '아' 소리를 3초 정도 이어서 말씀해주세요.",
-      "happy",
-    );
-    await speakBotLine("셋. 둘. 하나.", "happy");
+    await speakBotLine("조금만 더 길게요, 셋, 둘, 하나.", "happy");
     beginSustainedVowelRecording();
   }
 
@@ -854,10 +846,7 @@ export default function ChatbotMain() {
     setFlowStep("VOICE_CHECK_INTRO");
     greetingInProgressRef.current = true;
 
-    const intro = "이야기 들려주셔서 고마워요.";
-    const checkPrompt = pickRandom(VOICE_CHECK_PROMPTS);
-
-    const fullText = `${intro} ${checkPrompt} 제가 셋을 세면 시작해볼게요. 셋. 둘. 하나.`;
+    const fullText = "고마워요, '아' 소리 3초만 해볼게요, 셋, 둘, 하나.";
 
     try {
       await speakBotLine(fullText, "happy");
@@ -1215,8 +1204,7 @@ export default function ChatbotMain() {
       flowStepRef.current = "GREETING";
       setFlowStep("GREETING");
       const greeting = getTimeBasedVoiceCheckGreeting();
-      const checkPrompt = pickRandom(VOICE_CHECK_PROMPTS);
-      const firstReply = `${greeting} ${checkPrompt} 제가 셋을 세면 시작해볼게요. 셋. 둘. 하나.`;
+      const firstReply = `${greeting} '아' 소리 3초만 해볼게요, 셋, 둘, 하나.`;
 
       silenceRetryRef.current = 0;
       flowStepRef.current = "VOICE_CHECK_INTRO";
