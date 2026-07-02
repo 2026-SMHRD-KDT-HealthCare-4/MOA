@@ -90,3 +90,10 @@ class ChatSessionResponse(BaseModel):
 
 class ChatSessionEndRequest(BaseModel):
     session_id: UUID
+
+
+# 프론트가 먼저 말한 오프닝/인사 등 assistant 문장을 세션 대화기록에 1건 추가한다.
+# (LLM이 직전 오프닝을 인지해 반복 질문을 줄이도록. 음성검사 지시/안내문은 저장 대상 아님)
+class ChatSessionAppendRequest(BaseModel):
+    session_id: UUID
+    content: str

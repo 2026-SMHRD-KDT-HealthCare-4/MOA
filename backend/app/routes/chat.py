@@ -26,6 +26,7 @@ from app.schemas.chat import (
     ChatMessageRequest,
     ChatSessionStartResponse,
     ChatSessionEndRequest,
+    ChatSessionAppendRequest,
     ChatSessionResponse,
     ChatFrontendEnvelope,
     ChatFrontendData,
@@ -234,6 +235,39 @@ def end_session(
     verify_senior_access(user_id, session.senior_id, db)
 
     session.ended_at = datetime.utcnow()
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+@router.post("/session/append", response_model=ChatSessionResponse)
+def append_assistant_message(
+    req: ChatSessionAppendRequest,
+    db: Session = Depends(get_db),
+    user_id: UUID = Depends(get_current_user_id),
+):
+    """프론트가 먼저 말한 오프닝/인사 등 assistant 문장을 세션 대화기록에 1건 추가한다.
+
+    LLM이 직전에 던진 오프닝 질문을 다음 턴 history에서 인지해 반복 질문을 줄이기 위함이다.
+    음성검사 지시·TTS 안내·무음/오류 문구는 프론트에서 저장 대상으로 보내지 않는다(문맥 오염 방지).
+    저장은 send_message 와 동일하게 messages(JSONB)에 append 하는 방식이다.
+    """
+    session = db.query(ChatSession).filter(ChatSession.session_id == req.session_id).first()
+    if session is None:
+        raise HTTPException(status_code=404, detail="대화 세션을 찾을 수 없습니다.")
+    verify_senior_access(user_id, session.senior_id, db)
+    if session.ended_at is not None:
+        raise HTTPException(status_code=409, detail="이미 종료된 대화 세션입니다.")
+
+    messages = list(session.messages or [])
+    messages.append(
+        {
+            "user": BOT_SPEAKER,
+            "content": deidentify(req.content),
+            "time": datetime.utcnow().isoformat(),
+        }
+    )
+    session.messages = messages
     db.commit()
     db.refresh(session)
     return session

@@ -340,6 +340,32 @@ async function getOrStartChatSession(): Promise<string> {
   return request;
 }
 
+// 프론트가 먼저 말한 오프닝/인사 등 assistant 문장을 세션 대화기록에 저장한다.
+// LLM이 직전 오프닝을 다음 턴 history에서 인지해 반복 질문을 줄이도록 하기 위함.
+// 비차단: 저장 실패가 대화 진행(STT/TTS/음성검사)을 막지 않는다.
+// (음성검사 지시·안내·무음/오류 문구는 호출부에서 대상으로 넘기지 않는다.)
+export async function appendAssistantMessage(text: string): Promise<void> {
+  const content = text.trim();
+  if (!content) return;
+  try {
+    const sessionId = await getOrStartChatSession();
+    const token = await getRequiredRealToken("MOA_CHAT_APPEND_AUTH");
+    const response = await fetch(`${API_BASE_URL}/chat/session/append`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ session_id: sessionId, content }),
+    });
+    if (!response.ok) {
+      console.warn("[MOA_CHAT_APPEND_FAILED]", response.status);
+    }
+  } catch (error) {
+    console.warn("[MOA_CHAT_APPEND_ERROR]", error);
+  }
+}
+
 async function callBackendProdChatbotApi(
   params: ChatbotApiParams,
   timing?: { sttSuccessAt?: number; chatResponseReceiveAt?: number },

@@ -29,6 +29,7 @@ import * as authApi from "../api/auth";
 import {
   splitIntoSentenceChunks,
   useMoaChat,
+  appendAssistantMessage,
 } from "../features/chatbot/useMoaChat";
 import { useRecorder } from "../features/record/useRecorder";
 import { detectVoiceCommand } from "../features/chatbot/wakeWord";
@@ -966,6 +967,11 @@ export default function ChatbotMain() {
     } finally {
       greetingInProgressRef.current = false;
     }
+
+    // 오프닝 질문(대화 유도)만 세션 대화기록에 남겨 LLM이 다음 턴에 반복하지 않게 한다(비차단).
+    // 검사 종료 안내(donePrompt)는 제외하고, 실제 질문(nextPrompt)만 저장한다.
+    void appendAssistantMessage(nextPrompt);
+
     flowStepRef.current = "NORMAL_CHAT";
     normalChatStartedRef.current = true;
     console.log("[VOICE_CHECK_DEBUG] flowStep NORMAL_CHAT", {
@@ -1568,6 +1574,9 @@ export default function ChatbotMain() {
       const reply = getReturnGreeting();
       silenceRetryRef.current = 0;
       await speakBotLine(reply, "happy");
+
+      // 복귀 인사(대화 유도)도 세션 대화기록에 남긴다(비차단).
+      void appendAssistantMessage(reply);
 
       greetingInProgressRef.current = false;
       conversationActiveRef.current = true;
