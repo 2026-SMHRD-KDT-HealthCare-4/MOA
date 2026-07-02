@@ -58,8 +58,10 @@ const SHOW_STT_DEBUG =
   __DEV__ || process.env.EXPO_PUBLIC_SHOW_STT_DEBUG === "true";
 
 const RETURN_GREETING_COOLDOWN_MS = 40 * 1000;
-const SUSTAINED_VOWEL_MIN_MS = 2_500;
-const SUSTAINED_VOWEL_MAX_MS = 5_000;
+const SUSTAINED_VOWEL_MIN_MEANINGFUL_MS = 500;
+const SUSTAINED_VOWEL_SILENCE_MS = 3_000;
+const SUSTAINED_VOWEL_TARGET_MS = 4_000;
+const SUSTAINED_VOWEL_MAX_MS = 7_000;
 const BUBBLE_SENTENCE_PAUSE_MS = 120;
 const BUBBLE_TEXT_MAX_CHARS = 34;
 
@@ -277,6 +279,8 @@ export default function ChatbotMain() {
     permissionDenied,
     error: recorderError,
     noSpeechDetected,
+    speechDetectedDuringRecording,
+    detectedSpeechDurationMs,
     audioUri,
     start: startRecording,
     stop: stopRecording,
@@ -322,6 +326,8 @@ export default function ChatbotMain() {
   const flowStepRef = useRef<ChatFlowStep>("IDLE");
   const sustainedRetryRef = useRef(0);
   const sustainedStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sustainedCompletionStopRequestedRef = useRef(false);
+  const sustainedRetryInProgressRef = useRef(false);
 
   const voiceAnalysisTargetSeniorId =
     role === "elder"
@@ -576,6 +582,7 @@ export default function ChatbotMain() {
     finishActionPendingRef.current = false;
     flowStepRef.current = "IDLE";
     sustainedRetryRef.current = 0;
+    sustainedRetryInProgressRef.current = false;
     bubbleDisplaySequenceRef.current += 1;
     bubbleDisplayInProgressRef.current = false;
     botLineSpeakingRef.current = false;
@@ -785,6 +792,7 @@ export default function ChatbotMain() {
     voiceModeRef.current = null;
     activeRecordingModeRef.current = null;
     sustainedRetryRef.current = 0;
+    sustainedRetryInProgressRef.current = false;
 
     const donePrompt = succeeded
       ? pickRandom(VOICE_CHECK_DONE_PROMPTS)
@@ -795,6 +803,9 @@ export default function ChatbotMain() {
 
     try {
       await speakBotLine(fullText, "happy");
+    } catch (error) {
+      console.warn("[VOICE_CHECK_DONE_SPEAK_FAILED]", error);
+      if (succeeded) throw error;
     } finally {
       greetingInProgressRef.current = false;
     }
@@ -804,31 +815,70 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
     setChatState("listening");
 
-    beginConversationListening();
+    const didStartListening = beginConversationListening();
+    if (!succeeded && !didStartListening) {
+      setTimeout(() => {
+        if (
+          flowStepRef.current === "NORMAL_CHAT" &&
+          conversationActiveRef.current &&
+          voiceModeRef.current !== "conversation" &&
+          recorderStateRef.current !== "recording" &&
+          recorderStateRef.current !== "processing"
+        ) {
+          beginConversationListening();
+        }
+      }, 700);
+    }
   }
 
-  async function retrySustainedVowel() {
-    sustainedRetryRef.current = 1;
+  async function retrySustainedVowel(reason: "noSpeech" | "tooShort" = "tooShort") {
+    if (sustainedRetryInProgressRef.current) return;
 
-    await speakBotLine("조금만 더 길게요, 셋, 둘, 하나.", "happy");
-    beginSustainedVowelRecording();
+    sustainedRetryInProgressRef.current = true;
+    sustainedRetryRef.current += 1;
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+
+    const retryPrompt =
+      reason === "noSpeech"
+        ? "목소리가 잘 들리지 않았어요. 준비되시면 ‘아’ 소리를 길게 이어서 말씀해주세요."
+        : "조금 더 길게 들려주시면 좋아요. ‘아’ 소리를 4초 정도 이어서 말씀해주세요.";
+
+    try {
+      resetRecorder();
+      await speakBotLine(retryPrompt, "happy");
+      beginSustainedVowelRecording();
+    } finally {
+      sustainedRetryInProgressRef.current = false;
+    }
   }
 
   function beginSustainedVowelRecording() {
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+
+    resetRecorder();
     flowStepRef.current = "SUSTAINED_VOWEL_RECORDING";
     setFlowStep("SUSTAINED_VOWEL_RECORDING");
     voiceModeRef.current = "sustainedVowel";
     activeRecordingModeRef.current = "sustainedVowel";
+    sustainedCompletionStopRequestedRef.current = false;
     conversationActiveRef.current = true;
     setIsConversationActive(true);
     setBotEmotion("listening");
     setChatState("listening");
-    setBotReply("3초 동안 '아' 소리를 내어주세요");
+    setBotReply("‘아’ 소리를 4초 정도 길게 이어서 말씀해주세요.");
 
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
 
-      void startRecording(900, true);
+      void startRecording(SUSTAINED_VOWEL_SILENCE_MS);
 
       sustainedStopTimeoutRef.current = setTimeout(() => {
         if (
@@ -883,10 +933,19 @@ export default function ChatbotMain() {
           : recordingMode === "conversation"
             ? "normal_chat"
             : null;
+    const sustainedVowelHasMeaningfulSpeech =
+      recordingMode !== "sustainedVowel" ||
+      (speechDetectedDuringRecording &&
+        detectedSpeechDurationMs >= SUSTAINED_VOWEL_MIN_MEANINGFUL_MS);
+    const sustainedVowelHasEnoughSpeech =
+      recordingMode !== "sustainedVowel" ||
+      detectedSpeechDurationMs >= SUSTAINED_VOWEL_TARGET_MS;
     const sampleStatus =
-      recordingMode === "sustainedVowel" && turnDurationMs < SUSTAINED_VOWEL_MIN_MS
-        ? "too_short"
-        : "ok";
+      recordingMode === "sustainedVowel" && !sustainedVowelHasMeaningfulSpeech
+        ? "failed"
+        : recordingMode === "sustainedVowel" && !sustainedVowelHasEnoughSpeech
+          ? "too_short"
+          : "ok";
 
     console.log("[TURN_READY]", {
       mode: recordingMode,
@@ -901,6 +960,8 @@ export default function ChatbotMain() {
       isMedicationConversation,
       sampleType,
       sampleStatus,
+      speechDetectedDuringRecording,
+      detectedSpeechDurationMs,
       role,
       voiceAnalysisTargetSeniorId,
       hasUser: !!user,
@@ -917,18 +978,25 @@ export default function ChatbotMain() {
           resetRecorder();
           if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
 
-          if (turnDurationMs < SUSTAINED_VOWEL_MIN_MS) {
-            console.warn("[SUSTAINED_VOWEL_TOO_SHORT]", {
+          if (!sustainedVowelHasMeaningfulSpeech) {
+            console.warn("[SUSTAINED_VOWEL_NO_SPEECH]", {
               durationMs: turnDurationMs,
+              detectedSpeechDurationMs,
               retry: sustainedRetryRef.current,
             });
 
-            if (sustainedRetryRef.current < 1) {
-              await retrySustainedVowel();
-              return;
-            }
+            await retrySustainedVowel("noSpeech");
+            return;
+          }
 
-            await finishVoiceCheck(false);
+          if (!sustainedVowelHasEnoughSpeech) {
+            console.warn("[SUSTAINED_VOWEL_TOO_SHORT]", {
+              durationMs: turnDurationMs,
+              detectedSpeechDurationMs,
+              retry: sustainedRetryRef.current,
+            });
+
+            await retrySustainedVowel("tooShort");
             return;
           }
 
@@ -984,7 +1052,14 @@ export default function ChatbotMain() {
         console.error("[VOICE_TURN_ERROR]", err);
         resetRecorder();
       } finally {
-        if (activeRecordingModeRef.current === recordingMode) {
+        const isSustainedRetryRecording =
+          recordingMode === "sustainedVowel" &&
+          voiceModeRef.current === "sustainedVowel";
+
+        if (
+          activeRecordingModeRef.current === recordingMode &&
+          !isSustainedRetryRecording
+        ) {
           activeRecordingModeRef.current = null;
         }
         submittingTranscriptRef.current = false;
@@ -998,7 +1073,32 @@ export default function ChatbotMain() {
         }
       }
     })();
-  }, [clearAudio, durationMs, resetRecorder, recorderState]);
+  }, [
+    clearAudio,
+    detectedSpeechDurationMs,
+    durationMs,
+    resetRecorder,
+    recorderState,
+    speechDetectedDuringRecording,
+  ]);
+
+  useEffect(() => {
+    if (
+      activeRecordingModeRef.current !== "sustainedVowel" ||
+      recorderState !== "recording" ||
+      detectedSpeechDurationMs < SUSTAINED_VOWEL_TARGET_MS ||
+      sustainedCompletionStopRequestedRef.current
+    ) {
+      return;
+    }
+
+    sustainedCompletionStopRequestedRef.current = true;
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+    void stopRecording();
+  }, [detectedSpeechDurationMs, recorderState, stopRecording]);
 
   useEffect(() => {
     if (
@@ -1046,7 +1146,8 @@ export default function ChatbotMain() {
     if (
       !isConversationActive ||
       !noSpeechDetected ||
-      voiceModeRef.current !== "sustainedVowel"
+      voiceModeRef.current !== "sustainedVowel" ||
+      sustainedRetryInProgressRef.current
     ) {
       return;
     }
@@ -1061,13 +1162,7 @@ export default function ChatbotMain() {
 
     resetRecorder();
 
-    if (sustainedRetryRef.current < 1) {
-      void retrySustainedVowel();
-      return;
-    }
-
-    console.warn("[SUSTAINED_VOWEL_FAILED_AFTER_RETRY]");
-    void finishVoiceCheck(false);
+    void retrySustainedVowel("noSpeech");
   }, [isConversationActive, noSpeechDetected, resetRecorder]);
 
   useEffect(() => {
@@ -1437,7 +1532,7 @@ export default function ChatbotMain() {
 
     if (!conversationActiveRef.current) {
       console.log("[LISTEN_SKIP] not active");  // ← 이게 찍히면?
-      return;
+      return false;
     }
     if (
       isBotSpeakingRef.current ||
@@ -1446,11 +1541,11 @@ export default function ChatbotMain() {
       botLineSpeakingRef.current
     ) {
       console.log("[LISTEN_SKIP] bot speaking");
-      return;
+      return false;
     }
     if (recorderState === "recording" || recorderState === "processing") {
       console.log("[LISTEN_SKIP] recorder busy:", recorderState);  // ← 이게 찍히면?
-      return;
+      return false;
     }
 
     voiceModeRef.current = "conversation";
@@ -1477,6 +1572,7 @@ export default function ChatbotMain() {
       console.log("[START_RECORDING]", voiceModeRef.current);
       void startRecording(1500);
     }, 350);
+    return true;
   }
 
   function handleConversationVoice() {
