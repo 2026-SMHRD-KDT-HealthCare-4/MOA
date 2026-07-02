@@ -62,6 +62,7 @@ const SUSTAINED_VOWEL_MIN_MEANINGFUL_MS = 500;
 const SUSTAINED_VOWEL_SILENCE_MS = 3_000;
 const SUSTAINED_VOWEL_TARGET_MS = 4_000;
 const SUSTAINED_VOWEL_MAX_MS = 7_000;
+const FREE_TALK_MIN_MS = 1_200; // 자유대화 최소 발화 길이(ms) — 노이즈성 단답 컷용, 임시값
 const BUBBLE_SENTENCE_PAUSE_MS = 120;
 const BUBBLE_TEXT_MAX_CHARS = 34;
 
@@ -1101,18 +1102,22 @@ export default function ChatbotMain() {
             ? "normal_chat"
             : null;
     const sustainedVowelHasMeaningfulSpeech =
-      recordingMode !== "sustainedVowel" ||
-      (speechDetectedDuringRecording &&
-        detectedSpeechDurationMs >= SUSTAINED_VOWEL_MIN_MEANINGFUL_MS);
-    const sustainedVowelHasEnoughSpeech =
-      recordingMode !== "sustainedVowel" ||
-      detectedSpeechDurationMs >= SUSTAINED_VOWEL_TARGET_MS;
-    const sampleStatus =
-      recordingMode === "sustainedVowel" && !sustainedVowelHasMeaningfulSpeech
-        ? "failed"
-        : recordingMode === "sustainedVowel" && !sustainedVowelHasEnoughSpeech
-          ? "too_short"
-          : "ok";
+  recordingMode !== "sustainedVowel" ||
+  (speechDetectedDuringRecording &&
+    detectedSpeechDurationMs >= SUSTAINED_VOWEL_MIN_MEANINGFUL_MS);
+const sustainedVowelHasEnoughSpeech =
+  recordingMode !== "sustainedVowel" ||
+  detectedSpeechDurationMs >= SUSTAINED_VOWEL_TARGET_MS;
+const isFreeTalkTurn =
+  recordingMode === "conversation" || currentFlowStep === "FIRST_FREE_TALK";
+const sampleStatus =
+  recordingMode === "sustainedVowel" && !sustainedVowelHasMeaningfulSpeech
+    ? "failed"
+    : recordingMode === "sustainedVowel" && !sustainedVowelHasEnoughSpeech
+      ? "too_short"
+      : isFreeTalkTurn && turnDurationMs < FREE_TALK_MIN_MS
+        ? "too_short"
+        : "ok";
 
     if (recordingMode === "sustainedVowel") {
       console.log("[VOICE_CHECK_DEBUG] sustained done duration", {

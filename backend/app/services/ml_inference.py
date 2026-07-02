@@ -133,7 +133,7 @@ def _decode_to_wav(audio_bytes: bytes) -> str:
             os.remove(raw_path)
 
 
-def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
+def predict_risk_from_wav(audio_bytes: bytes, user_info: dict, sample_type: str = None) -> dict:
     tmp_path = None
     try:
         # 입력이 webm/m4a/wav 무엇이든 표준 16kHz PCM WAV로 변환한 뒤 처리한다.
@@ -199,7 +199,7 @@ def predict_risk_from_wav(audio_bytes: bytes, user_info: dict) -> dict:
             "wav_path":         tmp_path,
         }
 
-        result = engine.predict_all(features, user_info)
+        result = engine.predict_all(features, user_info, sample_type=sample_type)
 
     finally:
         if tmp_path and os.path.exists(tmp_path):
