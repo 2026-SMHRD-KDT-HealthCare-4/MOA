@@ -91,10 +91,7 @@ def synthesize_with_typecast(text: str) -> bytes:
     if not api_key:
         raise HTTPException(status_code=503, detail="Typecast TTS service is not configured.")
 
-    # 카운트다운 관련 단어 여부와 관계없이 속도는 1.0으로 고정하되,
-    # '셋', '둘', '하나' 등 단독 카운트다운 단어 뒤에 휴지기(쉼표 및 말줄임표)를 추가하여 대기 시간을 늘립니다.
     tempo = 1.0
-    text = re.sub(r"\b(셋|둘|하나|삼|이|일)\b", r"\1... , ,", text)
 
     payload = {
         "voice_id": TYPECAST_VOICE_ID,
