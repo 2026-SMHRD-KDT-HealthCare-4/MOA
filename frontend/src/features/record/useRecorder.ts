@@ -35,6 +35,8 @@ const API_BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:
 
 const MAX_RECORDING_DURATION_MS = 8_000;
 const NO_SPEECH_TIMEOUT_MS = 6_000;
+const WEB_SPEECH_DELTA_MAX_MS = 250;
+const MOBILE_SPEECH_DELTA_MAX_MS = 350;
 
 // 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
 // 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
@@ -105,6 +107,8 @@ export function useRecorder({
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noSpeechDetected, setNoSpeechDetected] = useState(false);
+  const [speechDetectedDuringRecording, setSpeechDetectedDuringRecording] = useState(false);
+  const [detectedSpeechDurationMs, setDetectedSpeechDurationMs] = useState(0);
   // keepAudio=true일 때만 채워진다. 그 외에는 항상 null (기존 동작 유지).
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const keptAudioRef = useRef<{ uri: string; isWeb: boolean } | null>(null);
@@ -115,6 +119,8 @@ export function useRecorder({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const maxDurationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordingStartedAtRef = useRef(0);
+  const previousSpeechDetectedAtRef = useRef<number | null>(null);
+  const detectedSpeechDurationMsRef = useRef(0);
   const lastSpeechAtRef = useRef(0);
   const autoStoppingRef = useRef(false);
   const webAudioContextRef = useRef<AudioContext | null>(null);
@@ -164,8 +170,17 @@ export function useRecorder({
 
         if (rms > 0.035) {
           heardSpeech = true;
+          setSpeechDetectedDuringRecording(true);
           lastSpeechAt = now;
           lastSpeechAtRef.current = now - startedAt;
+          if (previousSpeechDetectedAtRef.current !== null) {
+            const delta = lastSpeechAtRef.current - previousSpeechDetectedAtRef.current;
+            if (delta > 0 && delta <= WEB_SPEECH_DELTA_MAX_MS) {
+              detectedSpeechDurationMsRef.current += delta;
+              setDetectedSpeechDurationMs(detectedSpeechDurationMsRef.current);
+            }
+          }
+          previousSpeechDetectedAtRef.current = lastSpeechAtRef.current;
         }
 
         const webSilenceThreshold = silenceTimeoutMsRef.current ?? 1500;
@@ -315,8 +330,12 @@ export function useRecorder({
         const recorder = new MediaRecorder(stream, { mimeType });
         webRecorderRef.current = recorder;
         webChunksRef.current = [];
+        previousSpeechDetectedAtRef.current = null;
+        detectedSpeechDurationMsRef.current = 0;
         lastSpeechAtRef.current = 0;
         autoStoppingRef.current = false;
+        setSpeechDetectedDuringRecording(false);
+        setDetectedSpeechDurationMs(0);
         setNoSpeechDetected(false);
         setPermissionDenied(false);
         setError(null);
@@ -371,8 +390,12 @@ export function useRecorder({
         },
       );
       recordingRef.current = recording;
+      previousSpeechDetectedAtRef.current = null;
+      detectedSpeechDurationMsRef.current = 0;
       lastSpeechAtRef.current = 0;
       autoStoppingRef.current = false;
+      setSpeechDetectedDuringRecording(false);
+      setDetectedSpeechDurationMs(0);
       setNoSpeechDetected(false);
       recording.setProgressUpdateInterval(200);
       recording.setOnRecordingStatusUpdate((status) => {
@@ -381,7 +404,16 @@ export function useRecorder({
         const duration = status.durationMillis;
         const metering = status.metering;
         if (typeof metering === "number" && metering > -42) {
+          setSpeechDetectedDuringRecording(true);
+          if (previousSpeechDetectedAtRef.current !== null) {
+            const delta = duration - previousSpeechDetectedAtRef.current;
+            if (delta > 0 && delta <= MOBILE_SPEECH_DELTA_MAX_MS) {
+              detectedSpeechDurationMsRef.current += delta;
+              setDetectedSpeechDurationMs(detectedSpeechDurationMsRef.current);
+            }
+          }
           lastSpeechAtRef.current = duration;
+          previousSpeechDetectedAtRef.current = duration;
         }
 
         const silenceElapsed = duration - lastSpeechAtRef.current;
@@ -488,9 +520,13 @@ export function useRecorder({
     void clearAudio();
     setTranscript(null);
     setNoSpeechDetected(false);
+    setSpeechDetectedDuringRecording(false);
+    setDetectedSpeechDurationMs(0);
     setDurationMs(0);
     setPermissionDenied(false);
     setError(null);
+    previousSpeechDetectedAtRef.current = null;
+    detectedSpeechDurationMsRef.current = 0;
     autoStoppingRef.current = false;
     setState("idle");
     if (manageWakeWord) enableWakeWord();
@@ -503,6 +539,8 @@ export function useRecorder({
     permissionDenied,
     error,
     noSpeechDetected,
+    speechDetectedDuringRecording,
+    detectedSpeechDurationMs,
     start,
     stop: () => finishRecording(),
     reset,
