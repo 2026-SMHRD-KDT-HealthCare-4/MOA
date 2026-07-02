@@ -67,7 +67,7 @@ const BUBBLE_TEXT_MAX_CHARS = 34;
 
 const VOICE_CHECK_PROMPTS = [
   "목소리만 잠깐 확인할게요.",
-  "'아' 소리 3초만 해주세요.",
+  "'아' 소리 4초만 해주세요.",
   "짧게 목소리 확인할게요.",
 ];
 
@@ -324,6 +324,8 @@ export default function ChatbotMain() {
   const finishActionPendingRef = useRef(false);
   const showConversationResultRef = useRef(false);
   const flowStepRef = useRef<ChatFlowStep>("IDLE");
+  const normalChatStartedRef = useRef(false);
+  const sustainedVowelCompletedThisSessionRef = useRef(false);
   const sustainedRetryRef = useRef(0);
   const sustainedStopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sustainedCompletionStopRequestedRef = useRef(false);
@@ -554,6 +556,7 @@ export default function ChatbotMain() {
     voiceModeRef.current = null;
     activeRecordingModeRef.current = null;
     conversationActiveRef.current = false;
+    normalChatStartedRef.current = false;
     conversationRunningRef.current = false;
     void endConversationSession();
     setIsConversationActive(false);
@@ -601,6 +604,7 @@ export default function ChatbotMain() {
     greetingInProgressRef.current = false;
     finishActionPendingRef.current = false;
     flowStepRef.current = "IDLE";
+    normalChatStartedRef.current = false;
     sustainedRetryRef.current = 0;
     sustainedRetryInProgressRef.current = false;
     bubbleDisplaySequenceRef.current += 1;
@@ -621,6 +625,8 @@ export default function ChatbotMain() {
   }
 
   async function speakSingleBotLine(text: string, emotion: BotEmotion = "happy") {
+    if (showConversationResultRef.current) return;
+
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
       typewriterTimerRef.current = null;
@@ -661,6 +667,8 @@ export default function ChatbotMain() {
   }
 
   async function speakBotLine(text: string, emotion: BotEmotion = "happy") {
+    if (showConversationResultRef.current) return;
+
     // TTS는 한 호흡으로 재생하되, 화면 말풍선은 문장 단위로 순차 표시한다.
     await speakSingleBotLine(text, emotion);
   }
@@ -806,6 +814,10 @@ export default function ChatbotMain() {
       sustainedStopTimeoutRef.current = null;
     }
 
+    if (succeeded) {
+      sustainedVowelCompletedThisSessionRef.current = true;
+    }
+
     greetingInProgressRef.current = true;
     flowStepRef.current = "VOICE_CHECK_DONE";
     setFlowStep("VOICE_CHECK_DONE");
@@ -830,6 +842,7 @@ export default function ChatbotMain() {
       greetingInProgressRef.current = false;
     }
     flowStepRef.current = "NORMAL_CHAT";
+    normalChatStartedRef.current = true;
     console.log("[VOICE_CHECK_DEBUG] flowStep NORMAL_CHAT", {
       succeeded,
       detectedSpeechDurationMs,
@@ -855,7 +868,41 @@ export default function ChatbotMain() {
     }
   }
 
+  function shouldSkipSustainedVowelForSession() {
+    return sustainedVowelCompletedThisSessionRef.current;
+  }
+
+  async function startNormalChatWithoutSustainedVowel() {
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    sustainedRetryRef.current = 0;
+    sustainedRetryInProgressRef.current = false;
+    flowStepRef.current = "NORMAL_CHAT";
+    normalChatStartedRef.current = true;
+    setFlowStep("NORMAL_CHAT");
+    conversationActiveRef.current = true;
+    setIsConversationActive(true);
+
+    const nextPrompt = pickRandom(NORMAL_CHAT_START_PROMPTS);
+
+    try {
+      greetingInProgressRef.current = true;
+      await speakBotLine(nextPrompt, "happy");
+    } finally {
+      greetingInProgressRef.current = false;
+    }
+
+    setChatState("listening");
+    beginConversationListening();
+  }
+
   async function retrySustainedVowel(reason: "noSpeech" | "tooShort" = "tooShort") {
+    if (showConversationResultRef.current || !conversationActiveRef.current) return;
     if (sustainedRetryInProgressRef.current) return;
 
     sustainedRetryInProgressRef.current = true;
@@ -897,7 +944,6 @@ export default function ChatbotMain() {
     setIsConversationActive(true);
     setBotEmotion("listening");
     setChatState("listening");
-    setBotReply("‘아’ 소리를 4초 정도 길게 이어서 말씀해주세요.");
 
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
@@ -916,17 +962,23 @@ export default function ChatbotMain() {
   }
 
   async function startVoiceCheckAfterFreeTalk() {
+    if (shouldSkipSustainedVowelForSession()) {
+      await startNormalChatWithoutSustainedVowel();
+      return;
+    }
+
     flowStepRef.current = "VOICE_CHECK_INTRO";
     setFlowStep("VOICE_CHECK_INTRO");
     greetingInProgressRef.current = true;
 
-    const fullText = "고마워요, '아' 소리 3초만 해볼게요, 셋, 둘, 하나.";
+    const fullText = "고마워요, '아' 소리 4초만 해볼게요, 셋, 둘, 하나.";
 
     try {
       await speakBotLine(fullText, "happy");
     } finally {
       greetingInProgressRef.current = false;
     }
+
     beginSustainedVowelRecording();
   }
 
@@ -971,6 +1023,22 @@ export default function ChatbotMain() {
           ? "too_short"
           : "ok";
 
+    if (recordingMode === "sustainedVowel") {
+      console.log("[VOICE_CHECK_DEBUG] sustained done duration", {
+        recorderState,
+        durationMs: turnDurationMs,
+        detectedSpeechDurationMs,
+        sampleStatus,
+        activeRecordingMode: activeRecordingModeRef.current,
+        voiceMode: voiceModeRef.current,
+        flowStep: currentFlowStep,
+        shouldSkipSustainedVowelForSession: shouldSkipSustainedVowelForSession(),
+        speechDetectedDuringRecording,
+        sustainedVowelHasMeaningfulSpeech,
+        sustainedVowelHasEnoughSpeech,
+      });
+    }
+
     console.log("[TURN_READY]", {
       mode: recordingMode,
       durationMs: turnDurationMs,
@@ -1002,7 +1070,7 @@ export default function ChatbotMain() {
           await saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus);
         }
 
-        // 'sustainedVowel' (아~~~ 3초 측정) 모드
+        // 'sustainedVowel' (아~~~ 4초 측정) 모드
         if (recordingMode === "sustainedVowel") {
           resetRecorder();
           if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
@@ -1147,6 +1215,8 @@ export default function ChatbotMain() {
     if (
       !isConversationActive ||
       !noSpeechDetected ||
+      showConversationResultRef.current ||
+      chatState === "completed" ||
       voiceModeRef.current !== "conversation"
     ) {
       return;
@@ -1183,12 +1253,21 @@ export default function ChatbotMain() {
     voiceModeRef.current = null;
     activeRecordingModeRef.current = null;
     void speakBotLine(prompt, botEmotion);
-  }, [botReply, isConversationActive, noSpeechDetected, resetRecorder, speakText]);
+  }, [
+    botReply,
+    chatState,
+    isConversationActive,
+    noSpeechDetected,
+    resetRecorder,
+    speakText,
+  ]);
 
   useEffect(() => {
     if (
       !isConversationActive ||
       !noSpeechDetected ||
+      showConversationResultRef.current ||
+      chatState === "completed" ||
       voiceModeRef.current !== "sustainedVowel" ||
       sustainedRetryInProgressRef.current
     ) {
@@ -1206,7 +1285,7 @@ export default function ChatbotMain() {
     resetRecorder();
 
     void retrySustainedVowel("noSpeech");
-  }, [isConversationActive, noSpeechDetected, resetRecorder]);
+  }, [chatState, isConversationActive, noSpeechDetected, resetRecorder]);
 
   useEffect(() => {
     if (!isConversationActive) return;
@@ -1325,10 +1404,15 @@ export default function ChatbotMain() {
     greetingInProgressRef.current = true;
 
     try {
+      if (shouldSkipSustainedVowelForSession()) {
+        await startNormalChatWithoutSustainedVowel();
+        return;
+      }
+
       flowStepRef.current = "GREETING";
       setFlowStep("GREETING");
       const greeting = getTimeBasedVoiceCheckGreeting();
-      const firstReply = `${greeting} '아' 소리 3초만 해볼게요, 셋, 둘, 하나.`;
+      const firstReply = `${greeting} '아' 소리 4초만 해볼게요, 셋, 둘, 하나.`;
 
       silenceRetryRef.current = 0;
       flowStepRef.current = "VOICE_CHECK_INTRO";
@@ -1459,6 +1543,7 @@ export default function ChatbotMain() {
         conversationActiveRef.current = false;
         submittingTranscriptRef.current = false;
         flowStepRef.current = "IDLE";
+        normalChatStartedRef.current = false;
         setFlowStep("IDLE");
       };
     }, [
@@ -1552,7 +1637,6 @@ export default function ChatbotMain() {
   function handleEndConversationByButton() {
     if (
       !isConversationActive ||
-      chatState !== "listening" ||
       voiceModeRef.current === "sustainedVowel" ||
       activeRecordingModeRef.current === "sustainedVowel" ||
       flowStepRef.current === "SUSTAINED_VOWEL_RECORDING"
@@ -1565,9 +1649,27 @@ export default function ChatbotMain() {
       flowStep: flowStepRef.current,
     });
 
+    conversationActiveRef.current = false;
+    conversationRunningRef.current = false;
+    voiceModeRef.current = null;
+    activeRecordingModeRef.current = null;
+    finishActionPendingRef.current = false;
+    silenceRetryRef.current = 0;
+    sustainedRetryInProgressRef.current = false;
+
     if (wakeTimeoutRef.current) {
       clearTimeout(wakeTimeoutRef.current);
       wakeTimeoutRef.current = null;
+    }
+    if (sustainedStopTimeoutRef.current) {
+      clearTimeout(sustainedStopTimeoutRef.current);
+      sustainedStopTimeoutRef.current = null;
+    }
+
+    if (recorderStateRef.current === "recording") {
+      void stopRecording().catch((error) => {
+        console.warn("[END_CONVERSATION_STOP_RECORDING_FAILED]", error);
+      });
     }
 
     resetRecorder();
@@ -1655,6 +1757,7 @@ export default function ChatbotMain() {
     setIsConversationActive(false);
     setConversationResultVisible(false);
     flowStepRef.current = "IDLE";
+    normalChatStartedRef.current = false;
     setFlowStep("IDLE");
     resetRecorder();
 
@@ -1674,9 +1777,9 @@ export default function ChatbotMain() {
     activeRecordingModeRef.current === "sustainedVowel";
   const showEndConversationButton =
     isConversationActive &&
-    chatState === "listening" &&
     !isSustainedVowelUi &&
-    (flowStep === "NORMAL_CHAT" ||
+    (normalChatStartedRef.current ||
+      flowStep === "NORMAL_CHAT" ||
       flowStepRef.current === "NORMAL_CHAT" ||
       voiceModeRef.current === "conversation" ||
       activeRecordingModeRef.current === "conversation");
@@ -1740,7 +1843,7 @@ export default function ChatbotMain() {
   const characterVideoTopOffset = Math.round(170 * v);
   const recordingInstruction =
     flowStep === "SUSTAINED_VOWEL_RECORDING"
-      ? "3초 동안 '아~~~' 하고 말해주세요"
+      ? "4초 동안 '아~~~' 하고 말해주세요"
       : null;
 
   if (showConversationResult) {
