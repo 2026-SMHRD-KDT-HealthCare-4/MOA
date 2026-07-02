@@ -575,19 +575,30 @@ def list_seniors_for_guardian(
 
     senior_ids = [link.senior_id for link in links]
     seniors = db.query(Senior).filter(Senior.senior_id.in_(senior_ids)).all()
-    senior_name_map = {s.senior_id: s.name for s in seniors}
+    senior_map = {s.senior_id: s for s in seniors}
 
-    return [
-        GuardianSeniorResponse(
-            link_id=link.link_id,
-            guardian_id=link.guardian_id,
-            senior_id=link.senior_id,
-            senior_name=senior_name_map.get(link.senior_id),
-            link_status=link.link_status,
-            linked_at=link.linked_at,
+    # 각 링크의 연동 보호자 연락처(리포트 PDF 기본정보용)
+    guardian_ids = [link.guardian_id for link in links]
+    guardians = db.query(Guardian).filter(Guardian.guardian_id.in_(guardian_ids)).all()
+    guardian_phone_map = {g.guardian_id: g.phone for g in guardians}
+
+    result = []
+    for link in links:
+        senior = senior_map.get(link.senior_id)
+        result.append(
+            GuardianSeniorResponse(
+                link_id=link.link_id,
+                guardian_id=link.guardian_id,
+                senior_id=link.senior_id,
+                senior_name=senior.name if senior else None,
+                senior_gender=senior.gender if senior else None,
+                senior_birth_date=senior.birth_date if senior else None,
+                guardian_phone=guardian_phone_map.get(link.guardian_id),
+                link_status=link.link_status,
+                linked_at=link.linked_at,
+            )
         )
-        for link in links
-    ]
+    return result
 
 
 @router.patch("/link/{link_id}", response_model=GuardianSeniorResponse)

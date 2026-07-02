@@ -522,6 +522,9 @@ interface BackendGuardianSeniorResponse {
   guardian_id: string;
   senior_id: string;
   senior_name?: string | null;
+  senior_gender?: string | null;
+  senior_birth_date?: string | null;
+  guardian_phone?: string | null;
   link_status: "PENDING" | "ACTIVE" | "REVOKED";
   linked_at?: string | null;
 }
@@ -565,6 +568,8 @@ export interface RegisterPayload {
   email: string;
   password: string;
   role: UserRole;
+  phone?: string;
+  gender?: "M" | "F";
 }
 
 async function loginMock({ email, password }: LoginPayload): Promise<SessionUser> {
@@ -627,9 +632,10 @@ async function registerReal(payload: RegisterPayload): Promise<SessionUser> {
       email: payload.email.trim().toLowerCase(),
       password: payload.password,
       name: payload.name.trim(),
-      // TODO(BE 연동): 보호자 등록 화면에서 실제 생년월일/전화번호 수집 (현재 placeholder)
+      // TODO(BE 연동): 보호자 등록 화면에서 실제 생년월일 수집 (현재 placeholder)
       birth_date: "1970-01-01",
-      phone: "010-0000-0000",
+      phone: payload.phone ?? "010-0000-0000",
+      ...(payload.gender ? { gender: payload.gender } : {}),
       biometric_consent_yn: true,
     }),
   });
@@ -894,11 +900,16 @@ export async function claimSenior({
   const normalizedToken = normalizeSeniorPairingCode(token);
 
   if (AUTH_API_MODE === "real") {
+    // 백엔드는 { status, data: { access_token, refresh_token, role, name } } 형태로 감싼다.
+    // apiFetch는 envelope를 벗기지 않으므로 반드시 res.data.* 로 읽어야 한다. (안 그러면 토큰이 undefined → 401)
     const res = await apiFetch<{
-      access_token: string;
-      refresh_token: string;
-      role: string;
-      name: string;
+      status: string;
+      data: {
+        access_token: string;
+        refresh_token: string;
+        role: string;
+        name: string;
+      };
     }>("/auth/senior/claim", {
       method: "POST",
       body: JSON.stringify({
@@ -912,22 +923,23 @@ export async function claimSenior({
       }),
     });
 
-    const userId = parseJwtSub(res.access_token) || "senior-user";
+    const { access_token, refresh_token, name: seniorName } = res.data;
+    const userId = parseJwtSub(access_token) || "senior-user";
     const user: SessionUser = {
       id: userId,
-      name: res.name,
+      name: seniorName,
       role: "elder",
-      token: res.access_token,
+      token: access_token,
     };
     realCurrentUser = user;
-    await saveToken(res.access_token);
-    if (res.refresh_token) await saveRefreshToken(res.refresh_token);
+    await saveToken(access_token);
+    if (refresh_token) await saveRefreshToken(refresh_token);
 
     return {
       success: true,
       data: {
         user,
-        refreshToken: res.refresh_token,
+        refreshToken: refresh_token,
         consentDone: !!consent,
         familyGroup: null,
         links: [],
@@ -989,6 +1001,9 @@ export async function getGuardianSeniors(
         relation: "elder",
         status: row.link_status,
         linkedAt: row.linked_at ?? undefined,
+        gender: row.senior_gender ?? null,
+        birthDate: row.senior_birth_date ?? null,
+        guardianPhone: row.guardian_phone ?? null,
       })),
     };
   }

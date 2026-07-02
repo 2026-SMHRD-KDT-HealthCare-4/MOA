@@ -26,6 +26,69 @@ import {
 } from "./reportTypes";
 import { colors } from "../../styles/tokens";
 import CareCenterCard from "./CareCenterCard";
+import * as Print from "expo-print";
+import { listMedications, type MedicationResponse } from "../../api/medication";
+import { buildReportHtml, type ReportPdfMedication } from "./reportPdfTemplate";
+
+// 웹 전용: 숨은 iframe 에 리포트 HTML 을 써서 그 프레임만 인쇄한다.
+// (expo-print 웹 경로는 현재 페이지를 인쇄해버려, 우리 템플릿만 확실히 인쇄하기 위해 직접 처리한다.)
+function webPrintHtml(html: string): void {
+  const g = globalThis as any;
+  const doc = g?.document;
+  if (!doc?.body) return;
+  const iframe = doc.createElement("iframe");
+  iframe.setAttribute("style", "position:fixed;right:0;bottom:0;width:0;height:0;border:0;");
+  doc.body.appendChild(iframe);
+  const frameDoc = iframe.contentWindow?.document;
+  if (!frameDoc) {
+    doc.body.removeChild(iframe);
+    return;
+  }
+  frameDoc.open();
+  frameDoc.write(html);
+  frameDoc.close();
+  const win = iframe.contentWindow;
+  win.onafterprint = () => setTimeout(() => doc.body.removeChild(iframe), 300);
+  // 스타일·이미지 렌더 여유를 준 뒤 iframe 프레임만 인쇄.
+  setTimeout(() => {
+    win.focus();
+    win.print();
+  }, 350);
+}
+
+// 'YYYY-MM' → "YYYY.MM.01 ~ YYYY.MM.말일"
+function periodLabelOf(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  if (!y || !m) return month;
+  const lastDay = new Date(y, m, 0).getDate();
+  const mm = String(m).padStart(2, "0");
+  return `${y}.${mm}.01 ~ ${y}.${mm}.${String(lastDay).padStart(2, "0")}`;
+}
+
+// 복약 목록(행 단위)을 약 이름으로 묶어 시간대를 합친다. is_active 로 현재/과거를 구분.
+function groupMedications(list: MedicationResponse[]): {
+  current: ReportPdfMedication[];
+  past: ReportPdfMedication[];
+} {
+  const build = (rows: MedicationResponse[]): ReportPdfMedication[] => {
+    const map = new Map<string, string[]>();
+    rows.forEach((r) => {
+      const times = map.get(r.medicine_name) ?? [];
+      const t = r.intake_time.slice(0, 5);
+      if (!times.includes(t)) times.push(t);
+      map.set(r.medicine_name, times);
+    });
+    return Array.from(map.entries()).map(([name, times]) => ({
+      name,
+      times: times.sort(),
+    }));
+  };
+  return {
+    current: build(list.filter((m) => m.is_active)),
+    // 과거 복용했던 약 = 비활성(삭제되지 않고 남은) 행. 하드 삭제된 약은 이력이 남지 않는다.
+    past: build(list.filter((m) => !m.is_active)),
+  };
+}
 
 // 보호자 리포트 컬러 시스템 (Family 탭과 통일). 레드 금지.
 // 네이비=주요 정보/버튼 · 베이지=배경 · 추이/캘린더 심각도는 초록<노랑<앰버로 상승.
@@ -185,6 +248,12 @@ function CheckinCalendarGrid({
 
 interface FamilyReportProps {
   report: FamilyReportData;
+  /** 선택된 직접사용자 id — PDF 복약 현황 조회에 사용 */
+  seniorId: string;
+  /** PDF 기본정보 — 직접사용자 성별('M'|'F')/생년월일, 연동 보호자 연락처 */
+  elderGender?: string | null;
+  elderBirthDate?: string | null;
+  guardianPhone?: string | null;
   /** 조회 가능한 월 목록('YYYY-MM', 내림차순) */
   months: string[];
   /** 현재 선택된 월('YYYY-MM') */
@@ -197,12 +266,74 @@ interface FamilyReportProps {
 
 export function FamilyReport({
   report,
+  seniorId,
+  elderGender,
+  elderBirthDate,
+  guardianPhone,
   months,
   selectedMonth,
   onSelectMonth,
   onToast,
 }: FamilyReportProps) {
   const router = useRouter();
+  const [exporting, setExporting] = useState(false);
+
+  // "PDF 내보내기" — 리포트 실데이터 + 복약 실데이터로 HTML을 만들어 PDF 파일 생성 후 공유 화면으로 이동.
+  async function handleExportPdf() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      let current: ReportPdfMedication[] = [];
+      let past: ReportPdfMedication[] = [];
+      try {
+        const meds = await listMedications(seniorId, false);
+        ({ current, past } = groupMedications(meds));
+      } catch {
+        // 복약 조회 실패 시 빈 상태로 둔다(리포트 생성 자체는 계속 진행).
+      }
+
+      const now = new Date();
+      const createdLabel = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
+
+      const html = buildReportHtml({
+        elderlyName: report.elderlyName,
+        periodLabel: periodLabelOf(report.month),
+        createdLabel,
+        // 기본정보 실데이터 — /auth/guardian/seniors 응답(성별/생년월일/보호자 연락처).
+        gender: elderGender === "M" ? "남성" : elderGender === "F" ? "여성" : undefined,
+        birthDate: elderBirthDate ? elderBirthDate.slice(0, 10) : undefined,
+        guardianPhone: guardianPhone ?? undefined,
+        voicePatterns: report.voicePatterns.map((p) => ({
+          area: p.area,
+          status: p.status,
+          text: p.text,
+        })),
+        currentMeds: current,
+        pastMeds: past,
+        participation: { done: report.checkinRate.done, total: report.checkinRate.total },
+      });
+
+      // 웹: 파일 생성/공유시트가 없으므로 인쇄 대화상자(→PDF 저장)로 처리하고 종료.
+      // 파일 저장·공유(카카오톡/의사 공유)는 네이티브 전용 흐름이다.
+      if (Platform.OS === "web") {
+        webPrintHtml(html);
+        return;
+      }
+
+      const { uri } = await Print.printToFileAsync({ html });
+      const safeName = (report.elderlyName || "직접사용자").replace(/[^\w가-힣]/g, "");
+      const fileName = `MOA_report_${safeName}_${report.month.replace("-", "")}.pdf`;
+
+      router.push({
+        pathname: "/(guardian)/report-share",
+        params: { uri, fileName, createdAt: createdLabel },
+      });
+    } catch {
+      onToast("PDF를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setExporting(false);
+    }
+  }
   const { width } = useWindowDimensions();
   const chartWidth = width - 40 - 36; // 좌우 화면 패딩 + 카드 패딩
 
@@ -559,12 +690,14 @@ export function FamilyReport({
       {/* 8. 하단 버튼 2개 */}
       <View style={styles.actions}>
         <Pressable
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-          onPress={() => onToast("준비 중입니다")}
+          style={({ pressed }) => [styles.secondaryButton, (pressed || exporting) && styles.pressed]}
+          onPress={handleExportPdf}
+          disabled={exporting}
           accessibilityRole="button"
           accessibilityLabel="PDF 내보내기"
+          accessibilityState={{ disabled: exporting }}
         >
-          <Text style={styles.secondaryButtonText}>PDF 내보내기</Text>
+          <Text style={styles.secondaryButtonText}>{exporting ? "PDF 만드는 중…" : "PDF 내보내기"}</Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
