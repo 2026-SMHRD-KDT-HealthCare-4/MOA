@@ -206,6 +206,12 @@ export default function ReportHubPage() {
   // real 조회분이 있으면 표시, 없으면 null → 빈 상태.
   const report = effectiveId ? realReports[`${effectiveId}:${selectedMonth}`] ?? null : null;
 
+  // 선택된 직접사용자의 링크 — PDF 기본정보(성별/생년월일/보호자 연락처) 소스.
+  const selectedLink = useMemo(
+    () => links.find((l) => l.counterpartId === effectiveId && l.relation === "elder"),
+    [links, effectiveId],
+  );
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {/* 헤더 */}
@@ -267,6 +273,12 @@ export default function ReportHubPage() {
         ) : (
           <FamilyReport
             report={report}
+            seniorId={effectiveId as string}
+            elderGender={selectedLink?.gender ?? null}
+            elderBirthDate={selectedLink?.birthDate ?? null}
+            elderSmokingYn={selectedLink?.smokingYn ?? null}
+            elderBmi={selectedLink?.bmi ?? null}
+            guardianPhone={selectedLink?.guardianPhone ?? null}
             months={availableMonths}
             selectedMonth={selectedMonth}
             onSelectMonth={setSelectedMonth}

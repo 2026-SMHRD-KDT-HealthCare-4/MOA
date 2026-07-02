@@ -52,6 +52,7 @@ const medicationTimes = (medication: {
 
 type GroupedMedication = {
   id: string;
+  ids: string[]; // 같은 약의 여러 복용시간(각기 다른 medication_id)을 모두 보관
   medicineName: string;
   times: string[];
   cycleType: string;
@@ -109,6 +110,7 @@ export default function HealthManagementPage() {
       if (!groups[item.medicine_name]) {
         groups[item.medicine_name] = {
           id: item.medication_id,
+          ids: [item.medication_id],
           medicineName: item.medicine_name,
           times: [timeStr],
           cycleType: "daily",
@@ -117,6 +119,7 @@ export default function HealthManagementPage() {
           isActive: item.is_active,
         };
       } else {
+        groups[item.medicine_name].ids.push(item.medication_id);
         if (!groups[item.medicine_name].times.includes(timeStr)) {
           groups[item.medicine_name].times.push(timeStr);
         }
@@ -153,15 +156,16 @@ export default function HealthManagementPage() {
         86400000
     );
 
-  const confirmDeleteMedication = (id: string) => {
+  const confirmDeleteMedication = (ids: string[]) => {
     const performDelete = async () => {
       try {
-        await deleteMedicationApi(id);
+        // 같은 약의 모든 복용시간 행(medication_id)을 함께 삭제한다.
+        await Promise.all(ids.map((mid) => deleteMedicationApi(mid)));
         // 로컬 상태 동기화
-        setMedicationList(prev => prev.filter(m => m.medication_id !== id));
-        
+        setMedicationList(prev => prev.filter(m => !ids.includes(m.medication_id)));
+
         // 기존 Zustand 스토어도 지워줌 (캐싱 대응)
-        useMedicationStore.getState().deleteMedication(id);
+        ids.forEach((mid) => useMedicationStore.getState().deleteMedication(mid));
       } catch (err) {
         console.error("Failed to delete medication:", err);
         Alert.alert("삭제 실패", "약 정보를 삭제하지 못했습니다.");
@@ -370,7 +374,7 @@ export default function HealthManagementPage() {
 
                   <TouchableOpacity
                     style={styles.deleteButton}
-                    onPress={() => confirmDeleteMedication(medication.id)}
+                    onPress={() => confirmDeleteMedication(medication.ids)}
                   >
                     <Trash2 color="#C85D50" size={19} />
                   </TouchableOpacity>

@@ -20,7 +20,7 @@ from app.core.security import (
     verify_guardian_senior_link,
     verify_senior_access,
 )
-from app.models.models import Guardian, Medication, MedicationReminder, Senior, GuardianSenior, LinkStatus
+from app.models.models import Guardian, Medication, MedicationReminder, Notification, Senior, GuardianSenior, LinkStatus
 from app.schemas.notification import (
     MedicationCreateRequest,
     MedicationResponse,
@@ -365,6 +365,15 @@ def delete_medication(
 
     if not is_authorized:
         raise HTTPException(status_code=403, detail="복약 일정을 삭제할 권한이 없습니다.")
+
+    # 참조 무결성: 이 약을 참조하는 리마인더/알림을 먼저 정리한 뒤 삭제한다.
+    # (FK에 ON DELETE CASCADE가 없어 자식 행이 남아 있으면 삭제가 실패한다.)
+    db.query(MedicationReminder).filter(
+        MedicationReminder.medication_id == medication_id
+    ).delete(synchronize_session=False)
+    db.query(Notification).filter(
+        Notification.medication_id == medication_id
+    ).delete(synchronize_session=False)
 
     db.delete(medication)
     db.commit()
