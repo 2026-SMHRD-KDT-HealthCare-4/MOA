@@ -5,6 +5,7 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
@@ -95,6 +96,9 @@ function buildReport(
 // 리포트 탭 진입점 — 보호자가 연동한 직접사용자(부모님) 리포트 렌더링
 export default function ReportHubPage() {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  // 칩은 한 줄에 3개. (좌우 패딩 20*2 + 칩 사이 gap 8*2 를 뺀 뒤 3등분)
+  const chipWidth = (width - 40 - 16) / 3;
 
   // 실제 연동된 직접사용자(ACTIVE elder link)만 칩으로 노출한다.
   const links = useAuthStore((s) => s.links);
@@ -171,7 +175,7 @@ export default function ReportHubPage() {
     (async () => {
       try {
         const [trend, stats, alerts, patterns] = await Promise.all([
-          getReportTrend(effectiveId, 31),
+          getReportTrend(effectiveId, 92),
           getMonthlyStats(effectiveId, selectedMonth),
           getReportAlerts(effectiveId, selectedMonth),
           // '주목할 변화'는 보조 섹션. 엔드포인트 미배포/실패해도 리포트 전체를 죽이지 않고
@@ -219,34 +223,30 @@ export default function ReportHubPage() {
         <Text style={styles.headerTitle}>리포트</Text>
       </View>
 
-      {/* 상단 가로 스크롤 칩 셀렉터 */}
-      {/* style에 flexGrow/Shrink 0 을 줘서 가로 ScrollView 가 세로로 눌리지 않게 한다.
-          (RNW 가로 ScrollView 는 overflow-y:hidden 이라 세로가 눌리면 칩 글자가 잘린다) */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipScroll}
-        contentContainerStyle={styles.chipRow}
-      >
+      {/* 상단 칩 셀렉터 — 한 줄에 3명, 초과 시 다음 줄로 래핑 */}
+      <View style={styles.chipRow}>
         {chips.map((chip) => {
           const active = chip.id === effectiveId;
           const label = `${chip.name} 님`;
           return (
             <Pressable
               key={chip.id}
-              style={[styles.chip, active && styles.chipActive]}
+              style={[styles.chip, { width: chipWidth }, active && styles.chipActive]}
               onPress={() => setSelectedId(chip.id)}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
               accessibilityLabel={label}
             >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+              <Text
+                style={[styles.chipText, active && styles.chipTextActive]}
+                numberOfLines={1}
+              >
                 {label}
               </Text>
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       {/* 하단: 선택된 사람의 리포트 */}
       <ScrollView
@@ -312,21 +312,20 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: "#3B2318",
   },
-  // 가로 ScrollView 자체는 콘텐츠 높이를 그대로 쓰게 고정(세로 눌림/잘림 방지)
-  chipScroll: { flexGrow: 0, flexShrink: 0 },
+  // 한 줄에 3개씩, 넘치면 다음 줄로 래핑
   chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     paddingHorizontal: 20,
     paddingVertical: 10,
     gap: 8,
   },
   chip: {
-    flexShrink: 0,
-    minWidth: 72,
     minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 10,
-    paddingHorizontal: 22,
+    paddingHorizontal: 12,
     borderRadius: 20,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
