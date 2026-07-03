@@ -40,3 +40,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# 에셋 원본 백업(교체 전 파일들) — 로컬 보관용, 리포에 올리지 않음
+src/asset/_orig/
+assets/_icon_orig/
