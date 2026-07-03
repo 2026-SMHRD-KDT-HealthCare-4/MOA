@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { View, Text, Image, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,7 +9,7 @@ import {
   Mic,
   ChevronRight as ArrowRight,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { WEATHER_IMAGE } from "../constants/weatherIcons";
 import { useAuthStore } from "../stores/authStore";
 import { getReportTrend } from "../api/report";
@@ -217,25 +217,29 @@ export default function HistoryPage() {
   // 상단 타이틀에 붙일 직접사용자 본인 이름(예: "이미자님 기록 돌아보기"). 없으면 폴백.
   const userName = useAuthStore((s) => s.name);
   const [realHistory, setRealHistory] = useState<Record<string, DailyHistory> | null>(null);
-  useEffect(() => {
-    if (!REAL_API || !seniorId) return;
-    let alive = true;
-    (async () => {
-      try {
-        const [trend, records, sessions] = await Promise.all([
-          getReportTrend(seniorId, 92),
-          listScriptRecords(seniorId),
-          listChatSessions(seniorId).catch(() => []), // 대화 조회 실패는 무시(지정문구는 그대로 표시)
-        ]);
-        if (alive) setRealHistory(buildRealHistory(trend, records, sessions));
-      } catch {
-        // 조회 실패 — mock 폴백 유지
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [seniorId]);
+  // 탭 진입(포커스)마다 재조회한다. 마운트 후 그대로 남아 있는 탭은 useEffect 1회 조회로는
+  // 갱신되지 않아, 대화·기록을 새로 한 뒤 돌아와도 옛 데이터가 보이던 문제를 막는다.
+  useFocusEffect(
+    useCallback(() => {
+      if (!REAL_API || !seniorId) return;
+      let alive = true;
+      (async () => {
+        try {
+          const [trend, records, sessions] = await Promise.all([
+            getReportTrend(seniorId, 92),
+            listScriptRecords(seniorId),
+            listChatSessions(seniorId).catch(() => []), // 대화 조회 실패는 무시(지정문구는 그대로 표시)
+          ]);
+          if (alive) setRealHistory(buildRealHistory(trend, records, sessions));
+        } catch {
+          // 조회 실패 — mock 폴백 유지
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [seniorId])
+  );
 
   // real 조회분만 사용. 실패/미로딩 시 빈 객체 → 빈 상태 UI 표시(mock 폴백 없음).
   const history = realHistory ?? {};
