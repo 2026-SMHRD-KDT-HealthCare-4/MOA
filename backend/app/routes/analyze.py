@@ -82,7 +82,7 @@ async def analyze_voice(
         # 3. ML 위험도 추론 (음성 원본 바이트 + 사용자정보 → 3개 질환 score/level)
         #    ML팀 통합 엔진(MOAInferenceEngine.predict_all)을 다리(ml_inference)를 통해 호출한다.
         print("[ANALYZE] predict_risk_from_wav start")
-        risk_result = predict_risk_from_wav(audio_bytes, user_info)
+        risk_result = predict_risk_from_wav(audio_bytes, user_info, sample_type=sample_type)
         print("[ANALYZE] predict_risk_from_wav success")
     except Exception as e:
         _log_analyze_error(e)

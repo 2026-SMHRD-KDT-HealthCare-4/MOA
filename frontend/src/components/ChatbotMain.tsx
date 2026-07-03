@@ -65,6 +65,7 @@ const SUSTAINED_VOWEL_SILENCE_MS = 3_000;
 // 짧게 잡히므로 2.5초로 완화해 정상적인 3초 발성이 반복 실패하지 않게 한다.
 const SUSTAINED_VOWEL_TARGET_MS = 2_500;
 const SUSTAINED_VOWEL_MAX_MS = 7_000;
+const FREE_TALK_MIN_MS = 1_200; // 자유대화 최소 발화 길이(ms) — 노이즈성 단답 컷용, 임시값
 // 재시도 상한: 이 횟수를 넘으면 음성검사를 종료(finishVoiceCheck(false))하고 일반 대화로 넘어간다.
 // (상한이 없으면 기준 미달 시 "'아' 소리 내주세요"가 무한 반복됨)
 const SUSTAINED_VOWEL_MAX_RETRIES = 2;
@@ -1152,18 +1153,22 @@ export default function ChatbotMain() {
             ? "normal_chat"
             : null;
     const sustainedVowelHasMeaningfulSpeech =
-      recordingMode !== "sustainedVowel" ||
-      (speechDetectedDuringRecording &&
-        detectedSpeechDurationMs >= SUSTAINED_VOWEL_MIN_MEANINGFUL_MS);
-    const sustainedVowelHasEnoughSpeech =
-      recordingMode !== "sustainedVowel" ||
-      detectedSpeechDurationMs >= SUSTAINED_VOWEL_TARGET_MS;
-    const sampleStatus =
-      recordingMode === "sustainedVowel" && !sustainedVowelHasMeaningfulSpeech
-        ? "failed"
-        : recordingMode === "sustainedVowel" && !sustainedVowelHasEnoughSpeech
-          ? "too_short"
-          : "ok";
+  recordingMode !== "sustainedVowel" ||
+  (speechDetectedDuringRecording &&
+    detectedSpeechDurationMs >= SUSTAINED_VOWEL_MIN_MEANINGFUL_MS);
+const sustainedVowelHasEnoughSpeech =
+  recordingMode !== "sustainedVowel" ||
+  detectedSpeechDurationMs >= SUSTAINED_VOWEL_TARGET_MS;
+const isFreeTalkTurn =
+  recordingMode === "conversation" || currentFlowStep === "FIRST_FREE_TALK";
+const sampleStatus =
+  recordingMode === "sustainedVowel" && !sustainedVowelHasMeaningfulSpeech
+    ? "failed"
+    : recordingMode === "sustainedVowel" && !sustainedVowelHasEnoughSpeech
+      ? "too_short"
+      : isFreeTalkTurn && turnDurationMs < FREE_TALK_MIN_MS
+        ? "too_short"
+        : "ok";
 
     if (recordingMode === "sustainedVowel") {
       console.log("[VOICE_CHECK_DEBUG] sustained done duration", {

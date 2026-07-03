@@ -65,16 +65,25 @@ class MOAInferenceEngine:
         print("✅ 모든 모델 로드 완료")
 
     # ──────────────────────────────────────────────────────────────
-    def predict_all(self, features: dict, user_info: dict) -> dict:
+    # ──────────────────────────────────────────────────────────────
+    def predict_all(self, features: dict, user_info: dict, sample_type: str = None) -> dict:
         start_time = time.time()
 
-        wav_path  = features.get("wav_path")
-        score_pkn = self._predict_parkinson(features.get("acoustic"), wav_path)
-        score_dem = self._predict_dementia(
-            features.get("raw_features", {}),
-            features.get("hubert_embedding"),
-        )
-        score_dm  = self._predict_diabetes(features.get("byols_embedding"), user_info)
+        wav_path = features.get("wav_path")
+
+        if sample_type == "sustained_vowel":
+            # 지속모음 발성 → 파킨슨만 유효
+            score_pkn = self._predict_parkinson(features.get("acoustic"), wav_path)
+            score_dem = 0.0
+            score_dm  = 0.0
+        else:
+            # 자유발화/일반대화 → 치매·당뇨만 유효
+            score_pkn = 0.0
+            score_dem = self._predict_dementia(
+                features.get("raw_features", {}),
+                features.get("hubert_embedding"),
+            )
+            score_dm  = self._predict_diabetes(features.get("byols_embedding"), user_info)
 
         max_score    = max(score_pkn, score_dem, score_dm)
         inference_ms = int((time.time() - start_time) * 1000)
