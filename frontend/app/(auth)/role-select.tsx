@@ -139,8 +139,8 @@ const styles = StyleSheet.create({
     height: 280,
     alignSelf: "center",
     marginHorizontal: -37,
-    marginTop: -44,
-    marginBottom: -30,
+    marginTop: -52,
+    marginBottom: -46,
   },
   title: {
     fontSize: 24,
@@ -155,7 +155,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: "#6B5D57",
     textAlign: "center",
-    marginBottom: 28,
+    marginBottom: 16,
   },
   cards: {
     zIndex: 3,
