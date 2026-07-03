@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   Home,
@@ -25,7 +25,11 @@ export function ResultComplete({ type, onHome }: ResultCompleteProps) {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={styles.container}>
+      <ScrollView
+        style={StyleSheet.absoluteFill}
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.title}>
           {isConversation ? "대화 완료!" : "녹음 완료!"}
         </Text>
@@ -102,7 +106,7 @@ export function ResultComplete({ type, onHome }: ResultCompleteProps) {
         <Text style={styles.note}>
           결과는 리포트에서 자세히 확인할 수 있어요.
         </Text>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -129,10 +133,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 24,
     paddingTop: 50,
-    paddingBottom: 50,
+    // 하단 탭바(홈/기록/복약/설정)에 '홈으로 가기' 버튼이 가리지 않도록 여백을 넉넉히 둔다.
+    paddingBottom: 120,
     alignItems: "center",
   },
   title: {

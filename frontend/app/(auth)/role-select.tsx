@@ -75,24 +75,31 @@ export default function RoleSelectPage() {
           </TouchableOpacity>
         </View>
 
-        <Image
-          source={require("../../assets/images/role-select-bg.png")}
-          style={styles.waveBg}
-          resizeMode="stretch"
-        />
+        {/* 카드와 하단 장식 사이의 신축 여백.
+            화면이 길면(PC 등) 늘어나 장식을 바닥으로 밀어 기존과 동일하게 보이고,
+            짧으면(모바일 브라우저) 최소 간격만 유지한 채 스크롤되어 겹치지 않는다. */}
+        <View style={styles.bottomSpacer} />
 
-        <Image
-          source={require("../../assets/images/mascot-wave.png")}
-          style={styles.mascot}
-          resizeMode="contain"
-        />
+        <View style={styles.bottomArea}>
+          <Image
+            source={require("../../assets/images/role-select-bg.png")}
+            style={styles.waveBg}
+            resizeMode="stretch"
+          />
 
-        <View style={styles.footer}>
-          <View style={styles.footerDivider} />
-          <Text style={styles.footerHint}>이미 계정이 있으신가요?</Text>
-          <TouchableOpacity onPress={handleLogin} activeOpacity={0.7} accessibilityRole="button">
-            <Text style={styles.loginLink}>보호자 로그인</Text>
-          </TouchableOpacity>
+          <Image
+            source={require("../../assets/images/mascot-wave.png")}
+            style={styles.mascot}
+            resizeMode="contain"
+          />
+
+          <View style={styles.footer}>
+            <View style={styles.footerDivider} />
+            <Text style={styles.footerHint}>이미 계정이 있으신가요?</Text>
+            <TouchableOpacity onPress={handleLogin} activeOpacity={0.7} accessibilityRole="button">
+              <Text style={styles.loginLink}>보호자 로그인</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </ScrollView>
@@ -114,6 +121,8 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 390,
     minHeight: "100%",
+    flexGrow: 1,
+    flexDirection: "column",
     position: "relative",
     overflow: "hidden",
     borderRadius: 20,
@@ -196,6 +205,20 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: "#6B5D57",
   },
+  // 카드와 하단 장식 사이 신축 여백. 화면이 길면 늘어나 장식을 바닥으로 밀고(=PC와 동일),
+  // 짧으면 최소 간격(마스코트가 카드까지 올라오지 않을 만큼)만 유지한 채 스크롤된다.
+  bottomSpacer: {
+    flexGrow: 1,
+    minHeight: 105,
+  },
+  // 웨이브 배경·마스코트·푸터를 담는 하단 영역. 절대위치가 아니라 흐름(flow)에 놓여
+  // 카드와 겹치지 않는다. 좌우/아래로 -패딩만큼 확장해 패널 가장자리까지 꽉 채운다.
+  bottomArea: {
+    marginHorizontal: -22,
+    marginBottom: -24,
+    height: 300,
+    position: "relative",
+  },
   waveBg: {
     position: "absolute",
     left: 0,
@@ -207,10 +230,10 @@ const styles = StyleSheet.create({
   },
   mascot: {
     position: "absolute",
-    right: -12,
+    right: 10,
     bottom: 26,
-    width: 270,
-    height: 405,
+    width: 247,
+    height: 370,
     zIndex: 2,
   },
   footer: {
