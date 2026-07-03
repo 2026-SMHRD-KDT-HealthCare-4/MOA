@@ -139,8 +139,8 @@ const styles = StyleSheet.create({
     height: 280,
     alignSelf: "center",
     marginHorizontal: -37,
-    marginTop: -52,
-    marginBottom: -46,
+    marginTop: -58,
+    marginBottom: -60,
   },
   title: {
     fontSize: 24,
@@ -148,18 +148,18 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#3A2E2A",
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
     color: "#6B5D57",
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 6,
   },
   cards: {
     zIndex: 3,
-    gap: 15,
+    gap: 11,
   },
   card: {
     height: 116,
@@ -215,8 +215,8 @@ const styles = StyleSheet.create({
   // 카드와 겹치지 않는다. 좌우/아래로 -패딩만큼 확장해 패널 가장자리까지 꽉 채운다.
   bottomArea: {
     marginHorizontal: -22,
-    marginBottom: -24,
-    height: 300,
+    marginBottom: -8,
+    height: 264,
     position: "relative",
   },
   waveBg: {
@@ -232,8 +232,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 10,
     bottom: 26,
-    width: 247,
-    height: 370,
+    width: 227,
+    height: 340,
     zIndex: 2,
   },
   footer: {
