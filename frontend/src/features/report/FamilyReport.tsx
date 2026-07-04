@@ -53,37 +53,61 @@ function openPrintWindow(): Window | null {
   }
 }
 
-// 리포트 HTML을 인쇄한다. preOpened(새 창)가 있으면 그 창 자신을 인쇄(모바일 정상 경로),
-// 없으면 숨은 iframe으로 폴백(주로 데스크톱·팝업 허용 환경).
+// 리포트 화면 위에 얹는 화면 전용 액션 바(인쇄물에는 숨김). 사용자가 직접
+// "PDF로 저장/인쇄"를 누르게 한다 — 안드로이드는 자동 print()가 실패하지만
+// 사용자 제스처 인쇄는 안정적이다.
+const WEB_ACTION_BAR =
+  '<style>@media print{#moa-webbar,#moa-webbar-sp{display:none!important}}</style>' +
+  '<div id="moa-webbar" style="position:fixed;top:0;left:0;right:0;z-index:99999;' +
+  "display:flex;justify-content:center;align-items:center;gap:10px;padding:12px;" +
+  'background:#173F73;font-family:-apple-system,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.25);">' +
+  '<button onclick="window.print()" style="font-size:17px;font-weight:700;color:#fff;' +
+  'background:#E8943A;border:0;border-radius:10px;padding:12px 22px;">📄 PDF로 저장 / 인쇄</button>' +
+  "</div><div id=\"moa-webbar-sp\" style=\"height:62px\"></div>";
+
+// 리포트 HTML을 새 탭(preOpened)에 실제 문서(blob URL)로 띄운다. 자동 인쇄는 하지 않고
+// 화면 상단 버튼으로 사용자가 저장/인쇄하게 한다(안드로이드 자동인쇄 실패 회피).
+// 새 탭을 못 열었을 때만(팝업 차단 등) 숨은 iframe 자동 인쇄로 폴백한다(주로 데스크톱).
 function webPrintHtml(html: string, preOpened: Window | null): void {
-  if (preOpened?.document) {
-    const win = preOpened;
-    const d = win.document;
-    d.open();
-    d.write(html);
-    d.close();
-    // 인쇄/저장 대화상자를 닫으면(인쇄하든 취소하든) 준비용 탭을 정리한다.
-    win.onafterprint = () => {
+  const g = globalThis as any;
+  const withBar = html.replace("<body>", "<body>" + WEB_ACTION_BAR);
+
+  if (preOpened) {
+    try {
+      let url: string | null = null;
       try {
-        win.close();
+        url = g.URL?.createObjectURL?.(new g.Blob([withBar], { type: "text/html" })) ?? null;
+      } catch {
+        url = null;
+      }
+      if (url) {
+        // blob URL = 실제 문서라 안드로이드 인쇄가 정상 스냅샷한다. 60초 후 URL 해제.
+        preOpened.location.href = url;
+        setTimeout(() => {
+          try {
+            g.URL?.revokeObjectURL?.(url as string);
+          } catch {
+            /* noop */
+          }
+        }, 60000);
+      } else {
+        const d = preOpened.document;
+        d.open();
+        d.write(withBar);
+        d.close();
+      }
+      preOpened.focus();
+      return;
+    } catch {
+      try {
+        preOpened.close();
       } catch {
         /* noop */
       }
-    };
-    // 스타일 렌더 여유를 준 뒤 그 창 자신을 인쇄.
-    setTimeout(() => {
-      try {
-        win.focus();
-        win.print();
-      } catch {
-        /* noop */
-      }
-    }, 500);
-    return;
+    }
   }
 
-  // 폴백: 새 창을 못 열었을 때만 숨은 iframe 인쇄.
-  const g = globalThis as any;
+  // 폴백: 새 창을 못 열었을 때만 숨은 iframe 자동 인쇄(주로 데스크톱·팝업 허용 환경).
   const doc = g?.document;
   if (!doc?.body) return;
   const iframe = doc.createElement("iframe");
