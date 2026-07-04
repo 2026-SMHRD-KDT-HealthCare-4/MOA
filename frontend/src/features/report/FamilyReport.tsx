@@ -30,14 +30,68 @@ import * as Print from "expo-print";
 import { listMedications, type MedicationResponse } from "../../api/medication";
 import { buildReportHtml, type ReportPdfMedication } from "./reportPdfTemplate";
 
-// 웹 전용: 숨은 iframe 에 리포트 HTML 을 써서 그 프레임만 인쇄한다.
-// (expo-print 웹 경로는 현재 페이지를 인쇄해버려, 우리 템플릿만 확실히 인쇄하기 위해 직접 처리한다.)
-function webPrintHtml(html: string): void {
+// 웹 전용: 사용자 제스처 안에서 인쇄용 새 창(탭)을 먼저 연다.
+// 모바일 크롬은 숨은 iframe에서 print()를 호출하면 iframe이 아니라 "최상위 문서"(앱 화면)를
+// 인쇄해버려, 저장된 PDF가 리포트가 아니라 앱 탭 화면이 된다. 이를 피하려면 리포트를 별도
+// 최상위 문서(새 창)로 열어 그 창 자신을 인쇄해야 한다. 또한 팝업 차단을 피하려면 창 열기는
+// 반드시 클릭 제스처 안에서(비동기 await 이전에) 동기적으로 실행해야 한다.
+function openPrintWindow(): Window | null {
+  const g = globalThis as any;
+  try {
+    const win: Window | null = g?.open?.("", "_blank");
+    if (win?.document) {
+      win.document.open();
+      win.document.write(
+        '<!DOCTYPE html><meta charset="utf-8"><title>MOA 리포트</title>' +
+          '<body style="font-family:sans-serif;padding:24px;color:#555">리포트를 준비하고 있어요…</body>',
+      );
+      win.document.close();
+    }
+    return win ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// 리포트 HTML을 인쇄한다. preOpened(새 창)가 있으면 그 창 자신을 인쇄(모바일 정상 경로),
+// 없으면 숨은 iframe으로 폴백(주로 데스크톱·팝업 허용 환경).
+function webPrintHtml(html: string, preOpened: Window | null): void {
+  if (preOpened?.document) {
+    const win = preOpened;
+    const d = win.document;
+    d.open();
+    d.write(html);
+    d.close();
+    // 인쇄/저장 대화상자를 닫으면(인쇄하든 취소하든) 준비용 탭을 정리한다.
+    win.onafterprint = () => {
+      try {
+        win.close();
+      } catch {
+        /* noop */
+      }
+    };
+    // 스타일 렌더 여유를 준 뒤 그 창 자신을 인쇄.
+    setTimeout(() => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        /* noop */
+      }
+    }, 500);
+    return;
+  }
+
+  // 폴백: 새 창을 못 열었을 때만 숨은 iframe 인쇄.
   const g = globalThis as any;
   const doc = g?.document;
   if (!doc?.body) return;
   const iframe = doc.createElement("iframe");
-  iframe.setAttribute("style", "position:fixed;right:0;bottom:0;width:0;height:0;border:0;");
+  // 화면 밖에 실제 A4 픽셀 크기(≈794×1123 @96dpi)로 두어 레이아웃 폭을 A4로 고정한다.
+  iframe.setAttribute(
+    "style",
+    "position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;",
+  );
   doc.body.appendChild(iframe);
   const frameDoc = iframe.contentWindow?.document;
   if (!frameDoc) {
@@ -49,7 +103,6 @@ function webPrintHtml(html: string): void {
   frameDoc.close();
   const win = iframe.contentWindow;
   win.onafterprint = () => setTimeout(() => doc.body.removeChild(iframe), 300);
-  // 스타일·이미지 렌더 여유를 준 뒤 iframe 프레임만 인쇄.
   setTimeout(() => {
     win.focus();
     win.print();
@@ -325,10 +378,13 @@ export function FamilyReport({
   async function handleExportPdf() {
     if (exporting) return;
     setExporting(true);
+    // 웹: 인쇄용 새 창은 반드시 클릭 제스처 안에서(복약 조회 await 이전에) 열어야
+    // 모바일 팝업 차단을 피한다. 내용은 HTML 준비가 끝난 뒤 채운다.
+    const printWin = Platform.OS === "web" ? openPrintWindow() : null;
     try {
       const { html, fileName, createdLabel } = await buildReportPdfHtml();
       if (Platform.OS === "web") {
-        webPrintHtml(html);
+        webPrintHtml(html, printWin);
         return;
       }
       const { uri } = await Print.printToFileAsync({ html });
@@ -337,6 +393,11 @@ export function FamilyReport({
         params: { uri, fileName, createdAt: createdLabel },
       });
     } catch {
+      try {
+        printWin?.close();
+      } catch {
+        /* noop */
+      }
       onToast("PDF를 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setExporting(false);

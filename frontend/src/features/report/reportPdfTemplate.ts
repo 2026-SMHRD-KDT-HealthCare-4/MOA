@@ -125,17 +125,32 @@ export function buildReportHtml(props: ReportPdfProps): string {
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=794, initial-scale=1" />
 <style>
+  /* 용지를 A4로 고정한다. 여백은 .sheet 패딩으로 주므로 페이지 여백은 0. */
+  @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
-  body {
+  html, body {
     margin: 0;
-    padding: 32px 28px 40px;
+    padding: 0;
     background: ${PDF.pageBg};
     color: ${PDF.text};
     font-family: -apple-system, "Noto Sans KR", "Malgun Gothic", sans-serif;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+  /* 기기 뷰포트와 무관하게 A4(210mm) 물리 폭으로 고정 → 모든 기기에서 1:1로 인쇄된다. */
+  .sheet {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 16mm 14mm 18mm;
+    background: ${PDF.pageBg};
+  }
+  /* 화면에서 열렸을 때만(인쇄 아님) 종이처럼 보이도록 배경만 회색으로. 인쇄엔 영향 없음. */
+  @media screen {
+    html, body { background: #d9d9d9; }
+    .sheet { box-shadow: 0 2px 12px rgba(0,0,0,0.18); }
   }
   .header { border-bottom: 3px solid ${PDF.heading}; padding-bottom: 14px; margin-bottom: 22px; }
   .brand { font-size: 13px; font-weight: 700; color: ${PDF.amber}; letter-spacing: 2px; }
@@ -173,6 +188,7 @@ export function buildReportHtml(props: ReportPdfProps): string {
 </style>
 </head>
 <body>
+<div class="sheet">
   <div class="header">
     <div class="brand">MOA REPORT</div>
     <div class="title">${name} 님 건강 리포트</div>
@@ -220,6 +236,7 @@ export function buildReportHtml(props: ReportPdfProps): string {
     정확한 진단은 전문 의료기관에서 받으시기 바랍니다.
   </div>
   <div class="footmeta">생성일 ${escapeHtml(createdLabel)}</div>
+</div>
 </body>
 </html>`;
 }
