@@ -163,7 +163,12 @@ export default function RegisterPage() {
           </TouchableOpacity>
         </ScrollView>
       ) : (
-        <View style={[styles.hub, { paddingBottom: insets.bottom + 24 }]}>
+        <ScrollView
+          style={styles.hubScroll}
+          contentContainerStyle={[styles.hub, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.header}>
             <Image
               source={require("../../assets/images/moa-logo.png")}
@@ -216,7 +221,7 @@ export default function RegisterPage() {
               <Text style={styles.loginLink}>로그인</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
       )}
     </View>
   );
@@ -234,8 +239,10 @@ const styles = StyleSheet.create({
   backBtn: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
   topTitle: { fontSize: 16, fontWeight: "800", color: "#4d403b", letterSpacing: 1 },
 
-  // 허브
-  hub: { flex: 1, paddingHorizontal: 24 },
+  // 허브 — ScrollView로 감싸 짧은 뷰포트에서 하단(로그인)까지 스크롤되게 한다.
+  // flexGrow:1 이라 화면이 길면 spacer로 세로 배치, 짧으면 스크롤로 전환된다.
+  hubScroll: { flex: 1 },
+  hub: { flexGrow: 1, paddingHorizontal: 24 },
   header: { alignItems: "center", gap: 10, marginTop: 8 },
   // 비율 1.5(1536×1024) 고정 크기, 2.5배. (aspectRatio 는 rn-web 에서 레이아웃이 깨져 사용하지 않음)
   // marginHorizontal 음수로 화면 폭 넘침 흡수, marginTop/Bottom 음수로 위아래 여백 정리.
