@@ -139,8 +139,18 @@ export function useRecorder({
     webAudioContextRef.current = null;
   }
 
-  function startWebSilenceMonitor(stream: MediaStream, disableVAD = false) {
+  function startWebSilenceMonitor(
+    stream: MediaStream,
+    disableVAD = false,
+    rawAudio = false,
+    thresholdOverride?: number,
+  ) {
     if (!autoStopOnSilence || disableVAD || Platform.OS !== "web") return;
+
+    // raw(지속모음) 입력은 자동게인이 꺼져 있어 조용한 화자의 RMS가 낮게 잡히고,
+    // 노이즈억제로 인한 게이팅도 없으므로 발화 감지 임계값을 낮춰 감지 실패를 막는다.
+    // 호출 측이 임계값을 넘기면(지속모음 재시도 시 점진 하향) 그 값을 우선한다.
+    const speechRmsThreshold = thresholdOverride ?? (rawAudio ? 0.02 : 0.035);
 
     try {
       const context = new AudioContext();
@@ -168,7 +178,7 @@ export function useRecorder({
         console.log("[VAD] rms:", rms.toFixed(4));
         const now = Date.now();
 
-        if (rms > 0.035) {
+        if (rms > speechRmsThreshold) {
           heardSpeech = true;
           setSpeechDetectedDuringRecording(true);
           lastSpeechAt = now;
@@ -301,16 +311,35 @@ export function useRecorder({
     }, timeoutMs);
   }
 
-  async function start(silenceTimeoutMs?: number, disableVAD = false) {
+  // rawAudio=true: 지속모음('아…') 분석·감지 전용. 노이즈억제/자동게인을 끄고
+  // 순수(raw) 마이크 입력을 받는다. 안드로이드 크롬(갤럭시)의 공격적인 WebRTC
+  // 노이즈 억제가 일정한 지속모음을 배경소음으로 보고 깎아내려 RMS가 VAD 임계값
+  // 밑으로 떨어져 '못 알아듣는' 문제를 막고, 동시에 가공 안 된 원본이라 음성분석
+  // 품질도 올라간다. 대화 녹음(팀원 로직)에는 영향을 주지 않는다.
+  // speechRmsThreshold: 발화 감지 RMS 임계값을 호출 측에서 덮어쓴다(web VAD 전용).
+  // 지속모음 재시도 때 임계값을 점차 낮춰 감지가 더 쉽게 통과되도록 쓰인다.
+  // 넘기지 않으면 rawAudio 여부에 따른 기본값을 사용한다.
+  async function start(
+    silenceTimeoutMs?: number,
+    disableVAD = false,
+    rawAudio = false,
+    speechRmsThreshold?: number,
+  ) {
     silenceTimeoutMsRef.current = silenceTimeoutMs ?? null;
     try {
       if (Platform.OS === "web") {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { 
-            echoCancellation: !disableEchoCancellation, 
-            noiseSuppression: !disableEchoCancellation, 
-            autoGainControl: true 
-          },
+          audio: rawAudio
+            ? {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+              }
+            : {
+                echoCancellation: !disableEchoCancellation,
+                noiseSuppression: !disableEchoCancellation,
+                autoGainControl: true,
+              },
         });
         
         let mimeType = "audio/webm";
@@ -358,7 +387,7 @@ export function useRecorder({
         setDurationMs(0);
         setState("recording");
         startDurationTimer();
-        startWebSilenceMonitor(stream, disableVAD);
+        startWebSilenceMonitor(stream, disableVAD, rawAudio, speechRmsThreshold);
         return;
       }
 

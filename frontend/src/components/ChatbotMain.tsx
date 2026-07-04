@@ -68,7 +68,13 @@ const SUSTAINED_VOWEL_MAX_MS = 7_000;
 const FREE_TALK_MIN_MS = 1_200; // 자유대화 최소 발화 길이(ms) — 노이즈성 단답 컷용, 임시값
 // 재시도 상한: 이 횟수를 넘으면 음성검사를 종료(finishVoiceCheck(false))하고 일반 대화로 넘어간다.
 // (상한이 없으면 기준 미달 시 "'아' 소리 내주세요"가 무한 반복됨)
-const SUSTAINED_VOWEL_MAX_RETRIES = 2;
+// 한 번 감지 실패하면 임계값을 낮춰 재시도 1회만 하고, 그것도 실패하면 다음 과정으로 넘어간다.
+const SUSTAINED_VOWEL_MAX_RETRIES = 1;
+// 지속모음 발화 감지(web VAD) RMS 임계값. 첫 시도는 raw 기본값(0.02)으로 감지하고,
+// 감지 실패로 재시도할 때는 0.01로 낮춰 다음 '아'가 더 쉽게 통과되게 한다.
+// 재시도 횟수(sustainedRetryRef)는 검사 종료·이탈 시 0으로 리셋되므로 임계값도 자동 원복된다.
+const SUSTAINED_VOWEL_BASE_RMS = 0.02;
+const SUSTAINED_VOWEL_RETRY_RMS = 0.01;
 const BUBBLE_SENTENCE_PAUSE_MS = 120;
 const BUBBLE_TEXT_MAX_CHARS = 34;
 
@@ -1091,7 +1097,14 @@ export default function ChatbotMain() {
     setTimeout(() => {
       if (voiceModeRef.current !== "sustainedVowel") return;
 
-      void startRecording(SUSTAINED_VOWEL_SILENCE_MS);
+      // 지속모음('아…')은 raw 오디오로 녹음한다: 노이즈억제/자동게인을 꺼서
+      // 갤럭시(안드로이드 크롬)에서 지속모음이 배경소음으로 깎여 감지 실패하는
+      // 문제를 막고, 가공 안 된 원본으로 음성분석 품질도 확보한다.
+      // 첫 시도는 기본 임계값(0.02), 감지 실패 후 재시도는 0.01로 낮춰 더 쉽게 통과되게 한다.
+      // 검사 종료 시 재시도(sustainedRetryRef)가 0으로 리셋되면서 임계값도 기본값으로 자동 원복된다.
+      const speechRmsThreshold =
+        sustainedRetryRef.current > 0 ? SUSTAINED_VOWEL_RETRY_RMS : SUSTAINED_VOWEL_BASE_RMS;
+      void startRecording(SUSTAINED_VOWEL_SILENCE_MS, false, true, speechRmsThreshold);
 
       sustainedStopTimeoutRef.current = setTimeout(() => {
         if (
