@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Platform } from "react-native";
-import { createAudioPlayer, setAudioModeAsync, type AudioStatus, type AudioPlayer } from "expo-audio";
+import { Audio } from "expo-av";
 
 import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "./chatbotTypes";
 import { type BotEmotion } from "../../constants/emotionMap";
@@ -102,11 +102,12 @@ export async function unlockTTSPlayback() {
       return;
     }
 
-    await setAudioModeAsync({
-      playsInSilentMode: true,
-      allowsRecording: false,
-      interruptionMode: "duckOthers",
-      shouldPlayInBackground: false,
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+      staysActiveInBackground: false,
     });
     console.log("[MOA_TTS_UNLOCK_SUCCESS]", { platform: Platform.OS });
   } catch (error) {
@@ -117,7 +118,7 @@ export async function unlockTTSPlayback() {
 /** Shared MOA voice playback. Both chat replies and wake prompts use this server TTS path. */
 export async function playTTS(
   text: string,
-  soundRef: React.RefObject<AudioPlayer | null>,
+  soundRef: React.RefObject<Audio.Sound | null>,
   webAudioRef: React.MutableRefObject<HTMLAudioElement | null>,
   onReady?: (durationMs: number | null) => void,
   timing?: { chatResponseReceiveAt?: number },
@@ -204,37 +205,28 @@ export async function playTTS(
     const base64 = await arrayBufferToBase64(buffer);
     const uri = `data:audio/mpeg;base64,${base64}`;
 
-    if (soundRef.current) {
-      soundRef.current.remove();
-      (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
-    }
-    const player = createAudioPlayer({ uri });
-    (soundRef as React.MutableRefObject<AudioPlayer | null>).current = player;
+    if (soundRef.current) await soundRef.current.unloadAsync().catch(() => undefined);
+    const { sound, status } = await Audio.Sound.createAsync({ uri });
+    (soundRef as React.MutableRefObject<Audio.Sound | null>).current = sound;
     const ttsReadyAt = nowMs();
     logChatTiming("tts_request_start_to_tts_ready_ms", ttsReadyAt - ttsRequestStartAt);
-    notifyReady(player.isLoaded ? (player.duration ? player.duration * 1000 : null) : null);
+    notifyReady(status.isLoaded ? status.durationMillis ?? null : null);
     await new Promise<void>((resolve) => {
       const finish = () => {
-        player.remove();
-        (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
+        void sound.unloadAsync();
+        (soundRef as React.MutableRefObject<Audio.Sound | null>).current = null;
         resolve();
       };
 
-      const subscription = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
-        if (status.didJustFinish) {
-          subscription.remove();
-          finish();
-        }
+      sound.setOnPlaybackStatusUpdate((status: any) => {
+        if (status.isLoaded && status.didJustFinish) finish();
       });
       const audioPlayStartAt = nowMs();
       logChatTiming("tts_ready_to_audio_play_start_ms", audioPlayStartAt - ttsReadyAt);
-      try {
-        player.play();
-      } catch (error) {
+      void sound.playAsync().catch((error: any) => {
         console.warn("[MOA_TTS_PLAY_ASYNC_FAILED]", error);
-        subscription.remove();
         finish();
-      }
+      });
     });
   } catch (error) {
     console.warn("[MOA_TTS_ERROR]", error);
@@ -480,7 +472,7 @@ export function useMoaChat({
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [nextAction, setNextAction] = useState<NextAction>("continue");
   const [route, setRoute] = useState<string | null>(null);
-  const soundRef = useRef<AudioPlayer | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
   const sendingMessageRef = useRef(false);
   const conversationTurnRef = useRef(0);

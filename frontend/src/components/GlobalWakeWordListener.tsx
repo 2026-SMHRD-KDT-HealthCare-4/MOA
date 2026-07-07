@@ -1,7 +1,7 @@
 import { AppState } from "react-native";
 import { useEffect, useRef } from "react";
-import { useRouter } from "expo-router";
-import { type AudioPlayer } from "expo-audio";
+import { useRouter, useSegments } from "expo-router";
+import { Audio } from "expo-av";
 import { useAuthStore } from "../stores/authStore";
 import { useWakeWordStore } from "../stores/wakeWordStore";
 import { useRecorder } from "../features/record/useRecorder";
@@ -27,7 +27,7 @@ export function GlobalWakeWordListener() {
   const appActiveRef = useRef(AppState.currentState === "active");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledTranscriptRef = useRef<string | null>(null);
-  const ttsSoundRef = useRef<AudioPlayer | null>(null);
+  const ttsSoundRef = useRef<Audio.Sound | null>(null);
   const ttsWebAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const isReady = hydrated && isLoggedIn && Boolean(role) && wakeWordEnabled && appActiveRef.current;
@@ -143,7 +143,7 @@ export function GlobalWakeWordListener() {
 
   useEffect(() => () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    void ttsSoundRef.current?.pause();
+    void ttsSoundRef.current?.stopAsync().catch(() => undefined);
     reset();
   }, []);
 
