@@ -325,7 +325,6 @@ const C = {
   blue: "#173F73",
   blueDark: "#12345F",
   blueLight: "#F6E3C2",
-  cardShadow: "0 8px 20px rgba(63,42,29,0.08)",
 };
 
 const styles = StyleSheet.create({
@@ -352,7 +351,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: C.cardBorder,
-    boxShadow: C.cardShadow,
     paddingVertical: 4,
   },
   row: {
