@@ -78,6 +78,7 @@ const SUSTAINED_VOWEL_RETRY_RMS = 0.01;
 const BUBBLE_SENTENCE_PAUSE_MS = 120;
 const BUBBLE_TEXT_MAX_CHARS = 34;
 
+// Currently unused; startFirstGreeting builds the voice-check intro directly.
 const VOICE_CHECK_PROMPTS = [
   "목소리만 잠깐 확인할게요.",
   "'아' 소리 3초만 해주세요.",
@@ -311,6 +312,7 @@ export default function ChatbotMain() {
     sendMessage,
     sendVoiceMessage,
     speakText,
+    stopSpeaking,
     endConversationSession,
     nextAction,
     resetChatSession,
@@ -576,16 +578,22 @@ export default function ChatbotMain() {
 
   function routeVoiceCommand(command: ReturnType<typeof detectVoiceCommand>) {
     if (command === "record") {
+      void endConversationSession();
+      resetConversationSession({ blockAutoRestart: true });
       router.push(recordHref);
       return true;
     }
 
     if (command === "history") {
+      void endConversationSession();
+      resetConversationSession({ blockAutoRestart: true });
       router.push(resultHref);
       return true;
     }
 
     if (command === "result") {
+      void endConversationSession();
+      resetConversationSession({ blockAutoRestart: true });
       router.push(resultHref);
       return true;
     }
@@ -618,6 +626,7 @@ export default function ChatbotMain() {
   }
 
   function completeConversationAndShowResult(source: "voice" | "button") {
+    void stopSpeaking();
     finishActionPendingRef.current = false;
     console.log("[FINISH_COMPLETE_SHOW_RESULT]", { source });
     voiceModeRef.current = null;
@@ -639,6 +648,8 @@ export default function ChatbotMain() {
   }
 
   function resetConversationSession(options: { blockAutoRestart?: boolean } = {}) {
+    void stopSpeaking();
+
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
       typewriterTimerRef.current = null;
@@ -698,7 +709,13 @@ export default function ChatbotMain() {
   }
 
   async function speakSingleBotLine(text: string, emotion: BotEmotion = "happy") {
-    if (showConversationResultRef.current) return;
+    const canSpeak = () =>
+      !showConversationResultRef.current &&
+      (conversationActiveRef.current ||
+        conversationRunningRef.current ||
+        greetingInProgressRef.current);
+
+    if (!canSpeak()) return;
 
     if (typewriterTimerRef.current) {
       clearTimeout(typewriterTimerRef.current);
@@ -715,6 +732,8 @@ export default function ChatbotMain() {
       const chunks = splitBubbleDisplayChunks(text);
 
       for (let index = 0; index < chunks.length; index += 1) {
+        if (!canSpeak()) return;
+
         const chunk = chunks[index];
         let didStartBubble = false;
         let bubblePromise: Promise<void> = Promise.resolve();
@@ -725,9 +744,12 @@ export default function ChatbotMain() {
         };
 
         await speakText(chunk, startBubble);
+        if (!canSpeak()) return;
         startBubble();
         await bubblePromise;
+        if (!canSpeak()) return;
         await wait(100);
+        if (!canSpeak()) return;
 
         if (index < chunks.length - 1) {
           await wait(BUBBLE_SENTENCE_PAUSE_MS);
@@ -794,12 +816,10 @@ export default function ChatbotMain() {
       void (async () => {
         try {
           await speakBotLine(
-            "잘 안 들렸네요. 필요하시면 다시 말 걸어 주세요.",
+            "잘 안 들렸네요. 필요하시면 모아야 하고 다시 불러주세요.",
             "happy",
           );
         } finally {
-          // 대화 내용은 매 /chat 요청에서 이미 저장된다. 무음 종료 시에는
-          // 세션 종료 시각을 기록하고 활성 세션 ID를 비워 다음 대화를 분리한다.
           await endConversationSession();
           greetingInProgressRef.current = false;
           silenceHandlingRef.current = false;
@@ -1034,6 +1054,9 @@ export default function ChatbotMain() {
     } finally {
       greetingInProgressRef.current = false;
     }
+
+    // Store only the assistant opening question so the next user answer has context.
+    void appendAssistantMessage(nextPrompt);
 
     setChatState("listening");
     beginConversationListening();
@@ -1663,24 +1686,13 @@ const sampleStatus =
       }
 
       return () => {
-        if (shouldPreserveConversationActive()) {
-          console.log("[ACTIVE_CLEANUP_SKIP]", {
-            reason: "conversation_turn_in_flight",
-            recorderState: recorderStateRef.current,
-            recordingMode: activeRecordingModeRef.current,
-            submitting: submittingTranscriptRef.current,
-          });
-          return;
-        }
-
-        voiceModeRef.current = null;
-        activeRecordingModeRef.current = null;
-        conversationRunningRef.current = false;
-        conversationActiveRef.current = false;
-        submittingTranscriptRef.current = false;
-        flowStepRef.current = "IDLE";
-        normalChatStartedRef.current = false;
-        setFlowStep("IDLE");
+        console.log("[CHATBOT_SCREEN_CLEANUP]", {
+          recorderState: recorderStateRef.current,
+          recordingMode: activeRecordingModeRef.current,
+          submitting: submittingTranscriptRef.current,
+        });
+        void endConversationSession();
+        resetConversationSession({ blockAutoRestart: true });
       };
     }, [
       localMedicationId,
@@ -1785,6 +1797,7 @@ const sampleStatus =
       flowStep: flowStepRef.current,
     });
 
+    void stopSpeaking();
     conversationActiveRef.current = false;
     conversationRunningRef.current = false;
     voiceModeRef.current = null;
@@ -1801,6 +1814,11 @@ const sampleStatus =
       clearTimeout(sustainedStopTimeoutRef.current);
       sustainedStopTimeoutRef.current = null;
     }
+    if (listeningStartTimeoutRef.current) {
+      clearTimeout(listeningStartTimeoutRef.current);
+      listeningStartTimeoutRef.current = null;
+    }
+    listeningStartPendingRef.current = false;
 
     if (recorderStateRef.current === "recording") {
       void stopRecording().catch((error) => {
@@ -1897,6 +1915,7 @@ const sampleStatus =
   }
 
   function handleGoToRecord() {
+    void stopSpeaking();
     void endConversationSession();
     conversationRunningRef.current = false;
     setChatState("idle");
@@ -2376,6 +2395,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     left: 0,
+    right: 0,
+    bottom: 0,
   },
   speechSparkle: {
     position: "absolute",
@@ -2389,13 +2410,14 @@ const styles = StyleSheet.create({
     right: -24,
   },
   speechText: {
+    alignSelf: "stretch",
     fontFamily: "Jua",
     color: "#3B2318",
     fontSize: 24,
     lineHeight: 34,
     fontWeight: "900",
     textAlign: "center",
-    maxHeight: 68,
+    flexWrap: "wrap",
   },
   recordingStatusBar: {
     alignSelf: "center",

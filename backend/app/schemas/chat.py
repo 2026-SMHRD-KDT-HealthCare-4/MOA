@@ -63,6 +63,8 @@ class ChatFrontendData(BaseModel):
     route: Optional[str] = None
     conversation_topic: Optional[str] = None
     question_index: int = 0
+    source: Optional[str] = None
+    override_reason: Optional[str] = None
     session_id: UUID
 
 

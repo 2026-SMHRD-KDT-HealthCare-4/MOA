@@ -1,6 +1,6 @@
 import { AppState } from "react-native";
 import { useEffect, useRef } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useSegments } from "expo-router";
 import { Audio } from "expo-av";
 import { useAuthStore } from "../stores/authStore";
 import { useWakeWordStore } from "../stores/wakeWordStore";
@@ -14,11 +14,13 @@ type ListenerMode = "wake" | "waitingCommand" | null;
 /** Foreground-only listener shared by every signed-in screen. */
 export function GlobalWakeWordListener() {
   const router = useRouter();
+  const segments = useSegments();
   const hydrated = useAuthStore((s) => s.hydrated);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const role = useAuthStore((s) => s.role);
   const wakeWordEnabled = useWakeWordStore((s) => s.isActive);
   const setWakePrompt = useWakeWordStore((s) => s.setWakePrompt);
+  const clearWakePrompt = useWakeWordStore((s) => s.clearWakePrompt);
   const { state, transcript, durationMs, noSpeechDetected, start, reset } = useRecorder({
     autoStopOnSilence: true,
     manageWakeWord: false,
@@ -30,7 +32,11 @@ export function GlobalWakeWordListener() {
   const ttsSoundRef = useRef<Audio.Sound | null>(null);
   const ttsWebAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const isReady = hydrated && isLoggedIn && Boolean(role) && wakeWordEnabled && appActiveRef.current;
+  const routeSegments = segments as readonly string[];
+  const rootSegment = routeSegments[0];
+  const childSegment = routeSegments[1];
+  const isElderHome = role === "elder" && rootSegment === "(elder)" && !childSegment;
+  const isReady = hydrated && isLoggedIn && isElderHome && wakeWordEnabled && appActiveRef.current;
 
   function startWakeListening() {
     if (!isReady || state === "recording" || state === "processing") return;
@@ -99,6 +105,17 @@ export function GlobalWakeWordListener() {
   useEffect(() => {
     if (!isReady) {
       modeRef.current = null;
+      handledTranscriptRef.current = null;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      clearWakePrompt();
+      void ttsSoundRef.current?.stopAsync().catch(() => undefined);
+      if (ttsWebAudioRef.current) {
+        ttsWebAudioRef.current.pause();
+        ttsWebAudioRef.current = null;
+      }
       reset();
       return;
     }
