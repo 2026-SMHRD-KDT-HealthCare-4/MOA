@@ -1,7 +1,7 @@
 import { AppState } from "react-native";
 import { useEffect, useRef } from "react";
 import { useRouter, useSegments } from "expo-router";
-import { Audio } from "expo-av";
+import { type AudioPlayer } from "expo-audio";
 import { useAuthStore } from "../stores/authStore";
 import { useWakeWordStore } from "../stores/wakeWordStore";
 import { useRecorder } from "../features/record/useRecorder";
@@ -29,7 +29,7 @@ export function GlobalWakeWordListener() {
   const appActiveRef = useRef(AppState.currentState === "active");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledTranscriptRef = useRef<string | null>(null);
-  const ttsSoundRef = useRef<Audio.Sound | null>(null);
+  const ttsSoundRef = useRef<AudioPlayer | null>(null);
   const ttsWebAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const routeSegments = segments as readonly string[];
@@ -111,7 +111,11 @@ export function GlobalWakeWordListener() {
         timeoutRef.current = null;
       }
       clearWakePrompt();
-      void ttsSoundRef.current?.stopAsync().catch(() => undefined);
+      try {
+        ttsSoundRef.current?.pause();
+      } catch {
+        // best-effort stop
+      }
       if (ttsWebAudioRef.current) {
         ttsWebAudioRef.current.pause();
         ttsWebAudioRef.current = null;
@@ -160,7 +164,11 @@ export function GlobalWakeWordListener() {
 
   useEffect(() => () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    void ttsSoundRef.current?.stopAsync().catch(() => undefined);
+    try {
+      ttsSoundRef.current?.pause();
+    } catch {
+      // best-effort stop
+    }
     reset();
   }, []);
 

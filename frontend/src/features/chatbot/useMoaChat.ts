@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Platform } from "react-native";
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 
 import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "./chatbotTypes";
 import { type BotEmotion } from "../../constants/emotionMap";
@@ -102,12 +102,12 @@ export async function unlockTTSPlayback() {
       return;
     }
 
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      allowsRecordingIOS: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-      staysActiveInBackground: false,
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+      interruptionMode: "duckOthers",
+      shouldRouteThroughEarpiece: false,
+      shouldPlayInBackground: false,
     });
     console.log("[MOA_TTS_UNLOCK_SUCCESS]", { platform: Platform.OS });
   } catch (error) {
@@ -118,7 +118,7 @@ export async function unlockTTSPlayback() {
 /** Shared MOA voice playback. Both chat replies and wake prompts use this server TTS path. */
 export async function playTTS(
   text: string,
-  soundRef: React.RefObject<Audio.Sound | null>,
+  soundRef: React.RefObject<AudioPlayer | null>,
   webAudioRef: React.MutableRefObject<HTMLAudioElement | null>,
   onReady?: (durationMs: number | null) => void,
   timing?: { chatResponseReceiveAt?: number },
@@ -240,31 +240,42 @@ export async function playTTS(
     }
 
     const uri = `data:audio/mpeg;base64,${base64}`;
-    if (soundRef.current) await soundRef.current.unloadAsync().catch(() => undefined);
-    const { sound, status } = await Audio.Sound.createAsync({ uri });
+    if (soundRef.current) {
+      soundRef.current.remove();
+      (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
+    }
+    const player = createAudioPlayer({ uri });
     if (shouldCancel?.()) {
-      await sound.unloadAsync().catch(() => undefined);
+      player.remove();
       notifyReady(null);
       return;
     }
 
-    (soundRef as React.MutableRefObject<Audio.Sound | null>).current = sound;
+    (soundRef as React.MutableRefObject<AudioPlayer | null>).current = player;
     const ttsReadyAt = nowMs();
     logChatTiming("tts_request_start_to_tts_ready_ms", ttsReadyAt - ttsRequestStartAt);
-    notifyReady(status.isLoaded ? status.durationMillis ?? null : null);
     await new Promise<void>((resolve) => {
       let didFinish = false;
-      const finish = () => {
+      let fallback: ReturnType<typeof setTimeout>;
+      function finish() {
         if (didFinish) return;
         didFinish = true;
-        sound.setOnPlaybackStatusUpdate(null);
-        void sound.unloadAsync();
-        (soundRef as React.MutableRefObject<Audio.Sound | null>).current = null;
+        notifyReady(null);
+        subscription.remove();
+        clearTimeout(fallback);
+        if ((soundRef as React.MutableRefObject<AudioPlayer | null>).current === player) {
+          player.remove();
+          (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
+        }
         resolve();
-      };
+      }
 
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (!status.isLoaded || status.didJustFinish || shouldCancel?.()) finish();
+      // expo-audio는 로드가 비동기라, 로드되면 재생시간을 알려주고 재생완료(didJustFinish)에 종료한다.
+      const subscription = player.addListener("playbackStatusUpdate", (status) => {
+        if (status.isLoaded && status.duration > 0) {
+          notifyReady(Math.round(status.duration * 1000));
+        }
+        if (status.didJustFinish || status.error || shouldCancel?.()) finish();
       });
       if (shouldCancel?.()) {
         finish();
@@ -272,10 +283,9 @@ export async function playTTS(
       }
       const audioPlayStartAt = nowMs();
       logChatTiming("tts_ready_to_audio_play_start_ms", audioPlayStartAt - ttsReadyAt);
-      void sound.playAsync().catch((error) => {
-        console.warn("[MOA_TTS_PLAY_ASYNC_FAILED]", error);
-        finish();
-      });
+      // 로드/재생 실패로 didJustFinish가 오지 않아도 세션이 막히지 않도록 상한 타임아웃.
+      fallback = setTimeout(finish, 30000);
+      player.play();
     });
   } catch (error) {
     console.warn("[MOA_TTS_ERROR]", error);
@@ -526,7 +536,7 @@ export function useMoaChat({
   const [botEmotion, setBotEmotion] = useState<BotEmotion>("default");
   const [nextAction, setNextAction] = useState<NextAction>("continue");
   const [route, setRoute] = useState<string | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const soundRef = useRef<AudioPlayer | null>(null);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
   const ttsGenerationRef = useRef(0);
   const sendingMessageRef = useRef(false);
@@ -583,13 +593,12 @@ export function useMoaChat({
       }
     }
 
-    const sound = soundRef.current;
-    if (sound) {
+    const player = soundRef.current;
+    if (player) {
       soundRef.current = null;
       try {
-        sound.setOnPlaybackStatusUpdate(null);
-        await sound.stopAsync().catch(() => undefined);
-        await sound.unloadAsync().catch(() => undefined);
+        player.pause();
+        player.remove();
       } catch {
         // Best-effort stop; cleanup should never block navigation/end.
       }
