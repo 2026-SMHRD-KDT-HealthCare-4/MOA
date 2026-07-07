@@ -2004,8 +2004,9 @@ const sampleStatus =
   );
   const characterHeight = H - characterTop - navTopGap;
   
-  // 어르신 모드와 보호자 모드 모두 하단 탭바(높이 약 107px + 안전 영역 마진)가 렌더링되므로 absolute bottom 좌표에 항상 보정치 추가
-  const tabbarHeight = 115;
+  // 어르신 모드와 보호자 모드 모두 하단 탭바 영역 위에서 남은 뷰포트 공간을 사용하므로,
+  // 중복되는 탭바 높이 보정치(tabbarHeight)를 0으로 설정하여 버튼을 탭바 바로 위에 정확히 안착시킵니다.
+  const tabbarHeight = 0;
   const recordBottom = Math.max(9, Math.round(9 * v)) + insets.bottom + tabbarHeight;
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
@@ -2486,7 +2487,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 18,
     gap: 10,
-    boxShadow: "0 18px 38px rgba(95, 55, 30, 0.12)",
   },
   noticeTitle: {
     fontSize: 19,
@@ -2574,7 +2574,6 @@ const styles = StyleSheet.create({
     zIndex: 25,
     elevation: 25,
     overflow: "hidden",
-    boxShadow: "0 8px 16px rgba(91, 70, 54, 0.13)",
   },
   conversationButton: {
     position: "absolute",
@@ -2592,7 +2591,6 @@ const styles = StyleSheet.create({
     zIndex: 25,
     elevation: 25,
     overflow: "hidden",
-    boxShadow: "0 8px 16px rgba(53, 90, 138, 0.22)",
   },
   conversationButtonDisabled: {
     opacity: 0.7,
