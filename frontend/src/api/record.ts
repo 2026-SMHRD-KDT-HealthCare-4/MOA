@@ -67,13 +67,9 @@ export async function analyzeVoice(
   form.append("collect_type", collectType);
   if (sampleType) form.append("sample_type", sampleType);
   if (sampleStatus) form.append("sample_status", sampleStatus);
-  if (Platform.OS === "web") {
-    const blob = await (await fetch(audioUri)).blob();
-    form.append("file", blob, "recording.webm");
-  } else {
-    // RN FormData는 { uri, type, name } 객체를 파일처럼 처리한다.
-    form.append("file", { uri: audioUri, type: "audio/m4a", name: "recording.m4a" } as unknown as Blob);
-  }
+  const filename = audioUri.split("/").pop() || "recording.m4a";
+  const blob = await (await fetch(audioUri)).blob();
+  form.append("file", blob, filename);
 
   const token = await getToken();
   const res = await fetch(`${API_BASE_URL}/analyze`, {

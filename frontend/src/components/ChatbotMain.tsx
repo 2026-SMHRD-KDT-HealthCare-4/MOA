@@ -2013,7 +2013,8 @@ const sampleStatus =
     Math.round(92 * v) + insets.bottom,
   );
   const characterHeight = H - characterTop - navTopGap;
-  const recordBottom = Math.max(9, Math.round(9 * v));
+  // 하단 탭바(BottomNav) 영역 위에 버튼들이 오도록 navTopGap을 기준으로 bottom 오프셋 설정
+  const recordBottom = navTopGap + Math.max(16, Math.round(16 * v));
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);

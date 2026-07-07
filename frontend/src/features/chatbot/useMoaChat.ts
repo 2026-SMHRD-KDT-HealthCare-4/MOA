@@ -772,23 +772,11 @@ export function useMoaChat({
       // 1. STT (Transcribe) 호출
       console.log("[sendVoiceMessage] 1. STT 요청 시작 (POST /speech/transcribe)");
       const formData = new FormData();
-      if (Platform.OS === "web") {
-        const res = await fetch(audioUri);
-        const blob = await res.blob();
-        formData.append("file", blob, "recording.webm");
-      } else {
-        const filename = audioUri.split("/").pop() || "recording.m4a";
-        const match = /\.(\w+)$/.exec(filename);
-        const ext = match ? match[1] : "m4a";
-        const type = `audio/${ext}`;
-
-        // @ts-ignore
-        formData.append("file", {
-          uri: Platform.OS === "ios" ? audioUri.replace("file://", "") : audioUri,
-          name: filename,
-          type,
-        });
-      }
+      const filename = audioUri.split("/").pop() || "recording.m4a";
+      console.log("[sendVoiceMessage] 1. audioUri fetch 시작:", audioUri);
+      const res = await fetch(audioUri);
+      const blob = await res.blob();
+      formData.append("file", blob, filename);
 
       const sttRequestStartAt = nowMs();
       if (typeof timing?.recordingEndAt === "number") {

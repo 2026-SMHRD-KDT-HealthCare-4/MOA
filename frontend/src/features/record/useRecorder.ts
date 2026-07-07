@@ -72,19 +72,10 @@ async function whisperSTT(uri: string): Promise<string> {
   const token = await getToken();
   if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
 
-  const form = new FormData();
-  if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    const blob = await res.blob();
-    form.append("file", blob, "recording.webm");
-  } else {
-    // React Native FormData는 { uri, type, name } 객체를 Blob처럼 처리
-    form.append("file", {
-      uri,
-      type: "audio/m4a",
-      name: "recording.m4a",
-    } as unknown as Blob);
-  }
+  const filename = uri.split("/").pop() || "recording.m4a";
+  const res = await fetch(uri);
+  const blob = await res.blob();
+  form.append("file", blob, filename);
 
   const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
     method: "POST",
