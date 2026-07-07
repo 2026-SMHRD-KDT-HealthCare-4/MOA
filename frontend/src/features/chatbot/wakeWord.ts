@@ -3,12 +3,12 @@ export interface WakeWordMatch {
   remainder: string;
 }
 
-const WAKE_WORD_PATTERN = /(^|\s)(모아야|모아)(?=\s|[,.!?]|$)/;
+const WAKE_WORD_PATTERN = /(^|\s)(모아야)(?=\s|[,.!?]|$)/;
 
 /** Rule-based call-word detection that always runs before an LLM request. */
 export function detectWakeWord(text: string): WakeWordMatch {
   const trimmed = text.trim();
-  const prefix = /^(모아야|모아)\s*/.exec(trimmed);
+  const prefix = /^(모아야)\s*/.exec(trimmed);
   const match = prefix ?? WAKE_WORD_PATTERN.exec(trimmed);
   if (!match || match.index === undefined) return { detected: false, remainder: trimmed };
 

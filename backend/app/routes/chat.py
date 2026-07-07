@@ -32,6 +32,7 @@ from app.schemas.chat import (
     ChatFrontendData,
 )
 from app.services.chatbot import chat_for_frontend
+from app.services.chatbot import _debug_text
 from app.services.deidentify import deidentify
 from app.services.long_term_memory import get_recent_memory, build_memory_context
 
@@ -83,7 +84,7 @@ def send_message(
 ):
     total_start = time.perf_counter()
     print("[CHAT_TIMING] request_start")
-    print(f"\n[chat.py/send_message] >>> 요청 수신. user_id={user_id}, message='{req.message}'")
+    print(f"\n[chat.py/send_message] >>> 요청 수신. user_id={user_id}, message={_debug_text(req.message)}")
     senior_id = req.senior_id
     verify_senior_access(user_id, senior_id, db)
 
@@ -149,10 +150,16 @@ def send_message(
         result = chat_for_frontend(
             req.message,
             history=history,
+            current_topic=req.current_topic,
+            question_index=req.question_index,
             memory_context=memory_context,
         )
         print(f"[CHAT_TIMING] chat_for_frontend_ms={round((time.perf_counter() - chat_for_frontend_start) * 1000)}")
-        print(f"[chat.py/send_message] GPT 추론 성공. 결과 reply: '{result.get('reply')}'")
+        print(
+            "[chat.py/send_message] GPT 추론 성공. "
+            f"intent={result.get('user_intent')} source={result.get('source')} "
+            f"override={result.get('override_reason')} reply={_debug_text(result.get('reply', ''))}"
+        )
     except Exception as e:
         print(f"[chat.py/send_message] ❌ 에러: GPT 추론 실패: {e}")
         raise HTTPException(status_code=500, detail=f"GPT 오류: {str(e)}")
@@ -193,6 +200,8 @@ def send_message(
             route=result.get("route"),
             conversation_topic=result.get("conversation_topic"),
             question_index=result.get("question_index", 0),
+            source=result.get("source"),
+            override_reason=result.get("override_reason"),
             session_id=session.session_id,
         ),
     )

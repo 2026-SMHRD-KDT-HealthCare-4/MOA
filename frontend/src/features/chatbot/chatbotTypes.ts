@@ -34,6 +34,8 @@ export interface ChatbotResponse {
     route?: string | null;
     conversation_topic?: string | null;
     question_index?: number;
+    source?: "frontend hardcoded" | "backend template" | "llm" | "rule_override" | "mock" | string | null;
+    override_reason?: string | null;
     session_id?: string;
   };
 }

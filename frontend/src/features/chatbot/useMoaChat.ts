@@ -122,6 +122,7 @@ export async function playTTS(
   webAudioRef: React.MutableRefObject<HTMLAudioElement | null>,
   onReady?: (durationMs: number | null) => void,
   timing?: { chatResponseReceiveAt?: number },
+  shouldCancel?: () => boolean,
 ): Promise<void> {
   let didNotifyReady = false;
   const notifyReady = (durationMs: number | null) => {
@@ -131,7 +132,17 @@ export async function playTTS(
   };
 
   try {
+    if (shouldCancel?.()) {
+      notifyReady(null);
+      return;
+    }
+
     const token = await getRequiredRealToken("MOA_TTS_AUTH");
+    if (shouldCancel?.()) {
+      notifyReady(null);
+      return;
+    }
+
     const ttsRequestStartAt = nowMs();
     if (typeof timing?.chatResponseReceiveAt === "number") {
       logChatTiming("chat_response_receive_to_tts_request_start_ms", ttsRequestStartAt - timing.chatResponseReceiveAt);
@@ -157,6 +168,11 @@ export async function playTTS(
 
     if (Platform.OS === "web") {
       const blob = await response.blob();
+      if (shouldCancel?.()) {
+        notifyReady(null);
+        return;
+      }
+
       const blobUrl = URL.createObjectURL(blob);
       const webAudio = new window.Audio(blobUrl);
       const previousWebAudio = webAudioRef.current;
@@ -172,6 +188,11 @@ export async function playTTS(
           webAudio.onerror = null;
           resolve();
         };
+        if (shouldCancel?.()) {
+          notifyReady(null);
+          finish();
+          return;
+        }
         webAudio.onloadedmetadata = () => {
           ttsReadyAt = nowMs();
           logChatTiming("tts_request_start_to_tts_ready_ms", ttsReadyAt - ttsRequestStartAt);
@@ -189,6 +210,11 @@ export async function playTTS(
           URL.revokeObjectURL(blobUrl);
           resolve();
         };
+        if (shouldCancel?.()) {
+          notifyReady(null);
+          finish();
+          return;
+        }
         webAudio.onended = finish;
         webAudio.onerror = finish;
         const audioPlayStartAt = nowMs();
@@ -202,24 +228,48 @@ export async function playTTS(
     }
 
     const buffer = await response.arrayBuffer();
+    if (shouldCancel?.()) {
+      notifyReady(null);
+      return;
+    }
+
     const base64 = await arrayBufferToBase64(buffer);
+    if (shouldCancel?.()) {
+      notifyReady(null);
+      return;
+    }
+
     const uri = `data:audio/mpeg;base64,${base64}`;
     if (soundRef.current) await soundRef.current.unloadAsync().catch(() => undefined);
     const { sound, status } = await Audio.Sound.createAsync({ uri });
+    if (shouldCancel?.()) {
+      await sound.unloadAsync().catch(() => undefined);
+      notifyReady(null);
+      return;
+    }
+
     (soundRef as React.MutableRefObject<Audio.Sound | null>).current = sound;
     const ttsReadyAt = nowMs();
     logChatTiming("tts_request_start_to_tts_ready_ms", ttsReadyAt - ttsRequestStartAt);
     notifyReady(status.isLoaded ? status.durationMillis ?? null : null);
     await new Promise<void>((resolve) => {
+      let didFinish = false;
       const finish = () => {
+        if (didFinish) return;
+        didFinish = true;
+        sound.setOnPlaybackStatusUpdate(null);
         void sound.unloadAsync();
         (soundRef as React.MutableRefObject<Audio.Sound | null>).current = null;
         resolve();
       };
 
       sound.setOnPlaybackStatusUpdate((status) => {
-        if (status.isLoaded && status.didJustFinish) finish();
+        if (!status.isLoaded || status.didJustFinish || shouldCancel?.()) finish();
       });
+      if (shouldCancel?.()) {
+        finish();
+        return;
+      }
       const audioPlayStartAt = nowMs();
       logChatTiming("tts_ready_to_audio_play_start_ms", audioPlayStartAt - ttsReadyAt);
       void sound.playAsync().catch((error) => {
@@ -284,6 +334,8 @@ function normalizeChatbotResponse(raw: unknown): ChatbotResponse {
       route: typeof data.route === "string" ? data.route : null,
       conversation_topic: typeof data.conversation_topic === "string" ? data.conversation_topic : null,
       question_index: typeof data.question_index === "number" ? data.question_index : 0,
+      source: typeof data.source === "string" ? data.source : undefined,
+      override_reason: typeof data.override_reason === "string" ? data.override_reason : undefined,
       session_id: typeof data.session_id === "string" ? data.session_id : undefined,
     },
   } as ChatbotResponse;
@@ -445,7 +497,10 @@ async function callBackendProdChatbotApi(
 
   const rawJson = await response.json();
   console.log("[callBackendProdChatbotApi] 🟢 성공 응답 rawJson:", JSON.stringify(rawJson));
-  return normalizeChatbotResponse(rawJson);
+  const normalized = normalizeChatbotResponse(rawJson);
+  console.log("[FINAL BOT REPLY]", normalized.data.reply);
+  console.log("[SOURCE]", normalized.data.source ?? "unknown");
+  return normalized;
 }
 
 async function callChatbotApi(
@@ -473,6 +528,7 @@ export function useMoaChat({
   const [route, setRoute] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const webAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsGenerationRef = useRef(0);
   const sendingMessageRef = useRef(false);
   const conversationTurnRef = useRef(0);
   const validSpeechDurationRef = useRef(0);
@@ -482,6 +538,7 @@ export function useMoaChat({
   const { disable: disableWakeWord, enable: enableWakeWord } = useWakeWordStore();
 
   function resetChatSession() {
+    ttsGenerationRef.current += 1;
     sendingMessageRef.current = false;
     conversationTurnRef.current = 0;
     validSpeechDurationRef.current = 0;
@@ -497,11 +554,45 @@ export function useMoaChat({
 
   async function speakText(text: string, onReady?: () => void) {
     if (!text.trim()) return;
+    const generation = ttsGenerationRef.current;
+    const shouldCancel = () => ttsGenerationRef.current !== generation;
     setIsBotSpeaking(true);
     try {
-      await playTTS(text, soundRef, webAudioRef, () => onReady?.());
+      await playTTS(text, soundRef, webAudioRef, () => onReady?.(), undefined, shouldCancel);
     } finally {
-      setIsBotSpeaking(false);
+      if (!shouldCancel()) setIsBotSpeaking(false);
+    }
+  }
+
+  async function stopSpeaking(): Promise<void> {
+    ttsGenerationRef.current += 1;
+    setIsBotSpeaking(false);
+    setIsBotTyping(false);
+
+    const webAudio = webAudioRef.current;
+    if (webAudio) {
+      webAudioRef.current = null;
+      try {
+        const onended = webAudio.onended;
+        webAudio.pause();
+        onended?.call(webAudio, new Event("ended"));
+        webAudio.src = "";
+        webAudio.load();
+      } catch {
+        // Best-effort stop; cleanup should never block navigation/end.
+      }
+    }
+
+    const sound = soundRef.current;
+    if (sound) {
+      soundRef.current = null;
+      try {
+        sound.setOnPlaybackStatusUpdate(null);
+        await sound.stopAsync().catch(() => undefined);
+        await sound.unloadAsync().catch(() => undefined);
+      } catch {
+        // Best-effort stop; cleanup should never block navigation/end.
+      }
     }
   }
 
@@ -544,6 +635,8 @@ export function useMoaChat({
   async function sendMessage(text: string, acousticMeta?: Partial<ChatbotApiParams["acoustic_meta"]>) {
     if (!text.trim() || sendingMessageRef.current) return;
     sendingMessageRef.current = true;
+    const generation = ttsGenerationRef.current;
+    const shouldCancel = () => ttsGenerationRef.current !== generation;
 
     disableWakeWord();
 
@@ -570,6 +663,13 @@ export function useMoaChat({
       };
 
       const res: ChatbotResponse = await callChatbotApi(params);
+      if (shouldCancel()) return;
+
+      console.log("[INTENT]", res.data.user_intent);
+      console.log("[RULE OVERRIDE]", {
+        applied: res.data.source === "rule_override",
+        reason: res.data.override_reason ?? null,
+      });
       setRoute(res.data.route ?? null);
       setNextAction(res.data.next_action ?? "continue");
       conversationTurnRef.current += 1;
@@ -611,7 +711,8 @@ export function useMoaChat({
         };
 
         showMessage();
-        await playTTS(chunk, soundRef, webAudioRef);
+        await playTTS(chunk, soundRef, webAudioRef, undefined, undefined, shouldCancel);
+        if (shouldCancel()) return;
         showMessage();
         setMessages((prev) =>
           prev.map((message) =>
@@ -621,7 +722,7 @@ export function useMoaChat({
           ),
         );
       }
-      setIsBotSpeaking(false);
+      if (!shouldCancel()) setIsBotSpeaking(false);
     } catch (err: any) {
       console.error("[sendMessage] ❌ 예외 발생 상세 로그:", err);
       setBotEmotion("worried");
@@ -648,6 +749,8 @@ export function useMoaChat({
   ): Promise<"ok" | "empty" | "busy" | "error"> {
     if (sendingMessageRef.current) return "busy";
     sendingMessageRef.current = true;
+    const generation = ttsGenerationRef.current;
+    const shouldCancel = () => ttsGenerationRef.current !== generation;
     disableWakeWord();
     setIsBotTyping(true);
     setBotEmotion("thinking");
@@ -736,7 +839,14 @@ export function useMoaChat({
       console.log("[sendVoiceMessage] 2. 챗봇 API 요청 시작 (POST /chat) params:", JSON.stringify(params));
       const chatTiming = { sttSuccessAt, chatResponseReceiveAt: undefined as number | undefined };
       const res: ChatbotResponse = await callChatbotApi(params, chatTiming);
+      if (shouldCancel()) return "ok";
+
       console.log("[sendVoiceMessage] 2. 챗봇 API 요청 성공. 응답 data:", JSON.stringify(res.data));
+      console.log("[INTENT]", res.data.user_intent);
+      console.log("[RULE OVERRIDE]", {
+        applied: res.data.source === "rule_override",
+        reason: res.data.override_reason ?? null,
+      });
 
       setRoute(res.data.route ?? null);
       setNextAction(res.data.next_action ?? "continue");
@@ -790,7 +900,9 @@ export function useMoaChat({
           webAudioRef,
           undefined,
           index === 0 ? { chatResponseReceiveAt: chatTiming.chatResponseReceiveAt } : undefined,
+          shouldCancel,
         );
+        if (shouldCancel()) return "ok";
         setMessages((prev) =>
           prev.map((message) =>
             message.id === messageId
@@ -800,7 +912,7 @@ export function useMoaChat({
         );
         console.log(`[sendVoiceMessage] 3. TTS 재생 완료 [${index + 1}/${chunks.length}]`);
       }
-      setIsBotSpeaking(false);
+      if (!shouldCancel()) setIsBotSpeaking(false);
       console.log("[sendVoiceMessage] <<< 모든 프로세스 정상 종료");
       return "ok";
     } catch (err: any) {
@@ -835,6 +947,7 @@ export function useMoaChat({
     sendMessage,
     sendVoiceMessage,
     speakText,
+    stopSpeaking,
     endConversationSession,
   };
 }
