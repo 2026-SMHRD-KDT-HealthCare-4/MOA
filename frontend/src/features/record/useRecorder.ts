@@ -216,7 +216,7 @@ export function useRecorder({
       };
       webSilenceFrameRef.current = requestAnimationFrame(monitor);
     } catch {
-      // expo-av의 녹음은 계속 유지한다. 웹 VAD만 사용할 수 없는 상태다.
+      // 네이티브 녹음은 계속 유지한다. 웹 VAD만 사용할 수 없는 상태다.
     }
   }
 
@@ -433,7 +433,7 @@ export function useRecorder({
       audioRecorder.record();
       nativeRecordingRef.current = true;
 
-      // expo-av의 setOnRecordingStatusUpdate 대체: 200ms 간격으로 RecorderState(metering/duration)를
+      // 200ms 간격으로 RecorderState(metering/duration)를
       // 폴링해 동일한 VAD(발화 감지 + 무음 자동전송) 로직을 수행한다.
       if (meteringPollRef.current) clearInterval(meteringPollRef.current);
       meteringPollRef.current = setInterval(() => {
