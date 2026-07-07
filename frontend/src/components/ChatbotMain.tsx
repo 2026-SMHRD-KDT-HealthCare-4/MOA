@@ -1983,6 +1983,15 @@ const sampleStatus =
     setChatState("listening");
   }, [isConversationActive, recorderError]);
 
+  // 침묵 감지 타임아웃에 걸려 무음 상태로 녹음이 중지(noSpeechDetected = true)되었을 때 
+  // 백엔드 전송 없이 즉시 사용자에게 "잘 안들렸어요" 안내 멘트를 하도록 예외 처리 보강
+  useEffect(() => {
+    if (isConversationActive && noSpeechDetected) {
+      console.log("[NO_SPEECH_DETECTED_TRIGGER_SILENCE_TURN]");
+      handleSilentConversationTurn();
+    }
+  }, [isConversationActive, noSpeechDetected]);
+
   const H = windowHeight;
   const v = H / 900;
 
@@ -1994,7 +2003,10 @@ const sampleStatus =
     Math.round(92 * v) + insets.bottom,
   );
   const characterHeight = H - characterTop - navTopGap;
-  const recordBottom = Math.max(9, Math.round(9 * v));
+  
+  // 어르신 모드와 보호자 모드 모두 하단 탭바(높이 약 107px + 안전 영역 마진)가 렌더링되므로 absolute bottom 좌표에 항상 보정치 추가
+  const tabbarHeight = 115;
+  const recordBottom = Math.max(9, Math.round(9 * v)) + insets.bottom + tabbarHeight;
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);
@@ -2559,7 +2571,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     gap: 11,
-    zIndex: 15,
+    zIndex: 25,
+    elevation: 25,
     overflow: "hidden",
     boxShadow: "0 8px 16px rgba(91, 70, 54, 0.13)",
   },
@@ -2576,7 +2589,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     gap: 11,
-    zIndex: 15,
+    zIndex: 25,
+    elevation: 25,
     overflow: "hidden",
     boxShadow: "0 8px 16px rgba(53, 90, 138, 0.22)",
   },

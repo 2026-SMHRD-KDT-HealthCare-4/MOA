@@ -31,9 +31,9 @@ TYPECAST_MODEL = os.getenv("TYPECAST_TTS_MODEL", "ssfm-v30")
 # Whisper가 무음·잡음 구간에서 학습 데이터의 방송/자막 문구("시청해주셔서 감사합니다" 등)를
 # 실제 발화처럼 만들어내는 현상을 차단한다. 프론트(useRecorder.ts)의 2겹 방어와 동일한 정책을
 # 백엔드 /speech/transcribe 경로에도 적용하기 위한 것이다.
-# 임계값은 시작값이며, 실제 사용 환경(노인 음성·기기 마이크)에 맞춰 튜닝이 필요하다.
-NO_SPEECH_PROB_THRESHOLD = 0.6
-AVG_LOGPROB_THRESHOLD = -0.8
+# 모바일 환경의 수음 감도에 맞춰 무음 판정 감도를 대폭 완화하여 오판을 억제합니다.
+NO_SPEECH_PROB_THRESHOLD = 0.85
+AVG_LOGPROB_THRESHOLD = -1.2
 
 # 방송사명 · 뉴스/앵커 클로징 · 시청/구독 유도 · 자막 제작 표기 등 환각 단골 문구.
 # 프론트(useRecorder.ts)의 HALLUCINATION_PATTERNS 와 1:1로 동일하게 유지한다.

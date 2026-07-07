@@ -1,6 +1,6 @@
 // 낭독 기록(SCRIPT_RECORD) 저장 + 음성 분석(/analyze) API. 녹음 화면(RecordPage) 전용.
 // 오늘의 지정문구 조회는 auth.ts의 getTodayScript 사용.
-import { Platform } from "react-native";
+import { Platform, Alert } from "react-native";
 import { apiFetch } from "./auth";
 import { getToken } from "./session";
 
@@ -84,6 +84,14 @@ export async function analyzeVoice(
     body: form,
   });
   if (!res.ok) throw new Error("ANALYZE_FAILED");
-  const json = (await res.json()) as { status?: VoiceWeather; comparison?: VoiceComparison };
+  const text = await res.text();
+  let json: any = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch (error) {
+    console.error("API 서버 응답이 JSON 형식이 아닙니다. 경로: /analyze, HTML 덤프:", text);
+    Alert.alert("서버 오류", "서버가 올바른 응답을 주지 않습니다. 관리자에게 문의하세요.");
+    throw new Error("서버 응답 형식이 올바르지 않습니다.");
+  }
   return { status: json.status ?? null, comparison: json.comparison ?? null };
 }

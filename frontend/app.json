@@ -35,7 +35,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-av",
       "expo-notifications",
       "expo-video",
       "expo-secure-store",
@@ -62,9 +61,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "6c608141-cf37-4695-aeba-d8faafaffca9"
+        "projectId": "b7ac8588-a0fb-4db7-9d07-1ba4aa7c0350"
       }
     },
-    "owner": "nayohyuns-organization"
+    "owner": "kimgahyoung"
   }
 }

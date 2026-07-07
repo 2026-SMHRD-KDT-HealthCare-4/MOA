@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import type {
   FamilyGroup,
   FamilyLink,
@@ -380,7 +381,16 @@ export async function apiFetch<T>(
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  let body: any = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch (error) {
+      console.error(`API 서버 응답이 JSON 형식이 아닙니다. 경로: ${path}, HTML 덤프:`, text);
+      Alert.alert("서버 오류", "서버가 올바른 응답을 주지 않습니다. 관리자에게 문의하세요.");
+      throw new Error("서버 응답 형식이 올바르지 않습니다.");
+    }
+  }
   if (!res.ok) {
     const message =
       typeof body?.detail === "string"

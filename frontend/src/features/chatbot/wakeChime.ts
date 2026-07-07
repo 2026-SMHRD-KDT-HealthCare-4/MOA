@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { Audio } from "expo-av";
+import { createAudioPlayer, type AudioStatus } from "expo-audio";
 
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -48,10 +48,20 @@ export async function playWakeChime(): Promise<void> {
     await new Promise<void>((resolve) => { oscillator.onended = () => { void context.close(); resolve(); }; });
     return;
   }
-  const { sound } = await Audio.Sound.createAsync({ uri: createChimeUri() });
+  const player = createAudioPlayer({ uri: createChimeUri() });
   await new Promise<void>((resolve) => {
-    sound.setOnPlaybackStatusUpdate((status) => { if (status.isLoaded && status.didJustFinish) resolve(); });
-    void sound.playAsync().catch(resolve);
+    const subscription = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+      if (status.didJustFinish) {
+        subscription.remove();
+        resolve();
+      }
+    });
+    try {
+      player.play();
+    } catch (e) {
+      subscription.remove();
+      resolve();
+    }
   });
-  await sound.unloadAsync().catch(() => undefined);
+  player.remove();
 }

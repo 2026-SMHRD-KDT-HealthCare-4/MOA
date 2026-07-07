@@ -1,7 +1,19 @@
+import { Alert } from "react-native";
 import { getToken } from "./session";
 
 // const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+async function safeParseJson<T>(response: Response, pathDescription: string): Promise<T> {
+  const text = await response.text();
+  try {
+    return text ? (JSON.parse(text) as T) : ({} as T);
+  } catch (error) {
+    console.error(`API 서버 응답이 JSON 형식이 아닙니다. 경로: ${pathDescription}, HTML 덤프:`, text);
+    Alert.alert("서버 오류", "서버가 올바른 응답을 주지 않습니다. 관리자에게 문의하세요.");
+    throw new Error("서버 응답 형식이 올바르지 않습니다.");
+  }
+}
 
 function formatTimeForAPI(t: string): string {
   const trimmed = t.trim();
@@ -52,7 +64,7 @@ export async function createHospitalVisit(
   });
 
   if (!response.ok) throw new Error("CREATE_HOSPITAL_VISIT_FAILED");
-  return (await response.json()) as HospitalVisitResponse;
+  return safeParseJson<HospitalVisitResponse>(response, "/hospital [POST]");
 }
 
 export async function listHospitalVisits(seniorId: string, activeOnly: boolean = false): Promise<HospitalVisitResponse[]> {
@@ -64,7 +76,7 @@ export async function listHospitalVisits(seniorId: string, activeOnly: boolean =
   });
 
   if (!response.ok) throw new Error("LIST_HOSPITAL_VISITS_FAILED");
-  return (await response.json()) as HospitalVisitResponse[];
+  return safeParseJson<HospitalVisitResponse[]>(response, "/hospital/senior [GET]");
 }
 
 export async function updateHospitalVisit(
@@ -91,7 +103,7 @@ export async function updateHospitalVisit(
   });
 
   if (!response.ok) throw new Error("UPDATE_HOSPITAL_VISIT_FAILED");
-  return (await response.json()) as HospitalVisitResponse;
+  return safeParseJson<HospitalVisitResponse>(response, `/hospital/${visitId} [PATCH]`);
 }
 
 export async function deleteHospitalVisit(visitId: string): Promise<{ status: string; message: string }> {
@@ -104,5 +116,5 @@ export async function deleteHospitalVisit(visitId: string): Promise<{ status: st
   });
 
   if (!response.ok) throw new Error("DELETE_HOSPITAL_VISIT_FAILED");
-  return (await response.json()) as { status: string; message: string };
+  return safeParseJson<{ status: string; message: string }>(response, `/hospital/${visitId} [DELETE]`);
 }
