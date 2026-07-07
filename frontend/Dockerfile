@@ -1,11 +1,11 @@
 # 1단계: 빌드 스테이지
-FROM node:19-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # 의존성 설치
 COPY package*.json ./
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # 소스코드 복사
 COPY . .
