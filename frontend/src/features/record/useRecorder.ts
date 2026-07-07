@@ -1,6 +1,11 @@
 import { useState, useRef } from "react";
 import { Platform } from "react-native";
-import { Audio } from "expo-av";
+import {
+  useAudioRecorder,
+  RecordingPresets,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+} from "expo-audio";
 import * as FileSystem from "expo-file-system";
 import { useWakeWordStore } from "../../stores/wakeWordStore";
 import { getAuthApiMode } from "../../api/auth";
@@ -37,6 +42,9 @@ const MAX_RECORDING_DURATION_MS = 8_000;
 const NO_SPEECH_TIMEOUT_MS = 6_000;
 const WEB_SPEECH_DELTA_MAX_MS = 250;
 const MOBILE_SPEECH_DELTA_MAX_MS = 350;
+
+// expo-audio 녹음 옵션: HIGH_QUALITY 프리셋 + 미터링(발화 감지용) 활성화.
+const RECORDING_OPTIONS = { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true };
 
 // 한국어 Whisper는 무음·잡음 구간에서 학습 데이터에 흔하던 방송 클로징/자막 문구를
 // 실제 발화처럼 만들어낸다("지금까지 ○○기자였습니다", "MBC 뉴스입니다",
@@ -113,7 +121,9 @@ export function useRecorder({
   const [audioUri, setAudioUri] = useState<string | null>(null);
   const keptAudioRef = useRef<{ uri: string; isWeb: boolean } | null>(null);
 
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
+  const nativeRecordingRef = useRef(false);
+  const meteringPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const webRecorderRef = useRef<MediaRecorder | null>(null);
   const webChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -167,7 +177,7 @@ export function useRecorder({
       webAudioContextRef.current = context;
 
       const monitor = () => {
-        if (autoStoppingRef.current || (!recordingRef.current && !webRecorderRef.current)) return;
+        if (autoStoppingRef.current || (!nativeRecordingRef.current && !webRecorderRef.current)) return;
         analyser.getByteTimeDomainData(samples);
         let sum = 0;
         for (const sample of samples) {
@@ -391,7 +401,7 @@ export function useRecorder({
         return;
       }
 
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await requestRecordingPermissionsAsync();
       if (perm.status !== "granted") {
         setPermissionDenied(true);
         return;
@@ -404,21 +414,15 @@ export function useRecorder({
       // 리소스 점유가 풀리기 전에 새로운 오디오 녹음 세션을 만들면 OS 수준에서 예외가 발생합니다.
       await new Promise((resolve) => setTimeout(resolve, 400));
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        staysActiveInBackground: false,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        interruptionMode: "duckOthers",
+        shouldRouteThroughEarpiece: false,
+        shouldPlayInBackground: false,
       });
 
-      const { recording } = await Audio.Recording.createAsync(
-        {
-          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-          isMeteringEnabled: true,
-        },
-      );
-      recordingRef.current = recording;
+      await audioRecorder.prepareToRecordAsync();
       previousSpeechDetectedAtRef.current = null;
       detectedSpeechDurationMsRef.current = 0;
       lastSpeechAtRef.current = 0;
@@ -426,9 +430,16 @@ export function useRecorder({
       setSpeechDetectedDuringRecording(false);
       setDetectedSpeechDurationMs(0);
       setNoSpeechDetected(false);
-      recording.setProgressUpdateInterval(200);
-      recording.setOnRecordingStatusUpdate((status) => {
-        if (!autoStopOnSilence || disableVAD || autoStoppingRef.current || !status.isRecording) return;
+      audioRecorder.record();
+      nativeRecordingRef.current = true;
+
+      // expo-av의 setOnRecordingStatusUpdate 대체: 200ms 간격으로 RecorderState(metering/duration)를
+      // 폴링해 동일한 VAD(발화 감지 + 무음 자동전송) 로직을 수행한다.
+      if (meteringPollRef.current) clearInterval(meteringPollRef.current);
+      meteringPollRef.current = setInterval(() => {
+        if (!autoStopOnSilence || disableVAD || autoStoppingRef.current) return;
+        const status = audioRecorder.getStatus();
+        if (!status.isRecording) return;
 
         const duration = status.durationMillis;
         const metering = status.metering;
@@ -458,7 +469,7 @@ export function useRecorder({
           autoStoppingRef.current = true;
           void finishRecording();
         }
-      });
+      }, 200);
       setDurationMs(0);
       setState("recording");
 
@@ -489,20 +500,22 @@ export function useRecorder({
       webRecorderRef.current.stop();
       return;
     }
-    if (!recordingRef.current) return;
+    if (!nativeRecordingRef.current) return;
     clearTimer();
     stopWebSilenceMonitor();
     setState("processing");
-
-    const recording = recordingRef.current;
-    recordingRef.current = null;
+    if (meteringPollRef.current) {
+      clearInterval(meteringPollRef.current);
+      meteringPollRef.current = null;
+    }
+    nativeRecordingRef.current = false;
     autoStoppingRef.current = false;
 
     try {
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      await audioRecorder.stop();
+      await setAudioModeAsync({ allowsRecording: false });
 
-      const uri = recording.getURI();
+      const uri = audioRecorder.uri;
       if (!uri) throw new Error("NO_URI");
 
       if (discardSilence) {
@@ -531,15 +544,18 @@ export function useRecorder({
     stopWebSilenceMonitor();
     // 화면 전환/호출어 대기 해제 시 네이티브 녹음도 즉시 종료한다.
     // 그렇지 않으면 탭이 메모리에 남아 있는 동안 마이크가 계속 켜질 수 있다.
-    if (recordingRef.current) {
-      const recording = recordingRef.current;
-      recordingRef.current = null;
-      void recording.stopAndUnloadAsync().catch(() => undefined);
-      // [주의] 여기서 allowsRecordingIOS: false 를 비동기로 동시 호출하면 
-      // 새로 시작하려는 화면 단의 오디오 세션(allowsRecordingIOS: true)을 
+    if (meteringPollRef.current) {
+      clearInterval(meteringPollRef.current);
+      meteringPollRef.current = null;
+    }
+    if (nativeRecordingRef.current) {
+      nativeRecordingRef.current = false;
+      void audioRecorder.stop().catch(() => undefined);
+      // [주의] 여기서 allowsRecording: false 를 비동기로 동시 호출하면
+      // 새로 시작하려는 화면 단의 오디오 세션(allowsRecording: true)을
       // 뒤늦게 덮어써버려 마이크 오작동(인식 실패)의 치명적인 원인이 됩니다.
       // 따라서 전역 오디오 모드 복원 처리는 정상 녹음 완료 시점인 finishRecording 에서만 제어하도록 격리합니다.
-      // void Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      // void setAudioModeAsync({ allowsRecording: false });
     }
     if (webRecorderRef.current?.state === "recording") {
       webRecorderRef.current.onstop = null;
