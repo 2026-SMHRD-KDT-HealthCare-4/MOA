@@ -774,8 +774,8 @@ export function useMoaChat({
       const formData = new FormData();
       const filename = audioUri.split("/").pop() || "recording.m4a";
       console.log("[sendVoiceMessage] 1. audioUri fetch 시작:", audioUri);
-      const res = await fetch(audioUri);
-      const blob = await res.blob();
+      const audioRes = await fetch(audioUri);
+      const blob = await audioRes.blob();
       formData.append("file", blob, filename);
 
       const sttRequestStartAt = nowMs();

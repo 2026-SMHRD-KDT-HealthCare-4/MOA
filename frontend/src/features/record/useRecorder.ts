@@ -72,9 +72,10 @@ async function whisperSTT(uri: string): Promise<string> {
   const token = await getToken();
   if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
 
+  const form = new FormData();
   const filename = uri.split("/").pop() || "recording.m4a";
-  const res = await fetch(uri);
-  const blob = await res.blob();
+  const audioRes = await fetch(uri);
+  const blob = await audioRes.blob();
   form.append("file", blob, filename);
 
   const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
