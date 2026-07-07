@@ -35,7 +35,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-av",
       "expo-notifications",
       "expo-video",
       "expo-secure-store",
@@ -57,7 +56,13 @@
           "backgroundColor": "#F4A9A8"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "목소리로 건강을 기록하기 위해 마이크가 필요해요."
+        }
+      ]
     ],
     "extra": {
       "router": {},
