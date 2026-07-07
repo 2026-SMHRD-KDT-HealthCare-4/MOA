@@ -1668,6 +1668,8 @@ const sampleStatus =
         resetConversationSession();
       }
 
+      // 탭 전환 등 복귀 시 자동 대화 시작 기능 비활성화 (대화하기 버튼 클릭 시 시작하도록 유도)
+      /*
       const hasMedicationTrigger = !!(medicationReminderId || localMedicationId);
       const now = Date.now();
       const canReturnGreeting =
@@ -1684,6 +1686,7 @@ const sampleStatus =
 
         void startReturnGreeting();
       }
+      */
 
       return () => {
         console.log("[CHATBOT_SCREEN_CLEANUP]", {
