@@ -127,7 +127,7 @@ export default function SettingsPage() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 130 }]}
       >
         {/* 계정 섹션 */}
         <View style={styles.section}>

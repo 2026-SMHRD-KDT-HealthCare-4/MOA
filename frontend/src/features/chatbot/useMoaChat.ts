@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { Platform } from "react-native";
+import * as FileSystem from "expo-file-system";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 
 import { type ChatbotApiParams, type ChatbotResponse, type NextAction } from "./chatbotTypes";
@@ -771,33 +772,59 @@ export function useMoaChat({
 
       // 1. STT (Transcribe) 호출
       console.log("[sendVoiceMessage] 1. STT 요청 시작 (POST /speech/transcribe)");
-      const formData = new FormData();
-      const filename = audioUri.split("/").pop() || "recording.m4a";
-      console.log("[sendVoiceMessage] 1. audioUri fetch 시작:", audioUri);
-      const audioRes = await fetch(audioUri);
-      const blob = await audioRes.blob();
-      formData.append("file", blob, filename);
-
       const sttRequestStartAt = nowMs();
       if (typeof timing?.recordingEndAt === "number") {
         logChatTiming("recording_end_to_stt_request_start_ms", sttRequestStartAt - timing.recordingEndAt);
       }
       logChatTiming("stt_request_start");
-      const transcribeResponse = await fetch(`${API_BASE_URL}/speech/transcribe`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-        },
-        body: formData,
-      });
 
-      if (!transcribeResponse.ok) {
-        console.warn("[sendVoiceMessage] 에러: STT API 요청 실패 status =", transcribeResponse.status);
-        throw new Error("TRANSCRIBE_API_FAILED");
+      let transcribeRes: { text: string };
+
+      if (Platform.OS === "web") {
+        const formData = new FormData();
+        const filename = audioUri.split("/").pop() || "recording.m4a";
+        console.log("[sendVoiceMessage] 1. audioUri fetch 시작:", audioUri);
+        const audioRes = await fetch(audioUri);
+        const blob = await audioRes.blob();
+        formData.append("file", blob, filename);
+
+        const transcribeResponse = await fetch(`${API_BASE_URL}/speech/transcribe`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          },
+          body: formData,
+        });
+
+        if (!transcribeResponse.ok) {
+          console.warn("[sendVoiceMessage] 에러: STT API 요청 실패 status =", transcribeResponse.status);
+          throw new Error("TRANSCRIBE_API_FAILED");
+        }
+        transcribeRes = (await transcribeResponse.json()) as { text: string };
+      } else {
+        // Native 환경: expo-file-system 을 사용하여 신뢰성 높은 업로드 수행
+        console.log("[sendVoiceMessage] 1. FileSystem.uploadAsync 시작. audioUri:", audioUri);
+        const uploadResult = await FileSystem.uploadAsync(
+          `${API_BASE_URL}/speech/transcribe`,
+          audioUri,
+          {
+            fieldName: "file",
+            httpMethod: "POST",
+            uploadType: FileSystem.UploadType.MULTIPART as any,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: "application/json",
+            },
+          }
+        );
+
+        if (uploadResult.status < 200 || uploadResult.status >= 300) {
+          console.warn("[sendVoiceMessage] 에러: STT API 요청 실패 status =", uploadResult.status);
+          throw new Error("TRANSCRIBE_API_FAILED");
+        }
+        transcribeRes = JSON.parse(uploadResult.body) as { text: string };
       }
-
-      const transcribeRes = (await transcribeResponse.json()) as { text: string };
       const sttSuccessAt = nowMs();
       logChatTiming("stt_request_start_to_stt_success_ms", sttSuccessAt - sttRequestStartAt);
       const userMessageText = transcribeRes.text?.trim() ?? "";

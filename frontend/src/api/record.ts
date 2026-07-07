@@ -1,6 +1,7 @@
 // 낭독 기록(SCRIPT_RECORD) 저장 + 음성 분석(/analyze) API. 녹음 화면(RecordPage) 전용.
 // 오늘의 지정문구 조회는 auth.ts의 getTodayScript 사용.
 import { Platform } from "react-native";
+import * as FileSystem from "expo-file-system";
 import { apiFetch } from "./auth";
 import { getToken } from "./session";
 
@@ -63,22 +64,50 @@ export async function analyzeVoice(
   sampleType?: "free_speech_intro" | "sustained_vowel" | "normal_chat",
   sampleStatus?: "ok" | "too_short" | "failed",
 ): Promise<AnalyzeResult> {
-  const form = new FormData();
-  form.append("collect_type", collectType);
-  if (sampleType) form.append("sample_type", sampleType);
-  if (sampleStatus) form.append("sample_status", sampleStatus);
-  const filename = audioUri.split("/").pop() || "recording.m4a";
-  const blob = await (await fetch(audioUri)).blob();
-  form.append("file", blob, filename);
-
   const token = await getToken();
-  const res = await fetch(`${API_BASE_URL}/analyze`, {
-    method: "POST",
-    // Content-Type은 지정하지 않는다 — 브라우저가 multipart boundary를 자동 설정.
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
-  if (!res.ok) throw new Error("ANALYZE_FAILED");
-  const json = (await res.json()) as { status?: VoiceWeather; comparison?: VoiceComparison };
-  return { status: json.status ?? null, comparison: json.comparison ?? null };
+
+  if (Platform.OS === "web") {
+    const form = new FormData();
+    form.append("collect_type", collectType);
+    if (sampleType) form.append("sample_type", sampleType);
+    if (sampleStatus) form.append("sample_status", sampleStatus);
+    const filename = audioUri.split("/").pop() || "recording.m4a";
+    const blob = await (await fetch(audioUri)).blob();
+    form.append("file", blob, filename);
+
+    const res = await fetch(`${API_BASE_URL}/analyze`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) throw new Error("ANALYZE_FAILED");
+    const json = (await res.json()) as { status?: VoiceWeather; comparison?: VoiceComparison };
+    return { status: json.status ?? null, comparison: json.comparison ?? null };
+  } else {
+    // Native 환경: FileSystem.uploadAsync 사용
+    const parameters: Record<string, string> = {
+      collect_type: collectType,
+    };
+    if (sampleType) parameters.sample_type = sampleType;
+    if (sampleStatus) parameters.sample_status = sampleStatus;
+
+    const uploadResult = await FileSystem.uploadAsync(
+      `${API_BASE_URL}/analyze`,
+      audioUri,
+      {
+        fieldName: "file",
+        httpMethod: "POST",
+        uploadType: FileSystem.UploadType.MULTIPART as any,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        parameters,
+      }
+    );
+
+    if (uploadResult.status < 200 || uploadResult.status >= 300) {
+      throw new Error("ANALYZE_FAILED");
+    }
+
+    const json = JSON.parse(uploadResult.body) as { status?: VoiceWeather; comparison?: VoiceComparison };
+    return { status: json.status ?? null, comparison: json.comparison ?? null };
+  }
 }

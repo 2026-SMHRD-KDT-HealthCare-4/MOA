@@ -2013,8 +2013,8 @@ const sampleStatus =
     Math.round(92 * v) + insets.bottom,
   );
   const characterHeight = H - characterTop - navTopGap;
-  // 하단 탭바(BottomNav) 영역 위에 버튼들이 오도록 navTopGap을 기준으로 bottom 오프셋 설정
-  const recordBottom = navTopGap + Math.max(16, Math.round(16 * v));
+  // 하단 탭바(BottomNav) 영역 위에 버튼들이 오도록 충분히 bottom 오프셋 설정 (마진 상향)
+  const recordBottom = navTopGap + Math.max(24, Math.round(24 * v));
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);
@@ -2582,8 +2582,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     gap: 11,
-    zIndex: 15,
-    elevation: 16,
+    zIndex: 25,
+    elevation: 25,
     overflow: "hidden",
     boxShadow: "0 8px 16px rgba(91, 70, 54, 0.13)",
   },
@@ -2600,8 +2600,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     gap: 11,
-    zIndex: 15,
-    elevation: 16,
+    zIndex: 25,
+    elevation: 25,
     overflow: "hidden",
     boxShadow: "0 8px 16px rgba(53, 90, 138, 0.22)",
   },

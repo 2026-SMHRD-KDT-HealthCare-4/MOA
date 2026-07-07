@@ -72,24 +72,47 @@ async function whisperSTT(uri: string): Promise<string> {
   const token = await getToken();
   if (!token) throw new Error("STT_AUTH_TOKEN_MISSING");
 
-  const form = new FormData();
-  const filename = uri.split("/").pop() || "recording.m4a";
-  const audioRes = await fetch(uri);
-  const blob = await audioRes.blob();
-  form.append("file", blob, filename);
+  if (Platform.OS === "web") {
+    const form = new FormData();
+    const filename = uri.split("/").pop() || "recording.m4a";
+    const audioRes = await fetch(uri);
+    const blob = await audioRes.blob();
+    form.append("file", blob, filename);
 
-  const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: form,
-  });
+    const response = await fetch(`${API_BASE_URL}/speech/transcribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
 
-  if (!response.ok) {
-    throw new Error(`STT_BACKEND_FAILED_${response.status}`);
+    if (!response.ok) {
+      throw new Error(`STT_BACKEND_FAILED_${response.status}`);
+    }
+
+    const data = (await response.json()) as { text?: string };
+    return data.text ?? "";
+  } else {
+    // Native 환경: FileSystem.uploadAsync 사용
+    const uploadResult = await FileSystem.uploadAsync(
+      `${API_BASE_URL}/speech/transcribe`,
+      uri,
+      {
+        fieldName: "file",
+        httpMethod: "POST",
+        uploadType: FileSystem.UploadType.MULTIPART as any,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (uploadResult.status < 200 || uploadResult.status >= 300) {
+      throw new Error(`STT_BACKEND_FAILED_${uploadResult.status}`);
+    }
+
+    const data = JSON.parse(uploadResult.body) as { text?: string };
+    return data.text ?? "";
   }
-
-  const data = (await response.json()) as { text?: string };
-  return data.text ?? "";
 }
 
 export function useRecorder({
