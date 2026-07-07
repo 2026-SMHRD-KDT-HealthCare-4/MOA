@@ -1754,7 +1754,7 @@ const sampleStatus =
   ]);
 
   useEffect(() => {
-    if (!startedFromIntro || !hasUserInteracted || autoStartedRef.current) return;
+    if (role !== "elder" || !hasUserInteracted || autoStartedRef.current) return;
 
     resetConversationSession();
 
@@ -1765,7 +1765,7 @@ const sampleStatus =
     setIsConversationActive(true);
 
     void startFirstGreeting();
-  }, [hasUserInteracted, startFirstGreeting, startedFromIntro]);
+  }, [hasUserInteracted, startFirstGreeting, role]);
 
   async function handleStartConversation() {
     console.log("[START_BUTTON_CLICKED]");

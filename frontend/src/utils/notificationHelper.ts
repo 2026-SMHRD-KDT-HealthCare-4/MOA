@@ -8,7 +8,8 @@ export async function scheduleMedicationNotifications(medicationId: string, medi
   // First, cancel any existing alarms for this medication
   await cancelMedicationNotifications(medicationId);
 
-  const isMasterNotifEnabled = !!useAuthStore.getState().user?.fcmToken;
+  // FCM 토큰 유무와 상관없이 로컬 알람은 항상 기기에 예약되도록 완화
+  const isMasterNotifEnabled = true;
   if (!isMasterNotifEnabled) return;
 
   for (const time of times) {
@@ -61,7 +62,8 @@ export async function scheduleHospitalNotifications(
   // First, cancel any existing alarms for this hospital schedule
   await cancelHospitalNotifications(hospitalId);
 
-  const isMasterNotifEnabled = !!useAuthStore.getState().user?.fcmToken;
+  // FCM 토큰 유무와 상관없이 로컬 알람은 항상 기기에 예약되도록 완화
+  const isMasterNotifEnabled = true;
   if (!isMasterNotifEnabled) return;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(visitDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(visitTime)) return;
@@ -122,7 +124,8 @@ export async function cancelHospitalNotifications(hospitalId: string) {
 
 export async function scheduleAllAlarms() {
   if (Platform.OS === "web") return;
-  const isMasterNotifEnabled = !!useAuthStore.getState().user?.fcmToken;
+  // FCM 토큰 유무와 상관없이 로컬 알람은 항상 기기에 예약되도록 완화
+  const isMasterNotifEnabled = true;
   if (!isMasterNotifEnabled) return;
 
   // 1. Cancel all first to prevent duplicates

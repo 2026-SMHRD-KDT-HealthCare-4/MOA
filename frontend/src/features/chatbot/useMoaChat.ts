@@ -149,25 +149,26 @@ export async function playTTS(
       logChatTiming("chat_response_receive_to_tts_request_start_ms", ttsRequestStartAt - timing.chatResponseReceiveAt);
     }
     logChatTiming("tts_request_start");
-    const response = await fetch(
-      `${API_BASE_URL}/speech/tts`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ text }),
-      },
-    );
-
-    if (!response?.ok) {
-      console.warn("[MOA_TTS_REQUEST_FAILED]", response?.status);
-      notifyReady(null);
-      return;
-    }
 
     if (Platform.OS === "web") {
+      const response = await fetch(
+        `${API_BASE_URL}/speech/tts`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ text }),
+        },
+      );
+
+      if (!response?.ok) {
+        console.warn("[MOA_TTS_REQUEST_FAILED]", response?.status);
+        notifyReady(null);
+        return;
+      }
+
       const blob = await response.blob();
       if (shouldCancel?.()) {
         notifyReady(null);
@@ -226,68 +227,89 @@ export async function playTTS(
         });
       });
       return;
-    }
+    } else {
+      // Native 환경: response.arrayBuffer()를 통해 바이너리를 가져와 
+      // base64로 디코딩하여 expo-audio로 재생합니다.
+      const response = await fetch(
+        `${API_BASE_URL}/speech/tts`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ text }),
+        },
+      );
 
-    const buffer = await response.arrayBuffer();
-    if (shouldCancel?.()) {
-      notifyReady(null);
-      return;
-    }
-
-    const base64 = await arrayBufferToBase64(buffer);
-    if (shouldCancel?.()) {
-      notifyReady(null);
-      return;
-    }
-
-    const uri = `data:audio/mpeg;base64,${base64}`;
-    if (soundRef.current) {
-      soundRef.current.remove();
-      (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
-    }
-    const player = createAudioPlayer({ uri });
-    if (shouldCancel?.()) {
-      player.remove();
-      notifyReady(null);
-      return;
-    }
-
-    (soundRef as React.MutableRefObject<AudioPlayer | null>).current = player;
-    const ttsReadyAt = nowMs();
-    logChatTiming("tts_request_start_to_tts_ready_ms", ttsReadyAt - ttsRequestStartAt);
-    await new Promise<void>((resolve) => {
-      let didFinish = false;
-      let fallback: ReturnType<typeof setTimeout>;
-      function finish() {
-        if (didFinish) return;
-        didFinish = true;
+      if (!response?.ok) {
+        console.warn("[MOA_TTS_REQUEST_FAILED]", response?.status);
         notifyReady(null);
-        subscription.remove();
-        clearTimeout(fallback);
-        if ((soundRef as React.MutableRefObject<AudioPlayer | null>).current === player) {
-          player.remove();
-          (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
-        }
-        resolve();
-      }
-
-      // expo-audio는 로드가 비동기라, 로드되면 재생시간을 알려주고 재생완료(didJustFinish)에 종료한다.
-      const subscription = player.addListener("playbackStatusUpdate", (status) => {
-        if (status.isLoaded && status.duration > 0) {
-          notifyReady(Math.round(status.duration * 1000));
-        }
-        if (status.didJustFinish || status.error || shouldCancel?.()) finish();
-      });
-      if (shouldCancel?.()) {
-        finish();
         return;
       }
-      const audioPlayStartAt = nowMs();
-      logChatTiming("tts_ready_to_audio_play_start_ms", audioPlayStartAt - ttsReadyAt);
-      // 로드/재생 실패로 didJustFinish가 오지 않아도 세션이 막히지 않도록 상한 타임아웃.
-      fallback = setTimeout(finish, 30000);
-      player.play();
-    });
+
+      const buffer = await response.arrayBuffer();
+      if (shouldCancel?.()) {
+        notifyReady(null);
+        return;
+      }
+
+      const base64 = await arrayBufferToBase64(buffer);
+      if (shouldCancel?.()) {
+        notifyReady(null);
+        return;
+      }
+
+      const uri = `data:audio/mpeg;base64,${base64}`;
+      if (soundRef.current) {
+        soundRef.current.remove();
+        (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
+      }
+      const player = createAudioPlayer({ uri });
+      if (shouldCancel?.()) {
+        player.remove();
+        notifyReady(null);
+        return;
+      }
+
+      (soundRef as React.MutableRefObject<AudioPlayer | null>).current = player;
+      const ttsReadyAt = nowMs();
+      logChatTiming("tts_request_start_to_tts_ready_ms", ttsReadyAt - ttsRequestStartAt);
+      await new Promise<void>((resolve) => {
+        let didFinish = false;
+        let fallback: ReturnType<typeof setTimeout>;
+        function finish() {
+          if (didFinish) return;
+          didFinish = true;
+          notifyReady(null);
+          subscription.remove();
+          clearTimeout(fallback);
+          if ((soundRef as React.MutableRefObject<AudioPlayer | null>).current === player) {
+            player.remove();
+            (soundRef as React.MutableRefObject<AudioPlayer | null>).current = null;
+          }
+          resolve();
+        }
+
+        // expo-audio는 로드가 비동기라, 로드되면 재생시간을 알려주고 재생완료(didJustFinish)에 종료한다.
+        const subscription = player.addListener("playbackStatusUpdate", (status) => {
+          if (status.isLoaded && status.duration > 0) {
+            notifyReady(Math.round(status.duration * 1000));
+          }
+          if (status.didJustFinish || status.error || shouldCancel?.()) finish();
+        });
+        if (shouldCancel?.()) {
+          finish();
+          return;
+        }
+        const audioPlayStartAt = nowMs();
+        logChatTiming("tts_ready_to_audio_play_start_ms", audioPlayStartAt - ttsReadyAt);
+        // 로드/재생 실패로 didJustFinish가 오지 않아도 세션이 막히지 않도록 상한 타임아웃.
+        fallback = setTimeout(finish, 30000);
+        player.play();
+      });
+      return;
+    }
   } catch (error) {
     console.warn("[MOA_TTS_ERROR]", error);
     notifyReady(null);

@@ -9,6 +9,17 @@ import * as SplashScreen from "expo-splash-screen";
 
 // 폰트가 완전히 로딩되기 전에 스플래시 화면이 자동으로 꺼지는 것을 방지
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
 import { useAuthStore } from "../src/stores/authStore";
 import { GlobalWakeWordListener } from "../src/components/GlobalWakeWordListener";
 import { useMedicationStore } from "../src/stores/medicationStore";
