@@ -17,7 +17,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - EXPO_PUBLIC_API_BASE_URL=https://api.moa-app.com # 실제 배포 시 연동할 백엔드 HTTPS 주소로 수정
+        - EXPO_PUBLIC_API_BASE_URL=https://www.moa0.site
     container_name: moa-expo-web
     restart: always
     ports:

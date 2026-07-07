@@ -1,6 +1,5 @@
 import { getToken } from "./session";
 
-// const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://101.79.22.22";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 function formatTimeForAPI(t: string): string {
