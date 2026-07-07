@@ -344,14 +344,34 @@ function familyStateForUser(user: SessionUser) {
   return membersForFamily(link.familyGroupId);
 }
 
+function base64Decode(str: string): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let output = "";
+  const cleaned = str.replace(/=+$/, "");
+  for (let i = 0; i < cleaned.length; i += 4) {
+    const bc1 = chars.indexOf(cleaned.charAt(i));
+    const bc2 = chars.indexOf(cleaned.charAt(i + 1));
+    const bc3 = i + 2 < cleaned.length ? chars.indexOf(cleaned.charAt(i + 2)) : 0;
+    const bc4 = i + 3 < cleaned.length ? chars.indexOf(cleaned.charAt(i + 3)) : 0;
+    const val = (bc1 << 18) | (bc2 << 12) | (bc3 << 6) | bc4;
+    output += String.fromCharCode((val >> 16) & 255);
+    if (bc3 !== 64 && i + 2 < cleaned.length) {
+      output += String.fromCharCode((val >> 8) & 255);
+    }
+    if (bc4 !== 64 && i + 3 < cleaned.length) {
+      output += String.fromCharCode(val & 255);
+    }
+  }
+  return output;
+}
+
 function parseJwtPayload(token: string): { sub?: string; email?: string } | null {
   try {
     const payload = token.split(".")[1];
     if (!payload) return null;
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    if (!globalThis.atob) return null;
-    const json = globalThis.atob(padded);
+    const json = base64Decode(padded);
     return JSON.parse(json) as { sub?: string; email?: string };
   } catch {
     return null;

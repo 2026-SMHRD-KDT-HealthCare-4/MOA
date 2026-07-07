@@ -75,14 +75,35 @@ export async function saveToken(token: string): Promise<void> {
   await secureSet(ACCESS_TOKEN_KEY, token);
 }
 
-// JWT payload 의 exp(초) → 밀리초. 디코드 불가(atob 미지원 등)면 null.
+function base64Decode(str: string): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let output = "";
+  const cleaned = str.replace(/=+$/, "");
+  for (let i = 0; i < cleaned.length; i += 4) {
+    const bc1 = chars.indexOf(cleaned.charAt(i));
+    const bc2 = chars.indexOf(cleaned.charAt(i + 1));
+    const bc3 = i + 2 < cleaned.length ? chars.indexOf(cleaned.charAt(i + 2)) : 0;
+    const bc4 = i + 3 < cleaned.length ? chars.indexOf(cleaned.charAt(i + 3)) : 0;
+    const val = (bc1 << 18) | (bc2 << 12) | (bc3 << 6) | bc4;
+    output += String.fromCharCode((val >> 16) & 255);
+    if (bc3 !== 64 && i + 2 < cleaned.length) {
+      output += String.fromCharCode((val >> 8) & 255);
+    }
+    if (bc4 !== 64 && i + 3 < cleaned.length) {
+      output += String.fromCharCode(val & 255);
+    }
+  }
+  return output;
+}
+
+// JWT payload 의 exp(초) → 밀리초.
 function tokenExpiryMs(token: string): number | null {
   try {
     const payload = token.split(".")[1];
-    if (!payload || !globalThis.atob) return null;
+    if (!payload) return null;
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const json = JSON.parse(globalThis.atob(padded)) as { exp?: number };
+    const json = JSON.parse(base64Decode(padded)) as { exp?: number };
     return typeof json.exp === "number" ? json.exp * 1000 : null;
   } catch {
     return null;

@@ -1255,7 +1255,6 @@ const sampleStatus =
 
         // 'sustainedVowel' (아~~~ 3초 측정) 모드
         if (recordingMode === "sustainedVowel") {
-          resetRecorder();
           if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
 
           if (!sustainedVowelHasMeaningfulSpeech) {
@@ -1264,7 +1263,7 @@ const sampleStatus =
               detectedSpeechDurationMs,
               retry: sustainedRetryRef.current,
             });
-
+            resetRecorder(); // 업로드 대상이 아니므로 즉시 리셋
             await retrySustainedVowel("noSpeech");
             return;
           }
@@ -1275,7 +1274,7 @@ const sampleStatus =
               detectedSpeechDurationMs,
               retry: sustainedRetryRef.current,
             });
-
+            resetRecorder(); // 업로드 대상이 아니므로 즉시 리셋
             await retrySustainedVowel("tooShort");
             return;
           }
@@ -1284,7 +1283,16 @@ const sampleStatus =
             durationMs: turnDurationMs,
             detectedSpeechDurationMs,
           });
-          void saveSamplePromise;
+          
+          // 백엔드 업로드 완료를 완전히 보장(await)한 뒤 리셋 실행
+          try {
+            await saveSamplePromise;
+          } catch (e) {
+            console.warn("[SUSTAINED_VOWEL_UPLOAD_FAILED]", e);
+          } finally {
+            resetRecorder();
+          }
+
           await finishVoiceCheck(true);
           return;
         }
@@ -2016,8 +2024,8 @@ const sampleStatus =
     Math.round(92 * v) + insets.bottom,
   );
   const characterHeight = H - characterTop - navTopGap;
-  // 하단 탭바(BottomNav) 영역 위에 버튼들이 오도록 충분히 bottom 오프셋 설정 (마진 상향)
-  const recordBottom = navTopGap + Math.max(24, Math.round(24 * v));
+  // 하단 탭바(BottomNav) 영역 위에 버튼들이 오도록 충분히 bottom 오프셋 설정 (안전 한계선 확보)
+  const recordBottom = Math.max(165, navTopGap + Math.max(24, Math.round(24 * v)));
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);

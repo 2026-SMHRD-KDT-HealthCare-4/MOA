@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type CycleType = "daily" | "weekly" | "custom_days";
 export type Weekday = "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
@@ -57,11 +58,7 @@ type MedicationState = {
 
 const negative = ["안먹었어", "아직", "나중에", "까먹었어", "안했어"];
 
-const medicationStorage = createJSONStorage(() => ({
-  getItem: (key: string) => typeof localStorage === "undefined" ? null : localStorage.getItem(key),
-  setItem: (key: string, value: string) => { if (typeof localStorage !== "undefined") localStorage.setItem(key, value); },
-  removeItem: (key: string) => { if (typeof localStorage !== "undefined") localStorage.removeItem(key); },
-}));
+const medicationStorage = createJSONStorage(() => AsyncStorage);
 
 export const useMedicationStore = create<MedicationState>()(persist((set, get) => ({
   // 목업 시드 제거 — 알림/복약 화면은 실제 DB(listMedications/listHospitalVisits)를 소스로 쓴다.

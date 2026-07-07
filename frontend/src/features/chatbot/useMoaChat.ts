@@ -49,6 +49,22 @@ async function getRequiredRealToken(context: string): Promise<string> {
 
   return token;
 }
+function base64Encode(str: string): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let output = "";
+  for (let i = 0; i < str.length; i += 3) {
+    const c1 = str.charCodeAt(i);
+    const c2 = i + 1 < str.length ? str.charCodeAt(i + 1) : NaN;
+    const c3 = i + 2 < str.length ? str.charCodeAt(i + 2) : NaN;
+    const byte1 = c1 >> 2;
+    const byte2 = ((c1 & 3) << 4) | (isNaN(c2) ? 0 : c2 >> 4);
+    const byte3 = isNaN(c2) ? 64 : ((c2 & 15) << 2) | (isNaN(c3) ? 0 : c3 >> 6);
+    const byte4 = isNaN(c3) ? 64 : c3 & 63;
+    output += chars.charAt(byte1) + chars.charAt(byte2) + chars.charAt(byte3) + chars.charAt(byte4);
+  }
+  return output;
+}
+
 async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -58,7 +74,7 @@ async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
     binary += String.fromCharCode(...(bytes.subarray(i, i + chunk) as unknown as number[]));
   }
 
-  return btoa(binary);
+  return base64Encode(binary);
 }
 
 function nowMs() {
