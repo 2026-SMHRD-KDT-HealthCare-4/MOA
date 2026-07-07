@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import { Audio } from "expo-av";
+import { createAudioPlayer } from "expo-audio";
 
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -48,10 +48,23 @@ export async function playWakeChime(): Promise<void> {
     await new Promise<void>((resolve) => { oscillator.onended = () => { void context.close(); resolve(); }; });
     return;
   }
-  const { sound } = await Audio.Sound.createAsync({ uri: createChimeUri() });
+  const player = createAudioPlayer({ uri: createChimeUri() });
   await new Promise<void>((resolve) => {
-    sound.setOnPlaybackStatusUpdate((status) => { if (status.isLoaded && status.didJustFinish) resolve(); });
-    void sound.playAsync().catch(resolve);
+    let settled = false;
+    let fallback: ReturnType<typeof setTimeout>;
+    function finish() {
+      if (settled) return;
+      settled = true;
+      subscription.remove();
+      clearTimeout(fallback);
+      resolve();
+    }
+    const subscription = player.addListener("playbackStatusUpdate", (status) => {
+      if (status.didJustFinish) finish();
+    });
+    // 재생 종료 이벤트가 누락돼도 짧은 차임이 세션을 막지 않도록 안전 타임아웃.
+    fallback = setTimeout(finish, 1500);
+    player.play();
   });
-  await sound.unloadAsync().catch(() => undefined);
+  player.remove();
 }
