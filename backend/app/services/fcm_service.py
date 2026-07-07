@@ -87,6 +87,14 @@ def send_fcm_push(token: str, title: str, body: str, data: dict = None) -> bool:
             ),
             data=msg_data,
             token=token,
+            android=messaging.AndroidConfig(
+                priority="high",
+            ),
+            apns=messaging.APNSConfig(
+                headers={
+                    "apns-priority": "10",
+                },
+            ),
         )
         # Send a message to the device corresponding to the provided registration token.
         response = messaging.send(message)
