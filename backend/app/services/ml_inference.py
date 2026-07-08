@@ -133,6 +133,110 @@ def _decode_to_wav(audio_bytes: bytes) -> str:
             os.remove(raw_path)
 
 
+def extract_ml_features(audio_bytes: bytes, sample_type: str = None) -> dict:
+    """
+    오디오에서 ML 추론에 필요한 특징만 추출하고 직렬화 가능한 dict 로 반환한다.
+    추론(predict_all)은 수행하지 않는다.
+
+    CHATBOT/normal_chat 경로에서 매 턴마다 호출해 VoiceFeature 에 저장해두고,
+    세션 종료 시 집계(평균)해 predict_risk_from_features 로 넘기기 위한 함수다.
+
+    ZDR: 임시 WAV 파일은 finally 에서 즉시 삭제한다.
+    반환: {"dem_CTD": [float, ...], "hubert": [float, ...], "byols": [float, ...]}
+          추출 실패 시 해당 키의 값은 빈 리스트([]).
+    """
+    tmp_path = None
+    try:
+        tmp_path = _decode_to_wav(audio_bytes)
+        engine = _get_engine()
+
+        # ── 치매용 음향지표 (acoustic_cols 순서 보장) ──
+        dem_CTD: list = []
+        dem_acoustic_cols = engine.models["dementia"].get("CTD", {}).get("acoustic_cols", [])
+        if dem_acoustic_cols:
+            try:
+                dem_CTD = [float(v) for v in _fe.extract_dementia_features(tmp_path, dem_acoustic_cols)]
+            except Exception as e:
+                print(f"⚠️ extract_ml_features: CTD 음향지표 추출 실패: {e}")
+        else:
+            try:
+                acoustic = _fe.extract_all_acoustic_features(tmp_path)
+                dem_CTD = [float(v) for v in acoustic.values()]
+            except Exception as e:
+                print(f"⚠️ extract_ml_features: acoustic fallback 추출 실패: {e}")
+
+        # ── 치매용 HuBERT 임베딩 ──
+        hubert: list = []
+        if _HUBERT_OK:
+            try:
+                hubert_dict = _he.extract_hubert_embedding(tmp_path)
+                raw = np.array(
+                    [hubert_dict.get(f"hubert_{i}", 0.0) for i in range(len(hubert_dict))],
+                    dtype=float,
+                )
+                if not np.isnan(raw).any():
+                    hubert = raw.tolist()
+                else:
+                    print("⚠️ extract_ml_features: HuBERT NaN 포함 — 빈 리스트")
+            except Exception as e:
+                print(f"⚠️ extract_ml_features: HuBERT 추출 실패: {e}")
+
+        # ── 당뇨용 BYOL-S 임베딩 ──
+        byols: list = []
+        if _BYOLS_OK:
+            try:
+                emb = _be.extract_byols_embedding(tmp_path)
+                if emb is not None:
+                    byols = np.array(emb, dtype=float).tolist()
+            except Exception as e:
+                print(f"⚠️ extract_ml_features: BYOL-S 추출 실패: {e}")
+
+        return {"dem_CTD": dem_CTD, "hubert": hubert, "byols": byols}
+
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def predict_risk_from_features(ml_features: dict, user_info: dict) -> dict:
+    """
+    이미 추출·평균된 ML 특징 dict 로 치매/당뇨 위험도를 추론한다.
+    CHATBOT 세션 종료 시 호출. 파킨슨은 normal_chat 경로에서 항상 0.0.
+
+    ml_features 키: dem_CTD (list), hubert (list), byols (list)
+    반환 형식은 predict_risk_from_wav 와 동일하다.
+    """
+    engine = _get_engine()
+
+    dem_CTD = ml_features.get("dem_CTD", [])
+    hubert_list = ml_features.get("hubert", [])
+    byols_list = ml_features.get("byols", [])
+
+    score_dem = 0.0
+    if dem_CTD:
+        try:
+            hubert_arr = np.array(hubert_list, dtype=float) if hubert_list else None
+            score_dem = engine._predict_dementia({"CTD": dem_CTD}, hubert_arr)
+        except Exception as e:
+            print(f"⚠️ predict_risk_from_features: 치매 추론 실패: {e}")
+
+    score_dm = 0.0
+    if byols_list:
+        try:
+            score_dm = engine._predict_diabetes(np.array(byols_list, dtype=float), user_info)
+        except Exception as e:
+            print(f"⚠️ predict_risk_from_features: 당뇨 추론 실패: {e}")
+
+    pkn = 0.0  # chatbot normal_chat 경로에서 파킨슨은 항상 0.0
+    print(f"🎯 세션 종료 ML 최종 점수 → pkn={pkn}, dem={score_dem:.4f}, dm={score_dm:.4f}")
+
+    return {
+        "parkinson": {"score": pkn,       "level": _score_to_level(pkn,       "parkinson")},
+        "dementia":  {"score": score_dem,  "level": _score_to_level(score_dem, "dementia")},
+        "diabetes":  {"score": score_dm,   "level": _score_to_level(score_dm,  "diabetes")},
+    }
+
+
 def predict_risk_from_wav(audio_bytes: bytes, user_info: dict, sample_type: str = None) -> dict:
     tmp_path = None
     try:

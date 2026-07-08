@@ -95,12 +95,13 @@ function AvatarVideoLayer({
   });
 
   useEffect(() => {
-    const canPlay = hasUserInteracted || autoplayAllowed !== false;
-
-    if (canPlay) {
-      void safePlay(player);
-    }
-  }, [autoplayAllowed, hasUserInteracted, player]);
+  const canPlay = hasUserInteracted || autoplayAllowed !== false;
+  if (canPlay && (visible || preparing)) {
+    void safePlay(player);
+  } else {
+    player.pause();          // 안 보이는 레이어는 디코딩 중단
+  }
+}, [autoplayAllowed, hasUserInteracted, player, visible, preparing]);
 
   useEffect(() => {
     if (preparing) {

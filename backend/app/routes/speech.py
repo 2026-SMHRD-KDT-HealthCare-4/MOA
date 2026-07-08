@@ -179,7 +179,9 @@ async def transcribe_audio(
             return TranscriptionResponse(text="")
 
         return TranscriptionResponse(text=result.text)
-    except Exception:
-        raise HTTPException(status_code=502, detail="음성 인식 요청을 처리하지 못했습니다.")
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception("STT(/speech/transcribe) 실패")
+        raise HTTPException(status_code=502, detail="음성 인식 요청을 처리하지 못했습니다.") from exc
     finally:
         del audio_bytes

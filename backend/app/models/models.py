@@ -188,6 +188,8 @@ class VoiceFeature(Base):
 
     feature_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     senior_id = Column(UUID(as_uuid=True), ForeignKey("senior.senior_id"), nullable=False)
+    # CHATBOT/normal_chat 경로에서 세션 종료 시 집계용으로 사용. FK 없음(DRP 물리 분리 대비).
+    session_id = Column(UUID(as_uuid=True), nullable=True)
     collect_type = Column(String(10), nullable=False)
     voice_features = Column(JSONB_OR_JSON, nullable=False)  # F0, Jitter, Shimmer, MPT, HNR, VSA 등
     measured_at = Column(DateTime, nullable=False)
