@@ -223,7 +223,9 @@ class MOAInferenceEngine:
             X    = X[:, info["chi2mask"]]
             X    = X[:, info["rfemask"]]
             X_s  = info["scaler"].transform(X)
+            print(f"🔍 치매 {task} 스케일링벡터: {X_s[0][:10].tolist()}")
             prob = float(info["model"].predict_proba(X_s)[0, 1])
+            print(f"🔍 치매 {task} 확률(raw): {prob}")
             probs.append(prob)
 
         return float(np.mean(probs)) if probs else 0.0

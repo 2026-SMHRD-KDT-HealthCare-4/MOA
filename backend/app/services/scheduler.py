@@ -6,8 +6,15 @@ from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.database import SessionLocal
-from app.models.models import Medication, Senior, Notification, HospitalVisit, Guardian, GuardianSenior, LinkStatus
+from app.models.models import (
+    Medication, Senior, Notification, HospitalVisit, Guardian, GuardianSenior, LinkStatus,
+    ChatSession,
+)
 from app.services.fcm_service import send_fcm_push
+# 보관 기간(30일)은 장기 기억 조회 로직과 반드시 동일해야 하므로 단일 소스에서 가져온다.
+# (long_term_memory.get_recent_memory 가 started_at >= now-RETENTION_DAYS 만 읽으므로,
+#  삭제 기준도 같은 값을 써야 "안 읽는 데이터만 지운다"는 정합성이 유지된다.)
+from app.services.long_term_memory import RETENTION_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -139,19 +146,11 @@ def send_hospital_notification(db: Session, visit: HospitalVisit, alarm_type: st
 
 
 def check_hospital_alarms():
-    """매 분마다 병원 알림 조건(방문 3일 전·1일 전·당일)을 체크해 아침 7시에 전송한다.
-
-    세 알림 모두 해당 날짜 아침 7:00 에 발송한다(당일 아침 7시 포함). 스케줄러는 매 분
-    돌지만 07:00~07:10 창에서만 처리하고, 같은 날 같은 방문에 중복 발송하지 않는다.
-    """
+    """매 분마다 병원 알림 조건(12시간 전, 당일 아침 7시)을 체크해 전송한다."""
     db: Session = SessionLocal()
     try:
         now = datetime.datetime.now()
         today = now.date()
-
-        # 아침 7:00~7:10 창에서만 발송(그 외 시간엔 아무것도 안 함).
-        if not (now.hour == 7 and 0 <= now.minute <= 10):
-            return
 
         active_visits = db.query(HospitalVisit).filter(
             HospitalVisit.is_active == True,
@@ -159,33 +158,90 @@ def check_hospital_alarms():
         ).all()
 
         for visit in active_visits:
-            days_left = (visit.visit_date - today).days
-            visit_hm = visit.visit_time.strftime('%H:%M')
+            visit_datetime = datetime.datetime.combine(visit.visit_date, visit.visit_time)
 
-            if days_left == 3:
-                label = "방문 3일 전"
-                body = f"{visit.hospital_name} 방문이 3일 남았어요. 일정을 확인해 주세요 ({visit_hm})."
-            elif days_left == 1:
-                label = "방문 1일 전"
-                body = f"{visit.hospital_name} 방문이 내일이에요. 일정을 확인해 주세요 ({visit_hm})."
-            elif days_left == 0:
-                label = "당일 방문 안내"
-                body = f"오늘 {visit.hospital_name} 방문 일정이 있어요. 방문 시간을 확인해 주세요 ({visit_hm})."
-            else:
-                continue
+            # 1. 12시간 전 알림 체크
+            time_12h_ago = visit_datetime - datetime.timedelta(hours=12)
+            is_12h_window = time_12h_ago <= now <= (time_12h_ago + datetime.timedelta(minutes=10))
 
-            # 오늘 이 방문에 대해 이미 HOSPITAL 알림이 나갔으면 중복 방지(하루 1건).
-            already_sent = db.query(Notification).filter(
-                Notification.hospital_visit_id == visit.visit_id,
-                Notification.notification_type == "HOSPITAL",
-                Notification.sent_at >= datetime.datetime.combine(today, datetime.time(0, 0)),
-            ).first()
+            # 2. 당일 아침 7시 알림 체크
+            is_morning_window = (visit.visit_date == today) and (now.hour == 7 and 0 <= now.minute <= 10)
 
-            if not already_sent:
-                send_hospital_notification(db, visit, label, body)
+            # 12시간 전 발송 처리
+            if is_12h_window:
+                sent_12h = db.query(Notification).filter(
+                    Notification.hospital_visit_id == visit.visit_id,
+                    Notification.notification_type == "HOSPITAL",
+                    Notification.sent_at >= visit_datetime - datetime.timedelta(hours=13),
+                    Notification.sent_at <= visit_datetime - datetime.timedelta(hours=11)
+                ).first()
+
+                if not sent_12h:
+                    send_hospital_notification(
+                        db,
+                        visit,
+                        "방문 12시간 전",
+                        f"방문 12시간 전입니다. {visit.hospital_name}에 방문할 일정이 있으니 확인해 주세요 ({visit.visit_time.strftime('%H:%M')})."
+                    )
+
+            # 당일 아침 7시 발송 처리
+            if is_morning_window:
+                sent_morning = db.query(Notification).filter(
+                    Notification.hospital_visit_id == visit.visit_id,
+                    Notification.notification_type == "HOSPITAL",
+                    Notification.sent_at >= datetime.datetime.combine(today, datetime.time(6, 0)),
+                    Notification.sent_at <= datetime.datetime.combine(today, datetime.time(8, 0))
+                ).first()
+
+                if not sent_morning:
+                    send_hospital_notification(
+                        db,
+                        visit,
+                        "당일 방문 안내",
+                        f"오늘 {visit.hospital_name} 방문 일정이 있습니다. 방문 시간을 확인해 주세요 ({visit.visit_time.strftime('%H:%M')})."
+                    )
 
     except Exception as e:
         logger.error(f"Error in check_hospital_alarms: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def cleanup_expired_chat_data():
+    """정책2(보관) 이행 — 30일(RETENTION_DAYS) 경과한 챗봇 대화 세션을 자동 삭제한다.
+
+    챗봇 대화는 전부 chat_session(JSONB messages)에 저장된다. 조회 로직
+    (long_term_memory.get_recent_memory)이 started_at 기준 30일 이내 세션만 기억으로
+    사용하므로, cutoff 이전 세션은 이미 "읽지 않는" 데이터다. 따라서 삭제해도
+    챗봇 동작/장기 기억에 영향이 없다.
+
+    [설계 원칙 준수]
+    - senior_id FK 미설정(물리 분리 대비) 정책 그대로 유지 — DB cascade 가 아니라
+      여기서 애플리케이션 코드로 삭제한다(탈퇴 시 delete_sessions_for_senior 와 동일 방식).
+    - VOICE_FEATURE / RISK_PREDICTION 과 JOIN 하지 않는다. 이 잡도 chat_session 만 건드린다.
+    - 저장 시각이 UTC(datetime.utcnow)로 기록되므로 cutoff 도 utcnow 로 계산한다.
+      (복약/병원 잡의 now() 는 벽시계 알람 매칭용이라 목적이 다르다.)
+    """
+    db: Session = SessionLocal()
+    try:
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=RETENTION_DAYS)
+
+        # 30일 경과 대화 세션 삭제 (bulk delete — delete_sessions_for_senior 와 동일 패턴)
+        deleted_sessions = (
+            db.query(ChatSession)
+            .filter(ChatSession.started_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+
+        db.commit()
+        if deleted_sessions:
+            logger.info(
+                f"Expired chat sessions cleaned up (cutoff={cutoff.isoformat()}): "
+                f"chat_session={deleted_sessions}"
+            )
+    except Exception as e:
+        logger.error(f"Error in cleanup_expired_chat_data: {e}")
         db.rollback()
     finally:
         db.close()
@@ -197,6 +253,8 @@ def start_scheduler():
     scheduler.add_job(check_medication_alarms, "cron", second=0, id="medication_alarm")
     # 병원 방문 알림: 매 분마다 체크
     scheduler.add_job(check_hospital_alarms, "cron", second=0, id="hospital_alarm")
+    # 챗봇 대화 데이터 보관정책(30일) 정리: 매일 새벽 4시 1회 실행 (트래픽 적은 시간대)
+    scheduler.add_job(cleanup_expired_chat_data, "cron", hour=4, minute=0, id="chat_data_cleanup")
     scheduler.start()
     logger.info("Background Scheduler started successfully.")
 

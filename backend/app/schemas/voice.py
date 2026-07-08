@@ -3,7 +3,7 @@
 """
 
 from datetime import datetime
-from typing import Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -45,7 +45,7 @@ class VoiceFeatureResponse(BaseModel):
     feature_id: UUID
     senior_id: UUID
     collect_type: Literal["SCRIPT", "CHATBOT"]
-    voice_features: Dict[str, float]
+    voice_features: Dict[str, Any]
     measured_at: datetime
     created_at: datetime
 

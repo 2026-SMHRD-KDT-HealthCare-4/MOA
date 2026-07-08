@@ -12,15 +12,17 @@ AI 챗봇 안부 대화 라우터 — 요구사항 6, 13, 14번
 
 from datetime import datetime
 import time
+import traceback
 from uuid import UUID
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_guardian, get_current_user_id, verify_senior_access
-from app.models.models import ChatSession, Guardian, UrgentAlert
+from app.models.models import ChatSession, Guardian, RiskPrediction, Senior, UrgentAlert, VoiceFeature
 from app.routes.auth import get_family_guardian_ids, get_my_family_group_id
 from app.schemas.chat import (
     ChatMessageRequest,
@@ -35,6 +37,9 @@ from app.services.chatbot import chat_for_frontend
 from app.services.chatbot import _debug_text
 from app.services.deidentify import deidentify
 from app.services.long_term_memory import get_recent_memory, build_memory_context
+from app.services.ml_inference import predict_risk_from_features
+from app.services.notification_service import create_risk_notifications_for_active_guardians
+from app.services.risk_trigger import evaluate_risk_trigger
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -246,7 +251,119 @@ def end_session(
     session.ended_at = datetime.utcnow()
     db.commit()
     db.refresh(session)
+
+    # ── 세션 종료 후 ML 집계 추론 ──────────────────────────────────────────
+    # 실패해도 세션 종료 자체는 정상 응답한다 (전체 try/except 로 격리).
+    try:
+        _run_session_ml_inference(db, session)
+    except Exception as exc:
+        print("[CHAT_END][ML_INFERENCE] 예외 발생 (세션 종료는 정상 처리됨)")
+        print(traceback.format_exc())
+
     return session
+
+
+def _avg_feature_lists(ml_rows: list, key: str) -> list:
+    """여러 VoiceFeature 행의 _ml 딕셔너리에서 key 에 해당하는 리스트를 element-wise 평균한다."""
+    arrays = []
+    for m in ml_rows:
+        val = m.get(key, [])
+        if val:
+            arrays.append(np.array(val, dtype=float))
+    if not arrays:
+        return []
+    min_len = min(len(a) for a in arrays)
+    if min_len == 0:
+        return []
+    return np.stack([a[:min_len] for a in arrays]).mean(axis=0).tolist()
+
+
+def _run_session_ml_inference(db: Session, session: ChatSession) -> None:
+    """
+    세션에 속한 VoiceFeature 행의 _ml 특징을 평균해 RiskPrediction 1건을 생성한다.
+    DRP: session_id 로만 조회, senior_id JOIN 없음.
+    """
+    senior_id = session.senior_id
+
+    # 1. 이 세션의 VoiceFeature 행 조회 (session_id 기준, DRP 준수)
+    vf_rows = (
+        db.query(VoiceFeature)
+        .filter(VoiceFeature.session_id == session.session_id)
+        .all()
+    )
+    if not vf_rows:
+        print(f"[CHAT_END][ML_INFERENCE] session_id={session.session_id} — VoiceFeature 없음, 추론 스킵")
+        return
+
+    # 2. 각 행의 _ml 딕셔너리 추출
+    ml_dicts = []
+    for row in vf_rows:
+        vf = row.voice_features or {}
+        ml = vf.get("_ml")
+        if ml and isinstance(ml, dict):
+            ml_dicts.append(ml)
+
+    if not ml_dicts:
+        print(f"[CHAT_END][ML_INFERENCE] session_id={session.session_id} — _ml 특징 없음, 추론 스킵")
+        return
+
+    print(f"[CHAT_END][ML_INFERENCE] session_id={session.session_id} — {len(ml_dicts)}개 턴 특징 집계 중")
+
+    # 3. element-wise 평균
+    avg_ml = {
+        "dem_CTD": _avg_feature_lists(ml_dicts, "dem_CTD"),
+        "hubert":  _avg_feature_lists(ml_dicts, "hubert"),
+        "byols":   _avg_feature_lists(ml_dicts, "byols"),
+    }
+
+    # 4. Senior 정보 조회 (당뇨 모델 입력용)
+    senior = db.query(Senior).filter(Senior.senior_id == senior_id).first()
+    if senior and senior.birth_date is not None:
+        age = int((datetime.utcnow() - senior.birth_date).days // 365)
+    else:
+        age = 0
+    user_info = {
+        "gender": senior.gender if senior else None,
+        "age": age,
+        "bmi": float(senior.bmi) if senior and senior.bmi is not None else 0.0,
+    }
+
+    # 5. 추론
+    risk_result = predict_risk_from_features(avg_ml, user_info)
+    print(
+        f"[CHAT_END][ML_INFERENCE] 추론 완료 — "
+        f"pkn={risk_result['parkinson']['score']:.4f}, "
+        f"dem={risk_result['dementia']['score']:.4f}, "
+        f"dm={risk_result['diabetes']['score']:.4f}"
+    )
+
+    # 6. RiskPrediction 저장
+    risk_prediction = RiskPrediction(
+        senior_id=senior_id,
+        parkinson_score=risk_result["parkinson"]["score"],
+        dementia_score=risk_result["dementia"]["score"],
+        depression_score=0.0,
+        diabetes_score=risk_result["diabetes"]["score"],
+        parkinson_level=risk_result["parkinson"]["level"],
+        dementia_level=risk_result["dementia"]["level"],
+        depression_level="GREEN",
+        diabetes_level=risk_result["diabetes"]["level"],
+    )
+    db.add(risk_prediction)
+    db.commit()
+    db.refresh(risk_prediction)
+    print(f"[CHAT_END][ML_INFERENCE] RiskPrediction 저장 완료 — prediction_id={risk_prediction.prediction_id}")
+
+    # 7. 알림 트리거 평가 (실패해도 세션 종료/추론 저장에 영향 없음)
+    try:
+        trigger = evaluate_risk_trigger(db, senior_id, risk_prediction)
+        if trigger["should_notify"]:
+            create_risk_notifications_for_active_guardians(
+                db, senior_id, risk_prediction.prediction_id
+            )
+    except Exception as exc:
+        print(f"[CHAT_END][ML_INFERENCE] 알림 트리거 실패 (무시): {exc}")
+        db.rollback()
 
 
 @router.post("/session/append", response_model=ChatSessionResponse)

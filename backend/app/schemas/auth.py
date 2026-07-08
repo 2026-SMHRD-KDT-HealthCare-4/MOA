@@ -164,6 +164,9 @@ class ReconnectCodeResponse(BaseModel):
     code: str
     expired_at: datetime
 
+    class Config:
+        from_attributes = True
+
 
 class ReconnectRequest(BaseModel):
     code: str

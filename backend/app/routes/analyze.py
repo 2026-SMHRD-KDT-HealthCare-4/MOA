@@ -7,22 +7,29 @@
   분석 대상은 파킨슨/치매/당뇨이며 우울은 제외한다.
 - ZDR 원칙: 음성 원본은 메모리에서만 처리하고, 특징추출+추론 직후 즉시 폐기한다. 어떤 테이블에도
   WAV 원본은 저장하지 않는다. (요구사항 8번)
+
+[CHATBOT/normal_chat 경로]
+  매 턴마다 RiskPrediction 을 즉시 생성하는 대신 특징 벡터만 누적하고, 세션 종료(/chat/end)
+  시점에 평균 특징으로 1건만 추론한다. (대화 세션 1개 = RiskPrediction 1건)
+  - VoiceFeature 에 session_id 를 함께 저장해 /chat/end 에서 집계한다.
+  - voice_features JSONB 에 기본 음향 특징과 함께 "_ml" 키로 ML 추론용 특징을 저장한다.
 """
 
 from datetime import datetime
 import traceback
 from typing import Literal, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_senior
-from app.models.models import RiskPrediction, Senior, VoiceFeature
+from app.models.models import ChatSession, RiskPrediction, Senior, VoiceFeature
 from app.schemas.voice import AnalyzeResponseData
 from app.services.feature_extraction import extract_features
 from app.services.notification_service import create_risk_notifications_for_active_guardians
-from app.services.ml_inference import predict_risk_from_wav
+from app.services.ml_inference import extract_ml_features, predict_risk_from_wav
 from app.services.risk_trigger import evaluate_risk_trigger
 from app.services.weather_status import status_from_prediction
 
@@ -37,6 +44,34 @@ def _log_analyze_error(error: Exception) -> None:
     print(traceback.format_exc())
 
 
+def _resolve_session_id(
+    session_id_str: Optional[str],
+    senior_id: UUID,
+    db: Session,
+) -> Optional[UUID]:
+    """
+    프론트가 session_id 를 보내면 그것을 우선 사용하고,
+    없으면 해당 senior 의 현재 활성 ChatSession 을 자동 조회한다.
+    활성 세션도 없으면 None 을 반환한다.
+    """
+    if session_id_str:
+        try:
+            return UUID(session_id_str)
+        except ValueError:
+            return None
+
+    session = (
+        db.query(ChatSession)
+        .filter(
+            ChatSession.senior_id == senior_id,
+            ChatSession.ended_at.is_(None),
+        )
+        .order_by(ChatSession.started_at.desc())
+        .first()
+    )
+    return session.session_id if session else None
+
+
 @router.post("", response_model=AnalyzeResponseData)
 async def analyze_voice(
     collect_type: str = Form(..., description="SCRIPT 또는 CHATBOT"),
@@ -47,6 +82,10 @@ async def analyze_voice(
     sample_status: Optional[Literal["ok", "too_short", "failed"]] = Form(
         None,
         description="ok, too_short, failed",
+    ),
+    session_id: Optional[str] = Form(
+        None,
+        description="CHATBOT 세션 ID (프론트가 전달 시 사용, 없으면 서버가 활성 세션 자동 조회)",
     ),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -69,10 +108,77 @@ async def analyze_voice(
     else:
         age = 0
     user_info = {
-        "gender": senior.gender,                       # 'M' | 'F'
+        "gender": senior.gender,
         "age": age,
         "bmi": float(senior.bmi) if senior.bmi is not None else 0.0,
     }
+
+    # ── CHATBOT/normal_chat 경로: 특징 저장만, 추론 스킵 ──────────────────────
+    is_chatbot_normal = (collect_type == "CHATBOT" and sample_type == "normal_chat")
+
+    if is_chatbot_normal:
+        resolved_session_id = _resolve_session_id(session_id, senior_id, db)
+
+        if resolved_session_id is None:
+            # 활성 세션이 없으면 기존 방식으로 폴백
+            print("[ANALYZE][CHATBOT_SKIP] 활성 세션 없음 — 기존 방식 폴백")
+            is_chatbot_normal = False
+        else:
+            print(f"[ANALYZE][CHATBOT_NORMAL] session_id={resolved_session_id} — 추론 스킵, 특징만 저장")
+
+    if is_chatbot_normal:
+        try:
+            # 2a. 기본 음향 특징 추출 (응답 및 VoiceFeature 저장용)
+            print("[ANALYZE][CHATBOT_NORMAL] extract_features start")
+            features = extract_features(audio_bytes)
+            print("[ANALYZE][CHATBOT_NORMAL] extract_features success")
+
+            # 2b. ML 추론용 특징 추출 (세션 종료 시 집계용 — 추론 없음)
+            print("[ANALYZE][CHATBOT_NORMAL] extract_ml_features start")
+            ml_features = extract_ml_features(audio_bytes, sample_type=sample_type)
+            print("[ANALYZE][CHATBOT_NORMAL] extract_ml_features success")
+        except Exception as e:
+            _log_analyze_error(e)
+            raise HTTPException(status_code=500, detail=f"음성 분석 실패: {str(e)}")
+        finally:
+            # ZDR: 메모리상의 음성 데이터 즉시 폐기
+            del audio_bytes
+
+        measured_at = datetime.utcnow()
+
+        # 3a. VoiceFeature 저장 — 기본 음향 특징 + "_ml" 키에 ML 특징 병합
+        stored_features = {**features, "_ml": ml_features}
+        voice_feature = VoiceFeature(
+            senior_id=senior_id,
+            session_id=resolved_session_id,
+            collect_type=collect_type,
+            voice_features=stored_features,
+            measured_at=measured_at,
+        )
+        db.add(voice_feature)
+
+        try:
+            print("[ANALYZE][CHATBOT_NORMAL] VoiceFeature save start")
+            db.commit()
+            db.refresh(voice_feature)
+            print("[ANALYZE][CHATBOT_NORMAL] VoiceFeature save success")
+        except Exception as e:
+            db.rollback()
+            _log_analyze_error(e)
+            raise HTTPException(status_code=500, detail=f"음성분석결과 저장 실패: {str(e)}")
+
+        print("[ANALYZE][CHATBOT_NORMAL] response build (risk_prediction=None)")
+        return AnalyzeResponseData(
+            feature_id=voice_feature.feature_id,
+            features=features,
+            risk_prediction=None,
+            status=None,
+            comparison=None,
+            sample_type=sample_type,
+            sample_status=sample_status,
+        )
+
+    # ── 그 외 경로 (SCRIPT / free_speech_intro / sustained_vowel / 폴백) ────────
 
     try:
         # 2. 특징 벡터 추출 (VOICE_FEATURE 저장용) — 내부 임시파일은 함수 종료 시 즉시 삭제됨
