@@ -3,6 +3,7 @@ import pickle
 import joblib
 import numpy as np
 import time
+import zipfile
 
 
 class MOAInferenceEngine:
@@ -20,6 +21,7 @@ class MOAInferenceEngine:
 
         # 1. 치매 모델
         dem_dir = os.path.join(self.ml_root, "dementia")
+        self._ensure_dementia_models_unpacked(dem_dir)
         for task in ["CTD", "PFT", "SFT"]:
             try:
                 self.models["dementia"][task] = {
@@ -66,6 +68,33 @@ class MOAInferenceEngine:
 
     # ──────────────────────────────────────────────────────────────
     # ──────────────────────────────────────────────────────────────
+    def _ensure_dementia_models_unpacked(self, dem_dir: str) -> None:
+        required = [
+            "model_CTD.pkl",
+            "scaler_CTD.pkl",
+            "chi2mask_CTD.pkl",
+            "rfemask_CTD.pkl",
+            "acoustic_cols.pkl",
+            "hubert_scaler.pkl",
+            "hubert_pca.pkl",
+            "hubert_cols.pkl",
+        ]
+        if all(os.path.exists(os.path.join(dem_dir, name)) for name in required):
+            return
+
+        zip_path = os.path.join(dem_dir, "dementia.zip")
+        if not os.path.exists(zip_path):
+            print(f"  dementia.zip not found: {zip_path}")
+            return
+
+        try:
+            os.makedirs(dem_dir, exist_ok=True)
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(dem_dir)
+            print(f"  dementia.zip unpacked: {zip_path}")
+        except Exception as e:
+            print(f"  dementia.zip unpack failed: {e}")
+
     def predict_all(self, features: dict, user_info: dict, sample_type: str = None) -> dict:
         start_time = time.time()
 

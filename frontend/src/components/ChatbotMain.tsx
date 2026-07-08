@@ -60,11 +60,11 @@ const SHOW_STT_DEBUG =
 
 const RETURN_GREETING_COOLDOWN_MS = 40 * 1000;
 const SUSTAINED_VOWEL_MIN_MEANINGFUL_MS = 500;
-const SUSTAINED_VOWEL_SILENCE_MS = 3_000;
-// 통과 기준(감지 발성 길이). 안내 문구 "3초"에 맞추되, VAD 감지시간은 실제 발성보다
+const SUSTAINED_VOWEL_SILENCE_MS = 5_000;
+// 통과 기준(감지 발성 길이). 화면 안내 "3초"에 맞추되, VAD 감지시간은 실제 발성보다
 // 짧게 잡히므로 2.5초로 완화해 정상적인 3초 발성이 반복 실패하지 않게 한다.
 const SUSTAINED_VOWEL_TARGET_MS = 2_500;
-const SUSTAINED_VOWEL_MAX_MS = 7_000;
+const SUSTAINED_VOWEL_MAX_MS = 9_000;
 const FREE_TALK_MIN_MS = 1_200; // 자유대화 최소 발화 길이(ms) — 노이즈성 단답 컷용, 임시값
 // 재시도 상한: 이 횟수를 넘으면 음성검사를 종료(finishVoiceCheck(false))하고 일반 대화로 넘어간다.
 // (상한이 없으면 기준 미달 시 "'아' 소리 내주세요"가 무한 반복됨)
@@ -1253,9 +1253,8 @@ const sampleStatus =
           await saveChatbotVoiceSample(turnAudioUri, sampleType, sampleStatus);
         }
 
-        // 'sustainedVowel' (아~~~ 3초 측정) 모드
+        // 'sustainedVowel' (아~~~ 3초 안내, 최대 5초 녹음) 모드
         if (recordingMode === "sustainedVowel") {
-          resetRecorder();
           if (wakeTimeoutRef.current) clearTimeout(wakeTimeoutRef.current);
 
           if (!sustainedVowelHasMeaningfulSpeech) {
@@ -1264,7 +1263,7 @@ const sampleStatus =
               detectedSpeechDurationMs,
               retry: sustainedRetryRef.current,
             });
-
+            resetRecorder(); // 업로드 대상이 아니므로 즉시 리셋
             await retrySustainedVowel("noSpeech");
             return;
           }
@@ -1275,7 +1274,7 @@ const sampleStatus =
               detectedSpeechDurationMs,
               retry: sustainedRetryRef.current,
             });
-
+            resetRecorder(); // 업로드 대상이 아니므로 즉시 리셋
             await retrySustainedVowel("tooShort");
             return;
           }
@@ -1284,7 +1283,16 @@ const sampleStatus =
             durationMs: turnDurationMs,
             detectedSpeechDurationMs,
           });
-          void saveSamplePromise;
+          
+          // 백엔드 업로드 완료를 완전히 보장(await)한 뒤 리셋 실행
+          try {
+            await saveSamplePromise;
+          } catch (e) {
+            console.warn("[SUSTAINED_VOWEL_UPLOAD_FAILED]", e);
+          } finally {
+            resetRecorder();
+          }
+
           await finishVoiceCheck(true);
           return;
         }
@@ -1668,6 +1676,8 @@ const sampleStatus =
         resetConversationSession();
       }
 
+      // 탭 전환 등 복귀 시 자동 대화 시작 기능 비활성화 (대화하기 버튼 클릭 시 시작하도록 유도)
+      /*
       const hasMedicationTrigger = !!(medicationReminderId || localMedicationId);
       const now = Date.now();
       const canReturnGreeting =
@@ -1684,6 +1694,7 @@ const sampleStatus =
 
         void startReturnGreeting();
       }
+      */
 
       return () => {
         console.log("[CHATBOT_SCREEN_CLEANUP]", {
@@ -1754,7 +1765,7 @@ const sampleStatus =
   ]);
 
   useEffect(() => {
-    if (!startedFromIntro || !hasUserInteracted || autoStartedRef.current) return;
+    if (role !== "elder" || !hasUserInteracted || autoStartedRef.current) return;
 
     resetConversationSession();
 
@@ -1765,7 +1776,7 @@ const sampleStatus =
     setIsConversationActive(true);
 
     void startFirstGreeting();
-  }, [hasUserInteracted, startFirstGreeting, startedFromIntro]);
+  }, [hasUserInteracted, startFirstGreeting, role]);
 
   async function handleStartConversation() {
     console.log("[START_BUTTON_CLICKED]");
@@ -2013,7 +2024,8 @@ const sampleStatus =
     Math.round(92 * v) + insets.bottom,
   );
   const characterHeight = H - characterTop - navTopGap;
-  const recordBottom = Math.max(9, Math.round(9 * v));
+  // 하단 탭바(BottomNav) 영역 위에 버튼들이 오도록 충분히 bottom 오프셋 설정 (안전 한계선 확보)
+  const recordBottom = Math.max(165, navTopGap + Math.max(24, Math.round(24 * v)));
   const topFadeHeight = characterTop + Math.round(74 * v);
   const topFadeStop = characterTop / topFadeHeight;
   const characterVideoTopOffset = Math.round(170 * v);
@@ -2581,8 +2593,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     gap: 11,
-    zIndex: 15,
-    elevation: 16,
+    zIndex: 25,
+    elevation: 25,
     overflow: "hidden",
     boxShadow: "0 8px 16px rgba(91, 70, 54, 0.13)",
   },
@@ -2599,8 +2611,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     gap: 11,
-    zIndex: 15,
-    elevation: 16,
+    zIndex: 25,
+    elevation: 25,
     overflow: "hidden",
     boxShadow: "0 8px 16px rgba(53, 90, 138, 0.22)",
   },
