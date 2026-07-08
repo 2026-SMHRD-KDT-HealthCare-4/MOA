@@ -63,19 +63,19 @@ def _score_to_level(score: float, disease: str = "") -> str:
     if disease == "parkinson":
         if score >= 0.85:
             return "AMBER"
-        if score >= 0.60:
+        if score >= 0.65:
             return "YELLOW"
         return "GREEN"
     elif disease == "dementia":
         if score >= 0.70:
             return "AMBER"
-        if score >= 0.45:
+        if score >= 0.60:
             return "YELLOW"
         return "GREEN"
     else:
-        if score >= 0.7:
+        if score >= 0.75:
             return "AMBER"
-        if score >= 0.4:
+        if score >= 0.60:
             return "YELLOW"
         return "GREEN"
 
